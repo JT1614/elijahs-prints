@@ -142,7 +142,7 @@ const STRIPE_FEE = 0.20;
    STRIPE CONFIG — Fill in your publishable key
    ─────────────────────────────────────────────── */
 const STRIPE_CONFIG = {
-  publishableKey: "pk_test_51T3XclAA5p18B2vj1TyBnVblUN2qsJjnbkI7ogffH71Owx2Fr5CBPkhcoODaIWWIhluD7GPrUtQiaDNEIoFC8iVA00wENZaAwi",
+  publishableKey: "pk_live_51T3XclAA5p18B2vjy7MMxzKVnjW6Nk6StexVdLvc5IF4zFBSNF5U3nEpZ4i758HS6Lzs1KrCBv6XPag5C4i65RfU00evOGYbEs",
 };
 const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const PRODUCT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household"];
