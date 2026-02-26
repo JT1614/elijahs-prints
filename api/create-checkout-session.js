@@ -1,9 +1,10 @@
 // Vercel Serverless Function — creates a Stripe Checkout Session
 // This file goes in: elijahs-prints/api/create-checkout-session.js
 
-const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+import Stripe from "stripe";
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   // Only allow POST requests
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
