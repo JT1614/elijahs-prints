@@ -296,7 +296,7 @@ async function sendOrderEmail(order) {
     ).join("\n");
     const address = order.shipping.id === "collection"
       ? "🎒 School collection"
-      : `${order.customer.address1}, ${order.customer.city}, ${order.customer.postcode}`;
+      : [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join(", ");
     await window.emailjs.send(EMAILJS_CONFIG.serviceId, EMAILJS_CONFIG.templateId, {
       to_email: EMAILJS_CONFIG.recipientEmail,
       order_id: order.id,
@@ -760,7 +760,7 @@ function OrderBook({ orders, onUpdateOrder }) {
                 <div style={{ fontSize: 13, fontWeight: 600, color: S.text, fontFamily: S.fontHead, marginBottom: 2 }}>{order.customer.name}</div>
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>{order.customer.email}{order.customer.phone ? ` · ${order.customer.phone}` : ""}</div>
                 {order.shipping.id !== "collection" && order.customer.address1 && (
-                  <div style={{ fontSize: 11, color: S.dimmer, marginBottom: 6 }}>{order.customer.address1}, {order.customer.city}, {order.customer.postcode}</div>
+                  <div style={{ fontSize: 11, color: S.dimmer, marginBottom: 6 }}>{[order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join(", ")}</div>
                 )}
                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                   {order.items.map((item, i) => (
@@ -1302,12 +1302,14 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
               {shipping?.id === "collection" ? (
                 <div><label style={labS}>Phone / Instagram</label><input style={inpS("phone")} value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="07700 900000 or @username" /></div>
               ) : (<>
-                <div><label style={labS}>Address *</label><input style={inpS("address1")} value={form.address1} onChange={e => setForm({...form, address1: e.target.value})} /></div>
+<div><label style={labS}>Address Line 1 *</label><input style={inpS("address1")} value={form.address1} onChange={e => setForm({...form, address1: e.target.value})} placeholder="House number and street" /></div>
+                <div><label style={labS}>Address Line 2</label><input style={inpS("address2")} value={form.address2} onChange={e => setForm({...form, address2: e.target.value})} placeholder="Flat, building, floor (optional)" /></div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-                  <div><label style={labS}>City *</label><input style={inpS("city")} value={form.city} onChange={e => setForm({...form, city: e.target.value})} /></div>
+                  <div><label style={labS}>City / Town *</label><input style={inpS("city")} value={form.city} onChange={e => setForm({...form, city: e.target.value})} /></div>
                   <div><label style={labS}>County</label><input style={inpS("county")} value={form.county} onChange={e => setForm({...form, county: e.target.value})} /></div>
                   <div><label style={labS}>Postcode *</label><input style={inpS("postcode")} value={form.postcode} onChange={e => setForm({...form, postcode: e.target.value})} /></div>
                 </div>
+                <div><label style={labS}>Phone</label><input style={inpS("phone")} value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="In case Royal Mail needs to contact you" /></div>
               </>)}
             </div>
             <button onClick={nextStep} style={{ marginTop: 20, width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, textTransform: "uppercase" }}>Continue to Payment →</button>
