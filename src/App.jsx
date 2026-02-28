@@ -813,7 +813,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
   const pendingOrders = orders.filter(o => !o.status.despatched).length;
 
-  const filtered = filter === "All" ? products : products.filter(p => p.category === filter);
+  const displayCategories = ["All", ...categories];
+   const filtered = filter === "All" ? products : products.filter(p => p.category === filter);
 
   const handleSaveProduct = async (updated) => {
     setSaving(true);
