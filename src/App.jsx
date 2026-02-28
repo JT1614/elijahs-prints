@@ -131,13 +131,30 @@ async function loadFilaments() {
 async function saveFilaments(f) {
   try { await storageSet("filaments-v1", JSON.stringify(f)); } catch (e) { console.error("Save filaments failed:", e); }
 }
+async function loadCategories() {
+  try {
+    const r = await storageGet("categories-v1");
+    return r ? JSON.parse(r) : null;
+  } catch { return null; }
+}
+async function saveCategories(cats) {
+  try { await storageSet("categories-v1", JSON.stringify(cats)); } catch (e) { console.error("Save categories failed:", e); }
+}
 const SHIPPING_OPTIONS = [
   { id: "collection", name: "School Collection", description: "Elijah will drop it off at school — free!", price: 0, icon: "🎒" },
   { id: "standard", name: "Royal Mail Tracked 48", description: "2–3 working days · tracked delivery", price: 3.49, icon: "📦" },
 ];
 const FREE_SHIPPING_THRESHOLD = 30;
-const STRIPE_FEE = 0.20;
-
+function getStripeFee(amount) {
+  return Math.ceil((0.20 + amount * 0.015) * 100) / 100;
+}
+const PREMIUM_UPLIFT = 0.30; // 30% price increase for premium filaments
+function getPremiumPrice(basePrice, selectedColors) {
+  const hasPremium = selectedColors.some(c => FILAMENTS[c]?.premium);
+  if (!hasPremium) return basePrice;
+  const uplifted = basePrice * (1 + PREMIUM_UPLIFT);
+  return Math.ceil(uplifted * 20) / 20; // Round up to nearest 5p
+}
 /* ───────────────────────────────────────────────
    STRIPE CONFIG — Fill in your publishable key
    ─────────────────────────────────────────────── */
@@ -145,8 +162,8 @@ const STRIPE_CONFIG = {
   publishableKey: "pk_test_51T3XclAA5p18B2vj1TyBnVblUN2qsJjnbkI7ogffH71Owx2Fr5CBPkhcoODaIWWIhluD7GPrUtQiaDNEIoFC8iVA00wENZaAwi",
 };
 const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
-const PRODUCT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household"];
-const DISPLAY_CATEGORIES = ["All", ...PRODUCT_CATEGORIES];
+const DEFAULT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household", "Clickers", "Coasters"];
+let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
 const FALLBACK_ADMIN_PASSWORD = "elijah3d"; // Only used when Firebase is NOT configured
 
@@ -246,9 +263,10 @@ async function updateOrderStatus(orderId, status) {
 const EMAILJS_CONFIG = {
   serviceId: "service_yfqmmph",
   templateId: "template_ses8533",
-  requestTemplateId: "template_ses8533", // using same template for now
+  requestTemplateId: "template_ses8533", // this is the confirmation to Elijah
+  shippedTemplateId: "template_qouy2wj", // this is the confirmation to customer when sent 
   publicKey: "7wzdRK1WVUcOewtz3",
-  recipientEmail: "johnianthompson@outlook.com",
+  recipientEmail: "johnianthompson@outlook.com, etprintworld@outlook.com",
   enabled: true,
 };
 
@@ -295,6 +313,31 @@ async function sendOrderEmail(order) {
     console.log("📧 Order email sent successfully");
   } catch (e) {
     console.error("📧 Email send failed:", e);
+  }
+}
+async function sendShippedEmail(order) {
+  if (!EMAILJS_CONFIG.enabled || !EMAILJS_CONFIG.shippedTemplateId) return;
+  try {
+    await loadEmailJS();
+    if (!window.emailjs) return;
+    window.emailjs.init(EMAILJS_CONFIG.publicKey);
+    const itemsList = order.items.map(i =>
+      `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
+    ).join("\n");
+    const isCollection = order.shipping?.id === "collection";
+    await window.emailjs.send(EMAILJS_CONFIG.serviceId, EMAILJS_CONFIG.shippedTemplateId, {
+      to_email: order.customer.email,
+      order_id: order.id,
+      customer_name: order.customer.name.split(" ")[0],
+      order_items: itemsList,
+      delivery_method: isCollection ? "handed over at school" : "shipped",
+      delivery_message: isCollection
+        ? "Elijah will bring it to school — keep an eye out!"
+        : "Your order is on its way via Royal Mail Tracked 48. It should arrive within 2-3 working days.",
+    });
+    console.log("📧 Shipped email sent to", order.customer.email);
+  } catch (e) {
+    console.error("📧 Shipped email failed:", e);
   }
 }
 
@@ -428,7 +471,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
       <div style={{ padding: "14px 16px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
-          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>£{product.price.toFixed(2)}</span>
+          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{selectedColors.some(c => FILAMENTS[c]?.premium) ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getPremiumPrice(product.price, selectedColors).toFixed(2)}</> : `£${product.price.toFixed(2)}`}</span>
         </div>
         <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.description}</p>
         {maxC > 1 && <div style={{ fontSize: 11, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 6, background: "rgba(132,94,247,0.08)", padding: "4px 8px", borderRadius: 6, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
@@ -521,7 +564,7 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
           <div>
             <label style={labelStyle}>Category *</label>
             <select value={p.category} onChange={e => set("category", e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-              {PRODUCT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
         </div>
@@ -750,7 +793,7 @@ function OrderBook({ orders, onUpdateOrder }) {
 /* ═══════════════════════════════════════════════
    ADMIN PANEL
    ═══════════════════════════════════════════════ */
-function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments }) {
+function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories }) {
   const [filter, setFilter] = useState("All");
   const [editing, setEditing] = useState(null);
   const [addingNew, setAddingNew] = useState(false);
@@ -761,9 +804,12 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [newColourHex, setNewColourHex] = useState("#888888");
   const [newColourType, setNewColourType] = useState("PLA Basic");
   const [newColourPremium, setNewColourPremium] = useState(false);
-  const [editingColour, setEditingColour] = useState(null);
+ const [editingColour, setEditingColour] = useState(null);
+  const [newCatName, setNewCatName] = useState("");
+  const [editingCat, setEditingCat] = useState(null);
+  const [editCatName, setEditCatName] = useState("");
 
-  const newProduct = { id: 0, name: "", price: 0, category: "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, maxColors: 1 };
+  const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, maxColors: 1 };
 
   const pendingOrders = orders.filter(o => !o.status.despatched).length;
 
@@ -809,8 +855,11 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         {[
           { id: "orders", label: "📦 Order Book", count: pendingOrders },
           { id: "products", label: "🏷️ Products", count: products.length },
-          { id: "colours", label: "🎨 Colours", count: ALL_COLORS.length },
+{ id: "colours", label: "🎨 Colours", count: ALL_COLORS.length },
+          { id: "categories", label: "📂 Categories", count: categories.length },
         ].map(tab => (
+
+           
           <button key={tab.id} onClick={() => setAdminTab(tab.id)} style={{
             flex: 1, padding: "12px 16px", borderRadius: 10, border: "none", cursor: "pointer",
             background: adminTab === tab.id ? "rgba(0,201,167,0.1)" : "transparent",
@@ -842,7 +891,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
-        {DISPLAY_CATEGORIES.map(cat => (
+        {displayCategories.map(cat => (
           <button key={cat} onClick={() => setFilter(cat)} style={{ padding: "7px 14px", borderRadius: 20, border: filter === cat ? `1.5px solid ${S.purple}` : `1px solid ${S.border}`, background: filter === cat ? "rgba(132,94,247,0.1)" : "rgba(255,255,255,0.02)", color: filter === cat ? S.purple : S.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>{cat}</button>
         ))}
       </div>
@@ -1014,7 +1063,45 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           </div>
         </div>
       )}
-
+{adminTab === "categories" && (
+        <div style={{ background: S.card, borderRadius: 16, padding: 24, border: `1px solid ${S.border}` }}>
+          <p style={{ fontSize: 13, color: S.muted, marginBottom: 20 }}>
+            Manage your product categories. Add new ones, rename existing ones, or remove categories you no longer need.
+          </p>
+          {/* Add new category */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder="New category name" onKeyDown={e => { if (e.key === "Enter" && newCatName.trim()) { const n = newCatName.trim(); if (!categories.includes(n)) { onSaveCategories([...categories, n]); setNewCatName(""); } }}} style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.03)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none" }} />
+            <button onClick={() => { const n = newCatName.trim(); if (n && !categories.includes(n)) { onSaveCategories([...categories, n]); setNewCatName(""); } }} disabled={!newCatName.trim() || categories.includes(newCatName.trim())} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: newCatName.trim() && !categories.includes(newCatName.trim()) ? `linear-gradient(135deg, ${S.teal}, #00b894)` : "rgba(255,255,255,0.05)", color: newCatName.trim() && !categories.includes(newCatName.trim()) ? "#1a1a2e" : S.dimmer, fontSize: 14, fontWeight: 700, cursor: newCatName.trim() ? "pointer" : "default", fontFamily: S.fontHead }}>+ Add</button>
+          </div>
+          {/* Category list */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {categories.map((cat, idx) => {
+              const count = products ? products.filter(p => p.category === cat).length : 0;
+              const isEditing = editingCat === idx;
+              return (
+                <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 12, background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}` }}>
+                  {isEditing ? (
+                    <>
+                      <input value={editCatName} onChange={e => setEditCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && editCatName.trim()) { const n = editCatName.trim(); const updated = [...categories]; const oldName = updated[idx]; updated[idx] = n; onSaveCategories(updated); if (products) { const renamedProducts = products.map(p => p.category === oldName ? { ...p, category: n } : p); onSave(renamedProducts); } setEditingCat(null); } if (e.key === "Escape") setEditingCat(null); }} autoFocus style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: `1px solid ${S.teal}`, background: "rgba(0,201,167,0.05)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none" }} />
+                      <button onClick={() => { const n = editCatName.trim(); if (n) { const updated = [...categories]; const oldName = updated[idx]; updated[idx] = n; onSaveCategories(updated); if (products) { const renamedProducts = products.map(p => p.category === oldName ? { ...p, category: n } : p); onSave(renamedProducts); } setEditingCat(null); } }} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: S.teal, color: "#1a1a2e", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Save</button>
+                      <button onClick={() => setEditingCat(null)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: S.text, fontFamily: S.fontHead }}>{cat}</span>
+                      <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>{count} product{count !== 1 ? "s" : ""}</span>
+                      <button onClick={() => { setEditingCat(idx); setEditCatName(cat); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 11, cursor: "pointer", fontFamily: S.fontHead }}>✏️ Rename</button>
+                      <button onClick={() => { if (count > 0) { if (!window.confirm(`"${cat}" has ${count} product${count !== 1 ? "s" : ""}. They'll keep their category label but it won't appear in filters. Delete anyway?`)) return; } onSaveCategories(categories.filter((_, i) => i !== idx)); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid rgba(255,107,107,0.3)`, background: "transparent", color: "#ff6b6b", fontSize: 11, cursor: "pointer", fontFamily: S.fontHead }}>🗑️ Delete</button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {categories.length === 0 && <p style={{ textAlign: "center", color: S.dimmer, fontSize: 13, padding: 20 }}>No categories yet. Add one above!</p>}
+        </div>
+      )}
+       
       {(editing || addingNew) && (
         <ProductEditor
           product={addingNew ? newProduct : editing}
@@ -1091,7 +1178,8 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const qualifiesFree = subtotal >= FREE_SHIPPING_THRESHOLD;
   const shippingCost = shipping?.id === "collection" ? 0 : (qualifiesFree ? 0 : (shipping?.price || 0));
-  const total = subtotal + shippingCost + STRIPE_FEE;
+  const stripeFee = getStripeFee(subtotal + shippingCost);
+  const total = subtotal + shippingCost + stripeFee;
   const validate = (s) => {
     const e = {};
     if (s >= 1 && !shipping) e.shipping = "Required";
@@ -1109,7 +1197,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
         customer: { ...form },
         shipping: { id: shipping.id, name: shipping.name },
         items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors })),
-        subtotal, shippingCost, stripeFee: STRIPE_FEE, total,
+        subtotal, shippingCost, stripeFee, total,
       };
       localStorage.setItem("ep_pending_order", JSON.stringify(pendingOrder));
       
@@ -1122,7 +1210,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
             shipping: { id: shipping.id, name: shipping.name, price: shippingCost },
             customerEmail: form.email,
             customerName: form.name,
-            stripeFee: STRIPE_FEE,
+            stripeFee,
           }),
         });
         const data = await resp.json();
@@ -1149,7 +1237,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
       customer: { ...form },
       shipping: { id: shipping.id, name: shipping.name },
       items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors })),
-      subtotal, shippingCost, stripeFee: STRIPE_FEE, total,
+      subtotal, shippingCost, stripeFee, total,
       status: { paid: true, produced: false, despatched: false },
     };
     // Save and notify
@@ -1245,7 +1333,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
           <div style={{ borderTop: `1px solid ${S.border}`, paddingTop: 10, marginTop: 8 }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span style={{ color: S.muted }}>Subtotal</span><span style={{ fontFamily: S.fontMono }}>£{subtotal.toFixed(2)}</span></div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span style={{ color: S.muted }}>Shipping</span><span style={{ color: shippingCost === 0 ? S.teal : S.text, fontFamily: S.fontMono }}>{shippingCost === 0 ? "FREE" : `£${shippingCost.toFixed(2)}`}</span></div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span style={{ color: S.muted }}>Card fee</span><span style={{ fontFamily: S.fontMono }}>£{STRIPE_FEE.toFixed(2)}</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span style={{ color: S.muted }}>Card fee</span><span style={{ fontFamily: S.fontMono }}>£{stripeFee.toFixed(2)}</span></div>
             <div style={{ borderTop: `1px solid ${S.border}`, paddingTop: 8, marginTop: 4, display: "flex", justifyContent: "space-between" }}><span style={{ fontWeight: 700 }}>Total</span><span style={{ color: S.teal, fontFamily: S.fontMono, fontWeight: 800, fontSize: 20 }}>£{total.toFixed(2)}</span></div>
           </div>
         </div>
@@ -1513,6 +1601,7 @@ function ElijahsPrintsInner() {
   const [adminLoggedIn, setAdminLoggedIn] = useState(false);
   const [orders, setOrders] = useState([]);
   const [filamentVer, setFilamentVer] = useState(0);
+  const [catVer, setCatVer] = useState(0);
   const [authChecked, setAuthChecked] = useState(!USE_FIREBASE); // skip auth check if no Firebase
   const [stripeSuccess, setStripeSuccess] = useState(null); // holds completed order after Stripe redirect
 
@@ -1526,10 +1615,13 @@ function ElijahsPrintsInner() {
     loadFilaments().then(f => {
       if (f) { FILAMENTS = f; ALL_COLORS = Object.keys(f); setFilamentVer(v => v + 1); }
     });
+    loadCategories().then(cats => {
+      if (cats) { categories = cats; setCatVer(v => v + 1); }
+    });
     // Firebase auth state: auto-login if session persists (e.g. browser refresh)
     if (USE_FIREBASE) {
       firebaseOnAuth(user => {
-        if (user) { setAdminLoggedIn(true); if (page === "admin-login") setPage("admin"); }
+        if (user) { setAdminLoggedIn(true); if (page === "admin-login") setPage("admin"); loadOrders().then(o => setOrders(o || [])); }
         else setAdminLoggedIn(false);
         setAuthChecked(true);
       });
@@ -1574,31 +1666,41 @@ function ElijahsPrintsInner() {
   }, [activeCat, search, products]);
 
   const addToCart = (product, selectedColors) => {
+    const adjustedPrice = getPremiumPrice(product.price, selectedColors);
     const key = product.id + "-" + selectedColors.join(",");
     const i = cart.findIndex(c => (c.id + "-" + c.selectedColors.join(",")) === key);
     if (i >= 0) { const u = [...cart]; u[i].qty += 1; setCart(u); }
-    else setCart([...cart, { ...product, selectedColors, qty: 1 }]);
+    else setCart([...cart, { ...product, price: adjustedPrice, selectedColors, qty: 1 }]);
     setCartAnim(product.id); setTimeout(() => setCartAnim(null), 1200);
   };
+
   const removeFromCart = i => setCart(cart.filter((_, idx) => idx !== i));
   const updateQty = (i, q) => { const u = [...cart]; u[i].qty = q; setCart(u); };
   const totalItems = cart.reduce((s, i) => s + i.qty, 0);
   const handleSaveProducts = async (p) => { setProducts(p); await saveProducts(p); };
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
+    const order = orders.find(o => o.id === orderId);
+    const wasDespatched = order?.status?.despatched;
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     await updateOrderStatus(orderId, newStatus);
+    if (newStatus.despatched && !wasDespatched && order) {
+      sendShippedEmail(order);
+    }
   };
   const handleOrderPlaced = (order) => { setOrders(prev => [...prev, order]); };
   const handleSaveFilaments = async (f) => { FILAMENTS = f; ALL_COLORS = Object.keys(f); setFilamentVer(v => v + 1); await saveFilaments(f); };
+const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v => v + 1); await saveCategories(cats); };
+
+   
+ const displayCategories = useMemo(() => ["All", ...categories], [catVer]);
 
   const catCounts = useMemo(() => {
     if (!products) return {};
     const avail = products.filter(x => x.available !== false);
     const c = { All: avail.length };
-    PRODUCT_CATEGORIES.forEach(cat => { c[cat] = avail.filter(p => p.category === cat).length; });
+    categories.forEach(cat => { c[cat] = avail.filter(p => p.category === cat).length; });
     return c;
-  }, [products]);
-
+  }, [products, catVer]);
   if (!products) return <div style={{ minHeight: "100vh", background: S.dark, display: "flex", alignItems: "center", justifyContent: "center", color: S.teal, fontFamily: S.fontHead, fontSize: 18 }}>Loading...</div>;
 
   return (
@@ -1620,7 +1722,7 @@ function ElijahsPrintsInner() {
             <span style={{ fontSize: 20, fontWeight: 800, fontFamily: S.fontHead }}><span style={{ color: S.teal }}>E</span>lijah's Prints</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {page === "shop" && !adminLoggedIn && (<>
+            {page !== "admin" && (<>
               <button onClick={() => setPage("request")} style={{ background: "none", border: `1px solid rgba(132,94,247,0.3)`, color: S.purple, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: S.fontHead, fontWeight: 600 }}>✨ Request</button>
               <button onClick={() => setPage("admin-login")} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 16, padding: 8 }} title="Admin">🔧</button>
               <button onClick={() => setCartOpen(true)} style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`, color: S.text, padding: "8px 16px", borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontFamily: S.fontHead, fontWeight: 600, position: "relative" }}>
@@ -1632,7 +1734,7 @@ function ElijahsPrintsInner() {
       </nav>
 
       {page === "admin-login" && !adminLoggedIn && <AdminLogin onLogin={() => { setAdminLoggedIn(true); setPage("admin"); }} />}
-      {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} />}
+      {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} />}
       {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} />}
       {page === "request" && <SpecialRequestPage onBack={() => setPage("shop")} />}
 
@@ -1674,7 +1776,7 @@ function ElijahsPrintsInner() {
           </div>
         </div>
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 28px", display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-          {DISPLAY_CATEGORIES.map(cat => (
+          {displayCategories.map(cat => (
             <button key={cat} onClick={() => setActiveCat(cat)} style={{ padding: "8px 16px", borderRadius: 20, border: activeCat === cat ? `1.5px solid ${S.teal}` : `1px solid ${S.border}`, background: activeCat === cat ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.02)", color: activeCat === cat ? S.teal : S.muted, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 6 }}>
               {cat}<span style={{ fontSize: 11, color: activeCat === cat ? "rgba(0,201,167,0.6)" : S.dimmer, fontFamily: S.fontMono }}>{catCounts[cat] || 0}</span>
             </button>
