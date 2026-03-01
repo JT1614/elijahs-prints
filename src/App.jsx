@@ -1949,6 +1949,9 @@ function ElijahsPrintsInner() {
   const [authChecked, setAuthChecked] = useState(!USE_FIREBASE); // skip auth check if no Firebase
   const [stripeSuccess, setStripeSuccess] = useState(null); // holds completed order after Stripe redirect
 
+  // Scroll to top when navigating between pages
+  useEffect(() => { window.scrollTo(0, 0); }, [page]);
+
   useEffect(() => {
     setLoaded(true);
     // Ensure viewport meta tag exists for mobile rendering
