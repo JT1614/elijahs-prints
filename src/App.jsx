@@ -849,7 +849,7 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   .thankyou-label .submsg { font-size: 8.5pt; color: #ffffff; font-style: italic; line-height: 1.5; max-width: 72mm; }
   .thankyou-label .banned-tagline { font-size: 8pt; color: #ffffff; line-height: 1.4; margin-top: 2mm; max-width: 72mm; }
   .thankyou-label .banned-tagline b { color: #00c9a7; font-weight: 800; text-transform: uppercase; }
-  .thankyou-label .url { color: #00c9a7; background: rgba(255,255,255,0.92); padding: 0.3mm 2mm; border-radius: 1mm; display: inline-block; }
+  .thankyou-label .url { color: #00c9a7; text-shadow: 0 0 3px #fff, 0 0 6px #fff; }
 
   /* Label 3: Order details */
   .order-label .ref { font-family: 'Space Grotesk', sans-serif; font-size: 10pt; font-weight: 800; color: #00c9a7; margin-bottom: 1mm; }
@@ -871,8 +871,8 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   .elijah-label .photo-bg { width: 100%; height: 100%; object-fit: cover; border-radius: 3mm; display: block; }
   .elijah-label .overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 2.5mm 3mm; background: linear-gradient(transparent, rgba(26,26,46,0.6) 25%, rgba(26,26,46,0.95)); display: flex; justify-content: space-between; align-items: flex-end; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
   .elijah-label .tagline { font-size: 8pt; color: #ffffff; font-style: italic; line-height: 1.3; font-family: 'DM Sans', sans-serif; flex: 1; }
-  .elijah-label .tagline b { color: #00c9a7; font-weight: 800; font-style: normal; text-transform: uppercase; background: rgba(255,255,255,0.92); padding: 0.3mm 1.5mm; border-radius: 1mm; }
-  .elijah-label .url { color: #00c9a7; font-size: 6.5pt; font-family: 'Space Grotesk', sans-serif; font-weight: 600; margin-left: 3mm; white-space: nowrap; margin-top: 0; background: rgba(255,255,255,0.92); padding: 0.3mm 2mm; border-radius: 1mm; }
+  .elijah-label .tagline b { color: #00c9a7; font-weight: 800; font-style: normal; text-transform: uppercase; text-shadow: 0 0 3px #fff, 0 0 6px #fff; }
+  .elijah-label .url { color: #00c9a7; font-size: 6.5pt; font-family: 'Space Grotesk', sans-serif; font-weight: 600; margin-left: 3mm; white-space: nowrap; margin-top: 0; text-shadow: 0 0 3px #fff, 0 0 6px #fff; }
   .elijah-no-photo { font-size: 18pt; margin-bottom: 2mm; }
 
   @media print {
@@ -894,7 +894,7 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   <div class="label"><div class="label-inner thankyou-label">
     <div class="emoji">🧡</div>
     <div class="msg">Thanks for your order!</div>
-    <div class="submsg">I got <b style="color:#00c9a7;font-weight:800;text-transform:uppercase;background:rgba(255,255,255,0.92);padding:0.3mm 1.5mm;border-radius:1mm;">BANNED</b> from selling 3D prints at school,<br/>so I built this website instead!</div>
+    <div class="submsg">I got <b style="color:#00c9a7;font-weight:800;text-transform:uppercase;text-shadow:0 0 3px #fff, 0 0 6px #fff;">BANNED</b> from selling 3D prints at school,<br/>so I built this website instead!</div>
     <div class="url" style="margin-top: 2mm;">etprintworld.com</div>
     <div class="banned-tagline">Every product is 3D printed by Elijah, age 10, on his Bambu Lab P1S right here in Wales.</div>
   </div></div>
@@ -930,7 +930,7 @@ function OrderBook({ orders, onUpdateOrder, products }) {
     <div class="elijah-no-photo">⬡</div>
     <div style="font-family:'Space Grotesk',sans-serif;font-size:10pt;font-weight:800;color:#fff;margin-bottom:1mm;">Elijah's Print World</div>
     <div class="tagline" style="max-width:70mm;margin-bottom:2mm;text-align:center;color:#ffffff;">I got <b>BANNED</b> from selling 3D prints at school — so I built this website instead.</div>
-    <div style="font-size:6.5pt;color:#00c9a7;font-weight:600;background:rgba(255,255,255,0.92);padding:0.3mm 2mm;border-radius:1mm;display:inline-block;">etprintworld.com</div>
+    <div style="font-size:6.5pt;color:#00c9a7;font-weight:600;text-shadow:0 0 3px #fff, 0 0 6px #fff;">etprintworld.com</div>
     </div>`}
   </div></div>
 </div>
