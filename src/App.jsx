@@ -459,10 +459,18 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
   const maxC = product.maxColors || 1;
   const [selectedColors, setSelectedColors] = useState([product.colors[0]]);
   const [hovered, setHovered] = useState(false);
+  const [sameColour, setSameColour] = useState(false);
   const toggleColor = (color) => {
     if (maxC === 1) { setSelectedColors([color]); return; }
+    if (sameColour) { setSelectedColors(Array(maxC).fill(color)); return; }
     if (selectedColors.includes(color)) { if (selectedColors.length > 1) setSelectedColors(selectedColors.filter(c => c !== color)); }
     else { if (selectedColors.length < maxC) setSelectedColors([...selectedColors, color]); else setSelectedColors([...selectedColors.slice(1), color]); }
+  };
+  const handleSameToggle = () => {
+    const next = !sameColour;
+    setSameColour(next);
+    if (next) setSelectedColors(Array(maxC).fill(selectedColors[0]));
+    else setSelectedColors([selectedColors[0]]);
   };
   const canAdd = selectedColors.length >= Math.min(maxC, product.colors.length);
   return (
@@ -480,11 +488,29 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
         </div>
         <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.description}</p>
         {maxC > 1 && <div style={{ fontSize: 11, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 6, background: "rgba(132,94,247,0.08)", padding: "4px 8px", borderRadius: 6, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
+        {maxC > 1 && (
+          <button onClick={handleSameToggle} style={{
+            display: "flex", alignItems: "center", gap: 6, marginBottom: 6, padding: "4px 0",
+            background: "none", border: "none", cursor: "pointer", fontSize: 11, color: sameColour ? S.teal : S.dimmer,
+            fontFamily: S.fontHead, fontWeight: 600, transition: "color 0.2s",
+          }}>
+            <div style={{
+              width: 28, height: 16, borderRadius: 8, position: "relative", transition: "background 0.2s",
+              background: sameColour ? S.teal : "rgba(255,255,255,0.1)",
+            }}>
+              <div style={{ width: 12, height: 12, borderRadius: 6, background: "#fff", position: "absolute", top: 2, left: sameColour ? 14 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+            </div>
+            Same colour for all
+          </button>
+        )}
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
           {product.colors.map((c, i) => <ColorSwatch key={i} name={c} selected={selectedColors.includes(c)} onClick={() => toggleColor(c)} size={20} />)}
         </div>
         <div style={{ fontSize: 10, color: S.dimmer, marginTop: 4, marginBottom: 4 }}>
-          {selectedColors.map((c, i) => <span key={i}>{i > 0 && " + "}<span style={{ fontWeight: 600, color: S.muted }}>{c}</span></span>)}
+          {sameColour && maxC > 1
+            ? <span><span style={{ fontWeight: 600, color: S.muted }}>{selectedColors[0]}</span> × {maxC}</span>
+            : selectedColors.map((c, i) => <span key={i}>{i > 0 && " + "}<span style={{ fontWeight: 600, color: S.muted }}>{c}</span></span>)
+          }
         </div>
         <button onClick={() => canAdd && onAddToCart(product, selectedColors)} disabled={!canAdd} style={{
           width: "100%", padding: "10px 0", borderRadius: 10, border: "none", marginTop: 6,
