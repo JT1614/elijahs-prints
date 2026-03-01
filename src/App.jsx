@@ -667,7 +667,7 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
 /* ═══════════════════════════════════════════════
    ORDER BOOK
    ═══════════════════════════════════════════════ */
-function OrderBook({ orders, onUpdateOrder }) {
+function OrderBook({ orders, onUpdateOrder, products }) {
   // Sort: undespatched first (by date oldest first), then despatched at bottom
   const sorted = useMemo(() => {
     return [...orders].sort((a, b) => {
@@ -681,7 +681,8 @@ function OrderBook({ orders, onUpdateOrder }) {
   const stats = useMemo(() => ({
     total: orders.length,
     toProduce: orders.filter(o => !o.status.produced && !o.status.despatched).length,
-    toDispatch: orders.filter(o => o.status.produced && !o.status.despatched).length,
+    toLabel: orders.filter(o => o.status.produced && !(o.status.labelPrinted || o.status.despatched) && !o.status.despatched).length,
+    toDispatch: orders.filter(o => o.status.produced && (o.status.labelPrinted || o.status.despatched) && !o.status.despatched).length,
     done: orders.filter(o => o.status.despatched).length,
     revenue: orders.reduce((s, o) => s + o.total, 0),
   }), [orders]);
@@ -690,10 +691,16 @@ function OrderBook({ orders, onUpdateOrder }) {
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
     const newStatus = { ...order.status, [field]: !order.status[field] };
-    // Auto-logic: if despatching, also mark produced
-    if (field === "despatched" && !order.status.despatched) newStatus.produced = true;
-    // If un-producing, also un-despatch
-    if (field === "produced" && order.status.produced) newStatus.despatched = false;
+    // Ensure labelPrinted field exists for older orders
+    if (newStatus.labelPrinted === undefined) newStatus.labelPrinted = false;
+    // Auto-logic: if despatching, also mark produced and labelled
+    if (field === "despatched" && !order.status.despatched) { newStatus.produced = true; newStatus.labelPrinted = true; }
+    // If labelling, also mark produced
+    if (field === "labelPrinted" && !order.status.labelPrinted) newStatus.produced = true;
+    // If un-producing, also un-label and un-despatch
+    if (field === "produced" && order.status.produced) { newStatus.despatched = false; newStatus.labelPrinted = false; }
+    // If un-labelling, also un-despatch
+    if (field === "labelPrinted" && order.status.labelPrinted) newStatus.despatched = false;
     onUpdateOrder(orderId, newStatus);
   };
 
@@ -712,6 +719,165 @@ function OrderBook({ orders, onUpdateOrder }) {
     </button>
   );
 
+  /* ── Label printing for Avery J8165 (2×4, 99.1mm × 67.7mm) ── */
+  const printLabels = (order, isTest = false) => {
+    const availProducts = (products || []).filter(p => p.available !== false);
+    const orderItemIds = order.items.filter(i => !i.isTip).map(i => i.id);
+    const orderCategories = order.items.filter(i => !i.isTip).map(i => i.category).filter(Boolean);
+    const mainCategory = orderCategories[0] || "";
+
+    // Recommendation: same category, not in this order
+    const sameRange = availProducts.filter(p => p.category === mainCategory && !orderItemIds.includes(p.id));
+    const rangeProduct = sameRange.length > 0 ? sameRange[Math.floor(Math.random() * sameRange.length)] : null;
+
+    // Most popular: look for badge
+    const popular = availProducts.find(p => (p.badge === "Best Seller" || p.badge === "Popular") && !orderItemIds.includes(p.id));
+    const popularProduct = popular || availProducts.filter(p => !orderItemIds.includes(p.id))[0] || null;
+
+    // Newest products (highest ID = newest)
+    const newest = [...availProducts].filter(p => !orderItemIds.includes(p.id)).sort((a, b) => b.id - a.id);
+    const newProduct1 = newest[0] || null;
+    const newProduct2 = newest[1] || null;
+
+    // Address
+    const addr = order.shipping?.id === "collection"
+      ? "🎒 School Collection"
+      : [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join("\n");
+    const isPostal = order.shipping?.id !== "collection";
+
+    // Items list
+    const itemsList = order.items.filter(i => !i.isTip).map(i => `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`).join("\n");
+    const tipItem = order.items.find(i => i.isTip);
+    const orderDate = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+    // Product label HTML helper
+    const productLabel = (product, heading) => {
+      if (!product) return `<div class="label"><div class="label-inner placeholder"><div class="heading">${heading}</div><div class="sub">More coming soon!</div><div class="url">etprintworld.com</div></div></div>`;
+      const imgHtml = product.img ? `<img src="${product.img}" class="prod-img" />` : `<div class="prod-placeholder">📷</div>`;
+      return `<div class="label"><div class="label-inner product-label">
+        <div class="heading">${heading}</div>
+        <div class="prod-row">${imgHtml}<div class="prod-info">
+          <div class="prod-name">${product.name}</div>
+          <div class="prod-price">£${product.price.toFixed(2)}</div>
+          <div class="prod-desc">${(product.description || "").slice(0, 60)}${(product.description || "").length > 60 ? "…" : ""}</div>
+        </div></div>
+        <div class="url">etprintworld.com</div>
+      </div></div>`;
+    };
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Labels — ${order.id}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @page { size: A4; margin: 0; }
+  body { width: 210mm; height: 297mm; font-family: 'DM Sans', sans-serif; }
+  .sheet { width: 210mm; height: 297mm; padding: 13mm 5.9mm; display: grid; grid-template-columns: 99.1mm 99.1mm; grid-template-rows: repeat(4, 67.7mm); }
+  .label { width: 99.1mm; height: 67.7mm; overflow: hidden; padding: 3mm; }
+  .label-inner { width: 100%; height: 100%; border: 0.3mm dashed #ccc; border-radius: 3mm; padding: 4mm; display: flex; flex-direction: column; position: relative; }
+  .heading { font-family: 'Space Grotesk', sans-serif; font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #00c9a7; margin-bottom: 2mm; }
+  .sub { font-size: 8pt; color: #666; }
+  .url { font-family: 'Space Grotesk', sans-serif; font-size: 6.5pt; color: #00c9a7; font-weight: 600; margin-top: auto; }
+
+  /* Label 1: Address */
+  .address-label .from { font-size: 7.5pt; color: #00c9a7; font-weight: 700; font-family: 'Space Grotesk', sans-serif; margin-bottom: 3mm; }
+  .address-label .to-name { font-size: 11pt; font-weight: 700; margin-bottom: 1mm; }
+  .address-label .to-addr { font-size: 9pt; color: #333; white-space: pre-line; line-height: 1.4; }
+
+  /* Label 2: Thank you */
+  .thankyou-label { text-align: center; justify-content: center; align-items: center; }
+  .thankyou-label .emoji { font-size: 20pt; margin-bottom: 2mm; }
+  .thankyou-label .msg { font-family: 'Space Grotesk', sans-serif; font-size: 11pt; font-weight: 700; color: #1a1a2e; margin-bottom: 1.5mm; }
+  .thankyou-label .submsg { font-size: 7.5pt; color: #666; line-height: 1.4; max-width: 70mm; }
+
+  /* Label 3: Order details */
+  .order-label .ref { font-family: 'Space Grotesk', sans-serif; font-size: 10pt; font-weight: 800; color: #00c9a7; margin-bottom: 1mm; }
+  .order-label .date { font-size: 7pt; color: #999; margin-bottom: 2mm; }
+  .order-label .items { font-size: 7.5pt; color: #333; line-height: 1.5; white-space: pre-line; flex: 1; }
+  .order-label .total { font-family: 'Space Grotesk', sans-serif; font-size: 9pt; font-weight: 800; color: #1a1a2e; margin-top: 1mm; }
+
+  /* Product labels */
+  .product-label .prod-row { display: flex; gap: 3mm; flex: 1; align-items: center; }
+  .product-label .prod-img { width: 22mm; height: 22mm; object-fit: contain; border-radius: 2mm; background: #f5f5f5; }
+  .product-label .prod-placeholder { width: 22mm; height: 22mm; border-radius: 2mm; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 14pt; }
+  .product-label .prod-name { font-family: 'Space Grotesk', sans-serif; font-size: 9pt; font-weight: 700; color: #1a1a2e; margin-bottom: 0.5mm; }
+  .product-label .prod-price { font-size: 9pt; font-weight: 800; color: #00c9a7; font-family: 'Space Grotesk', sans-serif; margin-bottom: 0.5mm; }
+  .product-label .prod-desc { font-size: 6.5pt; color: #888; line-height: 1.3; }
+
+  /* Label 8: Elijah photo */
+  .elijah-label { text-align: center; justify-content: center; align-items: center; }
+  .elijah-label .emoji { font-size: 18pt; margin-bottom: 2mm; }
+  .elijah-label .title { font-family: 'Space Grotesk', sans-serif; font-size: 10pt; font-weight: 800; color: #1a1a2e; margin-bottom: 1mm; }
+  .elijah-label .tagline { font-size: 7pt; color: #666; font-style: italic; line-height: 1.4; max-width: 70mm; margin-bottom: 1.5mm; }
+  .elijah-label .fact { font-size: 7pt; color: #00c9a7; font-weight: 600; }
+
+  .placeholder { text-align: center; justify-content: center; align-items: center; }
+
+  @media print {
+    .label-inner { border: none !important; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style></head><body>
+<div class="sheet">
+  <!-- Label 1: Shipping Address -->
+  <div class="label"><div class="label-inner address-label">
+    <div class="from">FROM: etprintworld.com</div>
+    <div class="heading">DELIVER TO</div>
+    <div class="to-name">${order.customer.name}</div>
+    <div class="to-addr">${isPostal ? addr : "🎒 School Collection"}</div>
+  </div></div>
+
+  <!-- Label 2: Thank You -->
+  <div class="label"><div class="label-inner thankyou-label">
+    <div class="emoji">🧡</div>
+    <div class="msg">Thanks for your order!</div>
+    <div class="submsg">Every product is 3D printed by Elijah, age 10, on his Bambu Lab P1S right here in Wales.</div>
+    <div class="url" style="margin-top: 3mm;">etprintworld.com</div>
+  </div></div>
+
+  <!-- Label 3: Order Details -->
+  <div class="label"><div class="label-inner order-label">
+    <div class="heading">YOUR ORDER</div>
+    <div class="ref">${order.id}</div>
+    <div class="date">${orderDate}</div>
+    <div class="items">${itemsList}${tipItem ? "\n🧡 Tip: £" + tipItem.price.toFixed(2) : ""}</div>
+    <div class="total">Total: £${order.total.toFixed(2)}</div>
+  </div></div>
+
+  <!-- Label 4: More from this range -->
+  ${productLabel(rangeProduct, "MORE FROM " + (mainCategory ? mainCategory.toUpperCase() : "THE SHOP"))}
+
+  <!-- Label 5: Most Popular -->
+  ${productLabel(popularProduct, "⭐ OUR MOST POPULAR")}
+
+  <!-- Label 6: Just Arrived #1 -->
+  ${productLabel(newProduct1, "🆕 JUST ARRIVED")}
+
+  <!-- Label 7: Just Arrived #2 -->
+  ${productLabel(newProduct2, "🆕 JUST ARRIVED")}
+
+  <!-- Label 8: Elijah / Brand label -->
+  <div class="label"><div class="label-inner elijah-label">
+    <div class="emoji">⬡</div>
+    <div class="title">Elijah's Print World</div>
+    <div class="tagline">I got BANNED from selling 3D prints at school — so I built this website instead.</div>
+    <div class="fact">🏴󠁧󠁢󠁷󠁬󠁳󠁿 Printed in Wales · Bambu Lab P1S Combo</div>
+    <div class="url" style="margin-top: 2mm; font-size: 8pt;">etprintworld.com</div>
+  </div></div>
+</div>
+<script>window.onload = () => { window.print(); }</script>
+</body></html>`;
+
+    const win = window.open("", "_blank", "width=800,height=1000");
+    if (win) { win.document.write(html); win.document.close(); }
+
+    // Mark as label printed (skip for test prints)
+    if (!isTest && !order.status.labelPrinted) {
+      const newStatus = { ...order.status, labelPrinted: true, produced: true };
+      if (newStatus.labelPrinted === undefined) newStatus.labelPrinted = true;
+      onUpdateOrder(order.id, newStatus);
+    }
+  };
+
   if (orders.length === 0) return (
     <div style={{ textAlign: "center", padding: "80px 24px", color: S.dimmer }}>
       <div style={{ fontSize: 48, marginBottom: 16 }}>📦</div>
@@ -723,9 +889,10 @@ function OrderBook({ orders, onUpdateOrder }) {
   return (
     <div>
       {/* Stats bar */}
-      <div className="ep-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
+      <div className="ep-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 24 }}>
         {[
           { label: "To Make", value: stats.toProduce, color: "#ff6b35", icon: "🔨" },
+          { label: "To Label", value: stats.toLabel, color: "#f59f00", icon: "🏷️" },
           { label: "To Send", value: stats.toDispatch, color: S.purple, icon: "📦" },
           { label: "Complete", value: stats.done, color: S.teal, icon: "✅" },
           { label: "Revenue", value: `£${stats.revenue.toFixed(2)}`, color: "#ffd43b", icon: "💰" },
@@ -738,11 +905,45 @@ function OrderBook({ orders, onUpdateOrder }) {
         ))}
       </div>
 
+      {/* Batch print & test buttons */}
+      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        {stats.toLabel > 0 && (
+          <button onClick={() => {
+            const unlabelled = sorted.filter(o => o.status.produced && !(o.status.labelPrinted || o.status.despatched) && !o.status.despatched);
+            unlabelled.forEach(o => printLabels(o));
+          }} style={{
+            padding: "10px 20px", borderRadius: 10, border: "none", cursor: "pointer",
+            background: "linear-gradient(135deg, #f59f00, #f08c00)", color: "#1a1a2e",
+            fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 8,
+          }}>🏷️ Print All Labels ({stats.toLabel})</button>
+        )}
+        {stats.toLabel > 0 && (
+          <span style={{ fontSize: 11, color: S.dimmer }}>Prints one sheet per order — {stats.toLabel} {stats.toLabel === 1 ? "sheet" : "sheets"} total</span>
+        )}
+        <button onClick={() => {
+          const testOrder = {
+            id: "EP-TEST123",
+            date: new Date().toISOString(),
+            customer: { name: "Test Customer", email: "test@example.com", phone: "07700 900000", address1: "42 Sample Street", address2: "", city: "Wrexham", county: "Clwyd", postcode: "LL11 1AA" },
+            shipping: { id: "standard", name: "Royal Mail Tracked 48" },
+            items: [{ id: 999, name: "Test Product", qty: 2, selectedColors: ["Matte Charcoal", "Turquoise"], price: 4.50, category: "Key Rings", isTip: false }],
+            total: 12.49,
+            status: { paid: true, produced: true, labelPrinted: false, despatched: false },
+          };
+          printLabels(testOrder, true);
+        }} style={{
+          padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, cursor: "pointer",
+          background: "rgba(255,255,255,0.03)", color: S.muted,
+          fontSize: 13, fontWeight: 600, fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 8, marginLeft: stats.toLabel > 0 ? "auto" : 0,
+        }}>🖨️ Test Print</button>
+      </div>
+
       {/* Column headers */}
-      <div className="ep-order-header" style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 70px", gap: 8, padding: "0 16px 8px", alignItems: "center" }}>
+      <div className="ep-order-header" style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 70px 70px", gap: 8, padding: "0 16px 8px", alignItems: "center" }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px" }}>Order</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Paid</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Made</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Label</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Sent</span>
       </div>
 
@@ -754,7 +955,7 @@ function OrderBook({ orders, onUpdateOrder }) {
             <div key={order.id} className="ep-order-row" style={{
               background: S.card, border: `1px solid ${S.border}`, borderRadius: 14, padding: "14px 16px",
               opacity: allDone ? 0.45 : 1, transition: "opacity 0.3s",
-              display: "grid", gridTemplateColumns: "1fr 70px 70px 70px", gap: 8, alignItems: "center",
+              display: "grid", gridTemplateColumns: "1fr 70px 70px 70px 70px", gap: 8, alignItems: "center",
             }}>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
@@ -789,6 +990,14 @@ function OrderBook({ orders, onUpdateOrder }) {
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Checkbox checked={order.status.produced} onChange={() => toggleStatus(order.id, "produced")} color="#ff6b35" />
                 <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#ff6b35", fontWeight: 600, fontFamily: S.fontHead }}>Made</span>
+              </div>
+              <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
+                <button onClick={() => printLabels(order)} title="Print label sheet" style={{
+                  width: 22, height: 22, borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                  border: (order.status.labelPrinted || order.status.despatched) ? "2px solid #f59f00" : "2px solid rgba(255,255,255,0.15)",
+                  background: (order.status.labelPrinted || order.status.despatched) ? "#f59f00" : "transparent", transition: "all 0.2s", flexShrink: 0, padding: 0, fontSize: 11,
+                }}>{(order.status.labelPrinted || order.status.despatched) ? <span style={{ color: "#1a1a2e", fontSize: 13, fontWeight: 800, lineHeight: 1 }}>✓</span> : "🏷️"}</button>
+                <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#f59f00", fontWeight: 600, fontFamily: S.fontHead }}>Label</span>
               </div>
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Checkbox checked={order.status.despatched} onChange={() => toggleStatus(order.id, "despatched")} color={S.purple} />
@@ -894,7 +1103,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
       {/* Orders tab */}
       {adminTab === "orders" && (
-        <OrderBook orders={orders} onUpdateOrder={onUpdateOrders} />
+        <OrderBook orders={orders} onUpdateOrder={onUpdateOrders} products={products} />
       )}
 
       {/* Products tab */}
@@ -1687,11 +1896,14 @@ function ElijahsPrintsInner() {
       if (pending) {
         try {
           const orderData = JSON.parse(pending);
+          const isTipOnly = orderData.items && orderData.items.length > 0 && orderData.items.every(i => i.isTip);
           const order = {
             id: "EP-" + Date.now().toString(36).toUpperCase(),
             date: new Date().toISOString(),
             ...orderData,
-            status: { paid: true, produced: false, despatched: false },
+            status: isTipOnly
+              ? { paid: true, produced: true, labelPrinted: true, despatched: true }
+              : { paid: true, produced: false, labelPrinted: false, despatched: false },
           };
           addOrder(order).catch(e => console.error("Order save failed:", e));
           sendOrderEmail(order);
@@ -1780,7 +1992,7 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
           .ep-order-row { grid-template-columns: 1fr !important; }
           .ep-order-check { justify-content: flex-start !important; }
           .ep-check-label { display: inline !important; }
-          .ep-stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
+          .ep-stats-grid { grid-template-columns: repeat(3, 1fr) !important; }
           .ep-editor-2col { grid-template-columns: 1fr !important; }
           .ep-hero { padding: 40px 16px 28px !important; }
           .ep-product-grid { padding: 0 12px 40px !important; gap: 12px !important; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
@@ -1830,7 +2042,9 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
           <h2 style={{ fontSize: 28, fontWeight: 800, fontFamily: S.fontHead, marginBottom: 12, color: S.text }}>Payment Successful!</h2>
           {stripeSuccess.id && <p style={{ fontSize: 13, fontFamily: S.fontMono, color: S.teal, fontWeight: 700, marginBottom: 8 }}>Ref: {stripeSuccess.id}</p>}
           <p style={{ color: S.muted, fontSize: 15, marginBottom: 32 }}>
-            {stripeSuccess.shipping?.id === "collection"
+            {stripeSuccess.items?.every(i => i.isTip)
+              ? `Thanks ${stripeSuccess.customer?.name?.split(" ")[0] || ""}! 🧡 Your support means the world to Elijah!`
+              : stripeSuccess.shipping?.id === "collection"
               ? `Thanks ${stripeSuccess.customer?.name?.split(" ")[0] || ""}! Elijah will bring it to school.`
               : `Thanks ${stripeSuccess.customer?.name?.split(" ")[0] || ""}! Elijah will print and ship it.`}
           </p>
