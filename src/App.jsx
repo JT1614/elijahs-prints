@@ -165,6 +165,11 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household", "Clickers", "Coasters"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
+const TIP_OPTIONS = [
+  { amount: 2, label: "£2", emoji: "🎉" },
+  { amount: 5, label: "£5", emoji: "🔥" },
+  { amount: 10, label: "£10", emoji: "💎" },
+];
 const FALLBACK_ADMIN_PASSWORD = "elijah3d"; // Only used when Firebase is NOT configured
 
 /* ═══════════════════════════════════════════════
@@ -292,7 +297,7 @@ async function sendOrderEmail(order) {
     if (!window.emailjs) return;
     window.emailjs.init(EMAILJS_CONFIG.publicKey);
     const itemsList = order.items.map(i =>
-      `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
     ).join("\n");
     const address = order.shipping.id === "collection"
       ? "🎒 School collection"
@@ -322,7 +327,7 @@ async function sendShippedEmail(order) {
     if (!window.emailjs) return;
     window.emailjs.init(EMAILJS_CONFIG.publicKey);
     const itemsList = order.items.map(i =>
-      `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
     ).join("\n");
     const isCollection = order.shipping?.id === "collection";
     await window.emailjs.send(EMAILJS_CONFIG.serviceId, EMAILJS_CONFIG.shippedTemplateId, {
@@ -765,9 +770,13 @@ function OrderBook({ orders, onUpdateOrder }) {
                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                   {order.items.map((item, i) => (
                     <div key={i} style={{ fontSize: 12, color: S.muted, display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontWeight: 600, color: S.text }}>{item.qty}×</span>
-                      <span>{item.name}</span>
-                      <span style={{ fontSize: 10, color: S.dimmer }}>({item.selectedColors.join(" + ")})</span>
+                      {item.isTip ? (
+                        <span style={{ color: S.teal, fontWeight: 600 }}>🧡 Tip: £{item.price.toFixed(2)}</span>
+                      ) : (<>
+                        <span style={{ fontWeight: 600, color: S.text }}>{item.qty}×</span>
+                        <span>{item.name}</span>
+                        <span style={{ fontSize: 10, color: S.dimmer }}>({item.selectedColors.join(" + ")})</span>
+                      </>)}
                     </div>
                   ))}
                 </div>
@@ -1173,14 +1182,16 @@ function AdminLogin({ onLogin }) {
 /* ═══════════════════════════════════════════════
    CHECKOUT + CART (simplified)
    ═══════════════════════════════════════════════ */
-function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
+function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAddTip, onRemoveTip }) {
   const [form, setForm] = useState({ email: "", name: "", address1: "", address2: "", city: "", county: "", postcode: "", phone: "" });
   const [step, setStep] = useState(1);
   const [processing, setProcessing] = useState(false);
   const [errors, setErrors] = useState({});
   const [lastOrderId, setLastOrderId] = useState("");
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
-  const qualifiesFree = subtotal >= FREE_SHIPPING_THRESHOLD;
+  const productSubtotal = cart.filter(i => !i.isTip).reduce((s, i) => s + i.price * i.qty, 0);
+  const qualifiesFree = productSubtotal >= FREE_SHIPPING_THRESHOLD;
+  const currentTip = cart.find(i => i.isTip);
   const shippingCost = shipping?.id === "collection" ? 0 : (qualifiesFree ? 0 : (shipping?.price || 0));
   const stripeFee = getStripeFee(subtotal + shippingCost);
   const total = subtotal + shippingCost + stripeFee;
@@ -1200,7 +1211,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
       const pendingOrder = {
         customer: { ...form },
         shipping: { id: shipping.id, name: shipping.name },
-        items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors })),
+        items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}) })),
         subtotal, shippingCost, stripeFee, total,
       };
       localStorage.setItem("ep_pending_order", JSON.stringify(pendingOrder));
@@ -1240,7 +1251,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
       date: new Date().toISOString(),
       customer: { ...form },
       shipping: { id: shipping.id, name: shipping.name },
-      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors })),
+      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}) })),
       subtotal, shippingCost, stripeFee, total,
       status: { paid: true, produced: false, despatched: false },
     };
@@ -1319,6 +1330,26 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
           </div>)}
           {step === 3 && (<div style={secBox}>
             <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 16 }}>Review & Pay</h3>
+            {/* Tip selector at checkout */}
+            {!currentTip && (
+              <div style={{ background: "rgba(255,165,0,0.04)", border: "1px solid rgba(255,165,0,0.12)", borderRadius: 14, padding: "18px 20px", marginBottom: 16, textAlign: "center" }}>
+                <p style={{ fontSize: 14, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 4 }}>🧡 Support Elijah</p>
+                <p style={{ fontSize: 12, color: S.muted, marginBottom: 12, lineHeight: 1.5 }}>Buy him a roll of filament to keep the printer running!</p>
+                <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                  {TIP_OPTIONS.map(t => (
+                    <button key={t.amount} onClick={() => onAddTip(t.amount)} style={{ padding: "8px 18px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.2)`, background: "rgba(0,201,167,0.06)", color: S.teal, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontMono, transition: "all 0.2s" }}>{t.emoji} {t.label}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {currentTip && (
+              <div style={{ background: "rgba(0,201,167,0.04)", border: `1px solid rgba(0,201,167,0.15)`, borderRadius: 14, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: S.teal, fontFamily: S.fontHead }}>🧡 £{currentTip.price.toFixed(2)} tip added — thank you!</span>
+                </div>
+                <button onClick={onRemoveTip} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 12, fontFamily: S.fontHead, textDecoration: "underline" }}>Remove</button>
+              </div>
+            )}
             <div style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
               <p style={{ fontSize: 11, color: S.dimmer, textAlign: "center" }}>{USE_STRIPE ? "🔒 Secure payment via Stripe" : "Demo mode — connect Stripe for real payments"}</p>
             </div>
@@ -1329,11 +1360,11 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
           <h4 style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 12, textTransform: "uppercase" }}>Order</h4>
           {cart.map((item, i) => (
             <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-              <div style={{ width: 32, height: 32, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 14, opacity: 0.4 }}>📷</span>}
+              <div style={{ width: 32, height: 32, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: item.isTip ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {item.isTip ? <span style={{ fontSize: 16 }}>🧡</span> : item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 14, opacity: 0.4 }}>📷</span>}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div><div style={{ fontSize: 10, color: S.dimmer }}>{item.selectedColors.join(" + ")} × {item.qty}</div></div>
-              <span style={{ fontSize: 12, fontWeight: 700, color: S.text, fontFamily: S.fontMono }}>£{(item.price * item.qty).toFixed(2)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: item.isTip ? S.teal : S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>{!item.isTip && <div style={{ fontSize: 10, color: S.dimmer }}>{item.selectedColors.join(" + ")} × {item.qty}</div>}</div>
+              <span style={{ fontSize: 12, fontWeight: 700, color: item.isTip ? S.teal : S.text, fontFamily: S.fontMono }}>£{(item.price * item.qty).toFixed(2)}</span>
             </div>
           ))}
           <div style={{ borderTop: `1px solid ${S.border}`, paddingTop: 10, marginTop: 8 }}>
@@ -1364,24 +1395,30 @@ function CartDrawer({ cart, onClose, onRemove, onUpdateQty, onCheckout }) {
         <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
           {cart.length === 0 ? <div style={{ textAlign: "center", padding: "60px 0", color: S.dimmer }}><div style={{ fontSize: 48, marginBottom: 16 }}>🛒</div><p>Empty</p></div>
           : cart.map((item, i) => (
-            <div key={i} style={{ display: "flex", gap: 12, padding: 12, background: S.card, borderRadius: 12, border: `1px solid ${S.border}`, marginBottom: 12 }}>
-              <div style={{ width: 48, height: 48, borderRadius: 10, overflow: "hidden", flexShrink: 0, alignSelf: "center", background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 22, opacity: 0.4 }}>📷</span>}
+            <div key={i} style={{ display: "flex", gap: 12, padding: 12, background: item.isTip ? "rgba(0,201,167,0.04)" : S.card, borderRadius: 12, border: `1px solid ${item.isTip ? "rgba(0,201,167,0.15)" : S.border}`, marginBottom: 12 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 10, overflow: "hidden", flexShrink: 0, alignSelf: "center", background: item.isTip ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {item.isTip ? <span style={{ fontSize: 24 }}>🧡</span> : item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 22, opacity: 0.4 }}>📷</span>}
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead }}>{item.name}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, color: item.isTip ? S.teal : S.text }}>{item.name}</span>
                   <button onClick={() => onRemove(i)} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 14 }}>✕</button>
                 </div>
-                <div style={{ fontSize: 11, color: S.dimmer, marginTop: 2, display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  {item.selectedColors.map((c, ci) => <span key={ci} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>{ci > 0 && "+"}<span style={{ width: 8, height: 8, borderRadius: "50%", background: FILAMENTS[c]?.hex || "#666" }} />{c}</span>)}
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <button onClick={() => onUpdateQty(i, Math.max(1, item.qty - 1))} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${S.border}`, background: S.card, color: "#aaa", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                    <span style={{ fontWeight: 600, fontFamily: S.fontMono }}>{item.qty}</span>
-                    <button onClick={() => onUpdateQty(i, item.qty + 1)} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${S.border}`, background: S.card, color: "#aaa", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                {!item.isTip && (
+                  <div style={{ fontSize: 11, color: S.dimmer, marginTop: 2, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    {item.selectedColors.map((c, ci) => <span key={ci} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>{ci > 0 && "+"}<span style={{ width: 8, height: 8, borderRadius: "50%", background: FILAMENTS[c]?.hex || "#666" }} />{c}</span>)}
                   </div>
+                )}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                  {!item.isTip ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button onClick={() => onUpdateQty(i, Math.max(1, item.qty - 1))} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${S.border}`, background: S.card, color: "#aaa", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                      <span style={{ fontWeight: 600, fontFamily: S.fontMono }}>{item.qty}</span>
+                      <button onClick={() => onUpdateQty(i, item.qty + 1)} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${S.border}`, background: S.card, color: "#aaa", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 11, color: S.muted, fontFamily: S.fontHead }}>Filament fund</span>
+                  )}
                   <span style={{ fontSize: 14, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{(item.price * item.qty).toFixed(2)}</span>
                 </div>
               </div>
@@ -1690,6 +1727,12 @@ function ElijahsPrintsInner() {
   const removeFromCart = i => setCart(cart.filter((_, idx) => idx !== i));
   const updateQty = (i, q) => { const u = [...cart]; u[i].qty = q; setCart(u); };
   const totalItems = cart.reduce((s, i) => s + i.qty, 0);
+  const addTip = (amount) => {
+    const withoutTip = cart.filter(i => !i.isTip);
+    setCart([...withoutTip, { id: "tip", name: "Support Elijah 🧡", price: amount, qty: 1, selectedColors: [], isTip: true, img: "" }]);
+  };
+  const removeTip = () => setCart(cart.filter(i => !i.isTip));
+  const currentTip = cart.find(i => i.isTip);
   const handleSaveProducts = async (p) => { setProducts(p); await saveProducts(p); };
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
     const order = orders.find(o => o.id === orderId);
@@ -1777,7 +1820,7 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
 
       {page === "admin-login" && !adminLoggedIn && <AdminLogin onLogin={() => { setAdminLoggedIn(true); setPage("admin"); }} />}
       {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} />}
-      {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} />}
+      {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} onAddTip={addTip} onRemoveTip={removeTip} />}
       {page === "request" && <SpecialRequestPage onBack={() => setPage("shop")} />}
 
       {/* Stripe payment success — shown after redirect back from Stripe */}
@@ -1840,6 +1883,30 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
             <h2 style={{ fontSize: 24, fontWeight: 800, fontFamily: S.fontHead, marginBottom: 8 }}>Got a Custom Idea? 💡</h2>
             <p style={{ color: S.muted, fontSize: 14, marginBottom: 18, lineHeight: 1.6 }}>Can't find what you're looking for? Describe it and we'll see if we can print it for you!</p>
             <button onClick={() => setPage("request")} style={{ padding: "12px 28px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, textTransform: "uppercase" }}>Request Custom Print</button>
+          </div>
+        </div>
+
+        {/* Tip Jar Section */}
+        <div style={{ maxWidth: 600, margin: "0 auto 60px", padding: "0 24px" }}>
+          <div style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}`, borderRadius: 20, padding: "32px 28px", textAlign: "center" }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>🧡</div>
+            <h2 style={{ fontSize: 22, fontWeight: 800, fontFamily: S.fontHead, marginBottom: 6, color: S.text }}>Buy Elijah a Roll of Filament</h2>
+            <p style={{ color: S.muted, fontSize: 13, marginBottom: 20, lineHeight: 1.6, maxWidth: 400, margin: "0 auto 20px" }}>Every print uses filament — your tip helps keep the printer running and the ideas flowing!</p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBottom: 12 }}>
+              {TIP_OPTIONS.map(t => {
+                const isActive = currentTip?.price === t.amount;
+                return (
+                  <button key={t.amount} onClick={() => isActive ? removeTip() : addTip(t.amount)} style={{
+                    padding: "12px 24px", borderRadius: 12, cursor: "pointer", fontSize: 16, fontWeight: 800, fontFamily: S.fontMono, transition: "all 0.2s",
+                    border: isActive ? `2px solid ${S.teal}` : `1px solid ${S.border}`,
+                    background: isActive ? "rgba(0,201,167,0.12)" : "rgba(255,255,255,0.03)",
+                    color: isActive ? S.teal : S.text,
+                    transform: isActive ? "scale(1.05)" : "scale(1)",
+                  }}>{t.emoji} {t.label}</button>
+                );
+              })}
+            </div>
+            {currentTip && <p style={{ fontSize: 12, color: S.teal, fontFamily: S.fontHead, fontWeight: 600 }}>✓ £{currentTip.price.toFixed(2)} added to your cart</p>}
           </div>
         </div>
 
