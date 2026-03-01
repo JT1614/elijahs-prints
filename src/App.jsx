@@ -846,9 +846,9 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   .thankyou-label { background: #1a1a2e; border-radius: 3mm; text-align: center; justify-content: center; align-items: center; border: none !important; }
   .thankyou-label .emoji { font-size: 20pt; margin-bottom: 2mm; }
   .thankyou-label .msg { font-family: 'Space Grotesk', sans-serif; font-size: 12pt; font-weight: 800; color: #ffffff; margin-bottom: 2mm; }
-  .thankyou-label .submsg { font-size: 8.5pt; color: #ffffff; line-height: 1.5; max-width: 72mm; }
-  .thankyou-label .banned-tagline { font-size: 8pt; color: #ffffff; font-style: italic; line-height: 1.4; margin-top: 2mm; max-width: 72mm; }
-  .thankyou-label .banned-tagline b { color: #00c9a7; font-weight: 800; font-style: normal; text-transform: uppercase; }
+  .thankyou-label .submsg { font-size: 8.5pt; color: #ffffff; font-style: italic; line-height: 1.5; max-width: 72mm; }
+  .thankyou-label .banned-tagline { font-size: 8pt; color: #ffffff; line-height: 1.4; margin-top: 2mm; max-width: 72mm; }
+  .thankyou-label .banned-tagline b { color: #00c9a7; font-weight: 800; text-transform: uppercase; }
   .thankyou-label .url { color: #00c9a7; }
 
   /* Label 3: Order details */
@@ -894,9 +894,9 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   <div class="label"><div class="label-inner thankyou-label">
     <div class="emoji">🧡</div>
     <div class="msg">Thanks for your order!</div>
-    <div class="submsg">Every product is 3D printed by Elijah, age 10, on his Bambu Lab P1S right here in Wales.</div>
+    <div class="submsg">I got <b style="color:#00c9a7;font-weight:800;text-transform:uppercase;">BANNED</b> from selling 3D prints at school,<br/>so I built this website instead!</div>
     <div class="url" style="margin-top: 2mm;">etprintworld.com</div>
-    <div class="banned-tagline">I got <b>BANNED</b> from selling 3D prints at school,<br/>so I built this website instead!</div>
+    <div class="banned-tagline">Every product is 3D printed by Elijah, age 10, on his Bambu Lab P1S right here in Wales.</div>
   </div></div>
 
   <!-- Label 3: Order Details -->
