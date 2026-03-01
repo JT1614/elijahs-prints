@@ -858,21 +858,21 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   /* Product labels */
   .product-label { padding-top: 5.5mm; }
   .product-label .prod-row { display: flex; gap: 3mm; flex: 1; align-items: center; }
-  .product-label .prod-img { width: 26mm; height: 26mm; object-fit: contain; border-radius: 2.5mm; background: #f5f5f5; }
-  .product-label .prod-placeholder { width: 26mm; height: 26mm; border-radius: 2.5mm; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 16pt; }
+  .product-label .prod-img { width: 38mm; height: 38mm; object-fit: contain; border-radius: 3mm; background: #f5f5f5; }
+  .product-label .prod-placeholder { width: 38mm; height: 38mm; border-radius: 3mm; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 18pt; }
   .product-label .prod-name { font-family: 'Space Grotesk', sans-serif; font-size: 9pt; font-weight: 700; color: #1a1a2e; margin-bottom: 0.5mm; }
-  .product-label .prod-price { font-size: 9.5pt; font-weight: 800; color: #00c9a7; font-family: 'Space Grotesk', sans-serif; margin-bottom: 0.5mm; }
+  .product-label .prod-price { font-size: 10pt; font-weight: 800; color: #00c9a7; font-family: 'Space Grotesk', sans-serif; margin-bottom: 0.5mm; }
   .product-label .prod-desc { font-size: 6.5pt; color: #888; line-height: 1.35; }
 
-  /* Label 8: Elijah — DARK MODE */
-  .elijah-label { background: #1a1a2e; border-radius: 3mm; text-align: center; justify-content: center; align-items: center; border: none !important; overflow: hidden; }
-  .elijah-label .photo-row { display: flex; align-items: center; gap: 3mm; margin-bottom: 2mm; }
-  .elijah-label .photo { width: 28mm; height: 22mm; object-fit: cover; border-radius: 2mm; }
-  .elijah-label .text-col { text-align: left; }
-  .elijah-label .title { font-family: 'Space Grotesk', sans-serif; font-size: 10pt; font-weight: 800; color: #ffffff; margin-bottom: 1mm; }
-  .elijah-label .tagline { font-size: 6.5pt; color: rgba(255,255,255,0.5); font-style: italic; line-height: 1.4; }
-  .elijah-label .fact { font-size: 6.5pt; color: #00c9a7; font-weight: 600; margin-top: auto; }
-  .elijah-label .url { color: #00c9a7; }
+  /* Label 8: Elijah — DARK MODE with large photo */
+  .elijah-label { background: #1a1a2e; border-radius: 3mm; border: none !important; overflow: hidden; padding: 0 !important; position: relative; }
+  .elijah-label .photo-bg { width: 100%; height: 100%; object-fit: cover; border-radius: 3mm; display: block; }
+  .elijah-label .overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 3mm 4mm; background: linear-gradient(transparent, rgba(26,26,46,0.85) 30%, rgba(26,26,46,0.95)); }
+  .elijah-label .title { font-family: 'Space Grotesk', sans-serif; font-size: 10pt; font-weight: 800; color: #ffffff; margin-bottom: 0.5mm; }
+  .elijah-label .tagline { font-size: 6pt; color: rgba(255,255,255,0.6); font-style: italic; line-height: 1.3; }
+  .elijah-label .overlay-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 1mm; }
+  .elijah-label .fact { font-size: 6pt; color: #00c9a7; font-weight: 600; }
+  .elijah-label .url { color: #00c9a7; font-size: 7pt; margin-top: 0; }
   .elijah-no-photo { font-size: 18pt; margin-bottom: 2mm; }
 
   @media print {
@@ -919,19 +919,23 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   <!-- Label 7: Also New -->
   ${productLabel(newProduct2, "🆕 ALSO NEW")}
 
-  <!-- Label 8: Elijah / Brand (dark mode with photo) -->
+  <!-- Label 8: Elijah / Brand (dark mode with large photo) -->
   <div class="label"><div class="label-inner elijah-label">
-    ${photoSrc ? `<div class="photo-row">
-      <img src="${photoSrc}" class="photo" />
-      <div class="text-col">
-        <div class="title">Elijah's Print World</div>
-        <div class="tagline">I got BANNED from selling 3D prints at school — so I built this website instead.</div>
+    ${photoSrc ? `<img src="${photoSrc}" class="photo-bg" />
+    <div class="overlay">
+      <div class="title">Elijah's Print World</div>
+      <div class="tagline">I got BANNED from selling 3D prints at school — so I built this website instead.</div>
+      <div class="overlay-bottom">
+        <span class="fact">🏴󠁧󠁢󠁷󠁬󠁳󠁿 Printed in Wales · Bambu Lab P1S</span>
+        <span class="url">etprintworld.com</span>
       </div>
-    </div>` : `<div class="elijah-no-photo">⬡</div>
+    </div>` : `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:4mm;">
+    <div class="elijah-no-photo">⬡</div>
     <div class="title">Elijah's Print World</div>
-    <div class="tagline">I got BANNED from selling 3D prints at school — so I built this website instead.</div>`}
+    <div class="tagline" style="max-width:70mm;margin-bottom:2mm;">I got BANNED from selling 3D prints at school — so I built this website instead.</div>
     <div class="fact">🏴󠁧󠁢󠁷󠁬󠁳󠁿 Printed in Wales · Bambu Lab P1S Combo</div>
-    <div class="url" style="margin-top: 1mm; font-size: 8pt;">etprintworld.com</div>
+    <div class="url" style="margin-top:1mm;font-size:8pt;">etprintworld.com</div>
+    </div>`}
   </div></div>
 </div>
 <script>window.onload = () => { window.print(); }</script>
