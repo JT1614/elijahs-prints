@@ -846,8 +846,8 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   .thankyou-label { background: #1a1a2e; border-radius: 3mm; text-align: center; justify-content: center; align-items: center; border: none !important; }
   .thankyou-label .emoji { font-size: 20pt; margin-bottom: 2mm; }
   .thankyou-label .msg { font-family: 'Space Grotesk', sans-serif; font-size: 12pt; font-weight: 800; color: #ffffff; margin-bottom: 2mm; }
-  .thankyou-label .submsg { font-size: 7.5pt; color: rgba(255,255,255,0.5); line-height: 1.5; max-width: 72mm; }
-  .thankyou-label .banned-tagline { font-size: 6.5pt; color: rgba(255,255,255,0.5); font-style: italic; line-height: 1.4; margin-top: 2mm; max-width: 72mm; }
+  .thankyou-label .submsg { font-size: 8.5pt; color: #ffffff; line-height: 1.5; max-width: 72mm; }
+  .thankyou-label .banned-tagline { font-size: 8pt; color: #ffffff; font-style: italic; line-height: 1.4; margin-top: 2mm; max-width: 72mm; }
   .thankyou-label .banned-tagline b { color: #00c9a7; font-weight: 800; font-style: normal; text-transform: uppercase; }
   .thankyou-label .url { color: #00c9a7; }
 
@@ -869,8 +869,8 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   /* Label 8: Elijah — DARK MODE with full-bleed photo */
   .elijah-label { background: #1a1a2e; border-radius: 3mm; border: none !important; overflow: hidden; padding: 0 !important; position: relative; }
   .elijah-label .photo-bg { width: 100%; height: 100%; object-fit: cover; border-radius: 3mm; display: block; }
-  .elijah-label .overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 2mm 3mm; background: linear-gradient(transparent, rgba(26,26,46,0.75) 40%, rgba(26,26,46,0.92)); display: flex; justify-content: space-between; align-items: flex-end; }
-  .elijah-label .tagline { font-size: 6pt; color: rgba(255,255,255,0.75); font-style: italic; line-height: 1.3; font-family: 'DM Sans', sans-serif; flex: 1; }
+  .elijah-label .overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 2.5mm 3mm; background: linear-gradient(transparent, rgba(26,26,46,0.6) 25%, rgba(26,26,46,0.95)); display: flex; justify-content: space-between; align-items: flex-end; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+  .elijah-label .tagline { font-size: 8pt; color: #ffffff; font-style: italic; line-height: 1.3; font-family: 'DM Sans', sans-serif; flex: 1; }
   .elijah-label .tagline b { color: #00c9a7; font-weight: 800; font-style: normal; text-transform: uppercase; }
   .elijah-label .url { color: #00c9a7; font-size: 6.5pt; font-family: 'Space Grotesk', sans-serif; font-weight: 600; margin-left: 3mm; white-space: nowrap; margin-top: 0; }
   .elijah-no-photo { font-size: 18pt; margin-bottom: 2mm; }
@@ -929,7 +929,7 @@ function OrderBook({ orders, onUpdateOrder, products }) {
     </div>` : `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:4mm;">
     <div class="elijah-no-photo">⬡</div>
     <div style="font-family:'Space Grotesk',sans-serif;font-size:10pt;font-weight:800;color:#fff;margin-bottom:1mm;">Elijah's Print World</div>
-    <div class="tagline" style="max-width:70mm;margin-bottom:2mm;text-align:center;">I got <b>BANNED</b> from selling 3D prints at school — so I built this website instead.</div>
+    <div class="tagline" style="max-width:70mm;margin-bottom:2mm;text-align:center;color:#ffffff;">I got <b>BANNED</b> from selling 3D prints at school — so I built this website instead.</div>
     <div style="font-size:6.5pt;color:#00c9a7;font-weight:600;">etprintworld.com</div>
     </div>`}
   </div></div>
