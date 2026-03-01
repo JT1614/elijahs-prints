@@ -623,6 +623,10 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
         {/* Available Colours */}
         <div style={sectionStyle}>
           <label style={labelStyle}>Available Colours ({(p.colors || []).length} selected)</label>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <button onClick={() => set("colors", [...ALL_COLORS])} style={{ padding: "4px 12px", borderRadius: 8, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Select All</button>
+            <button onClick={() => set("colors", [])} style={{ padding: "4px 12px", borderRadius: 8, border: `1px solid rgba(255,107,107,0.3)`, background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Deselect All</button>
+          </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
             {ALL_COLORS.map(color => {
               const on = (p.colors || []).includes(color);
@@ -664,6 +668,12 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
             <div style={{ width: 22, height: 22, borderRadius: 11, background: "#fff", position: "absolute", top: 3, left: p.available ? 23 : 3, transition: "left 0.2s", boxShadow: "0 2px 4px rgba(0,0,0,0.3)" }} />
           </button>
           <span style={{ fontSize: 14, fontWeight: 600, color: p.available ? S.teal : "#ff6b6b", fontFamily: S.fontHead }}>{p.available ? "Available in shop" : "Hidden from shop"}</span>
+        </div>
+
+        {/* Source Reference (admin only) */}
+        <div style={sectionStyle}>
+          <label style={labelStyle}>🔒 Source Reference (admin only — not shown to customers)</label>
+          <input style={inputStyle} value={p.sourceRef || ""} onChange={e => set("sourceRef", e.target.value)} placeholder="e.g. Kumiko Planter Large by Foxwood" />
         </div>
 
         {/* Actions */}
@@ -1065,6 +1075,7 @@ function OrderBook({ orders, onUpdateOrder, products }) {
                         <span style={{ fontWeight: 600, color: S.text }}>{item.qty}×</span>
                         <span>{item.name}</span>
                         <span style={{ fontSize: 10, color: S.dimmer }}>({item.selectedColors.join(" + ")})</span>
+                        {(() => { const prod = products.find(p => p.id === item.id); return prod?.sourceRef ? <span style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2 }} title={prod.sourceRef}>🔒 {prod.sourceRef}</span> : null; })()}
                       </>)}
                     </div>
                   ))}
@@ -1117,6 +1128,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [newCatName, setNewCatName] = useState("");
   const [editingCat, setEditingCat] = useState(null);
   const [editCatName, setEditCatName] = useState("");
+  const [importingJSON, setImportingJSON] = useState(false);
+  const [importText, setImportText] = useState("");
 
   const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, maxColors: 1 };
 
@@ -1196,7 +1209,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
       {/* Products tab */}
       {adminTab === "products" && (<>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16, gap: 10 }}>
+          <button onClick={() => { setImportText(""); setImportingJSON(true); }} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.teal, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>📋 Import JSON</button>
           <button onClick={() => setAddingNew(true)} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.purple}, #6c3ce0)`, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, boxShadow: "0 4px 16px rgba(132,94,247,0.3)" }}>+ Add Product</button>
         </div>
 
@@ -1412,6 +1426,60 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         </div>
       )}
        
+      {importingJSON && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div onClick={() => setImportingJSON(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }} />
+          <div style={{ position: "relative", width: "min(540px, 100%)", background: "#151530", border: `1px solid ${S.border}`, borderRadius: 20, padding: 32 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 20, fontWeight: 800, fontFamily: S.fontHead, color: S.text, margin: 0 }}>📋 Import Product from JSON</h3>
+              <button onClick={() => setImportingJSON(false)} style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`, color: "#aaa", width: 36, height: 36, borderRadius: "50%", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+            </div>
+            <p style={{ fontSize: 13, color: S.muted, lineHeight: 1.6, marginBottom: 16 }}>Paste the JSON block from Claude to instantly create a new product. You'll still need to upload the photo afterwards.</p>
+            <textarea
+              value={importText}
+              onChange={e => setImportText(e.target.value)}
+              placeholder='Paste JSON here...'
+              style={{ width: "100%", height: 200, padding: 14, borderRadius: 12, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.teal, fontSize: 13, fontFamily: S.fontMono, resize: "vertical", outline: "none", boxSizing: "border-box" }}
+            />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={() => setImportingJSON(false)} style={{ padding: "10px 24px", borderRadius: 10, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Cancel</button>
+              <button onClick={async () => {
+                try {
+                  const raw = importText.trim().replace(/^```json?\s*/i, "").replace(/```\s*$/, "");
+                  const data = JSON.parse(raw);
+                  if (!data.name) { alert("JSON must include a 'name' field"); return; }
+                  const maxId = products.reduce((m, p) => Math.max(m, p.id), 0);
+                  const imported = {
+                    id: maxId + 1,
+                    name: data.name || "",
+                    price: parseFloat(data.price) || 0,
+                    category: data.category || categories[0] || "Planters",
+                    description: data.description || "",
+                    colors: Array.isArray(data.colors) ? data.colors.filter(c => ALL_COLORS.includes(c)) : ["Matte Charcoal"],
+                    maxColors: parseInt(data.maxColors) || 1,
+                    printTime: data.printTime || "",
+                    grams: parseInt(data.grams) || 0,
+                    available: data.available !== false,
+                    badge: data.badge || null,
+                    emoji: data.emoji || "",
+                    img: "",
+                    sourceRef: data.sourceRef || "",
+                  };
+                  setSaving(true);
+                  await onSave([...products, imported]);
+                  setSaving(false);
+                  setImportingJSON(false);
+                  setImportText("");
+                  setSavedMsg("Imported!"); setTimeout(() => setSavedMsg(""), 2000);
+                } catch (err) {
+                  alert("Invalid JSON: " + err.message);
+                }
+              }} style={{ padding: "10px 28px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, boxShadow: "0 4px 16px rgba(0,201,167,0.25)" }}>Import Product</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {(editing || addingNew) && (
         <ProductEditor
           product={addingNew ? newProduct : editing}
