@@ -694,6 +694,24 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
    ORDER BOOK
    ═══════════════════════════════════════════════ */
 function OrderBook({ orders, onUpdateOrder, products }) {
+  const [elijahPhoto, setElijahPhoto] = useState(null);
+
+  // Load Elijah's photo from Firebase on mount
+  useEffect(() => {
+    storageGet("elijah-photo").then(p => { if (p) setElijahPhoto(p); });
+  }, []);
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImage(file, 400, 0.75);
+      setElijahPhoto(compressed);
+      await storageSet("elijah-photo", compressed);
+    } catch (err) { console.error("Photo upload failed:", err); }
+    e.target.value = "";
+  };
+
   // Sort: undespatched first (by date oldest first), then despatched at bottom
   const sorted = useMemo(() => {
     return [...orders].sort((a, b) => {
@@ -707,8 +725,8 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   const stats = useMemo(() => ({
     total: orders.length,
     toProduce: orders.filter(o => !o.status.produced && !o.status.despatched).length,
-    toLabel: orders.filter(o => o.status.produced && !(o.status.labelPrinted || o.status.despatched) && !o.status.despatched).length,
-    toDispatch: orders.filter(o => o.status.produced && (o.status.labelPrinted || o.status.despatched) && !o.status.despatched).length,
+    toLabel: orders.filter(o => o.status.produced && !o.status.labelPrinted && !o.status.despatched).length,
+    toDispatch: orders.filter(o => o.status.produced && o.status.labelPrinted && !o.status.despatched).length,
     done: orders.filter(o => o.status.despatched).length,
     revenue: orders.reduce((s, o) => s + o.total, 0),
   }), [orders]);
@@ -752,18 +770,26 @@ function OrderBook({ orders, onUpdateOrder, products }) {
     const orderCategories = order.items.filter(i => !i.isTip).map(i => i.category).filter(Boolean);
     const mainCategory = orderCategories[0] || "";
 
-    // Recommendation: same category, not in this order
-    const sameRange = availProducts.filter(p => p.category === mainCategory && !orderItemIds.includes(p.id));
-    const rangeProduct = sameRange.length > 0 ? sameRange[Math.floor(Math.random() * sameRange.length)] : null;
+    // Build deduplicated recommendation list
+    const used = new Set(orderItemIds);
+    const pickProduct = (candidates) => {
+      const available = candidates.filter(p => !used.has(p.id));
+      if (available.length === 0) return null;
+      const pick = available[Math.floor(Math.random() * available.length)];
+      used.add(pick.id);
+      return pick;
+    };
 
-    // Most popular: look for badge
-    const popular = availProducts.find(p => (p.badge === "Best Seller" || p.badge === "Popular") && !orderItemIds.includes(p.id));
-    const popularProduct = popular || availProducts.filter(p => !orderItemIds.includes(p.id))[0] || null;
-
-    // Newest products (highest ID = newest)
-    const newest = [...availProducts].filter(p => !orderItemIds.includes(p.id)).sort((a, b) => b.id - a.id);
-    const newProduct1 = newest[0] || null;
-    const newProduct2 = newest[1] || null;
+    // Label 4: Same category
+    const rangeProduct = pickProduct(availProducts.filter(p => p.category === mainCategory));
+    // Label 5: Most popular (badged first, then any)
+    const badged = availProducts.filter(p => p.badge === "Best Seller" || p.badge === "Popular");
+    const popularProduct = pickProduct(badged.length > 0 ? badged : availProducts);
+    // Label 6: Newest (highest ID)
+    const newestSorted = [...availProducts].sort((a, b) => b.id - a.id);
+    const newProduct1 = pickProduct(newestSorted);
+    // Label 7: Second newest
+    const newProduct2 = pickProduct(newestSorted);
 
     // Address
     const addr = order.shipping?.id === "collection"
@@ -776,16 +802,20 @@ function OrderBook({ orders, onUpdateOrder, products }) {
     const tipItem = order.items.find(i => i.isTip);
     const orderDate = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
+    // Elijah's photo
+    const photoSrc = elijahPhoto || "";
+
     // Product label HTML helper
     const productLabel = (product, heading) => {
-      if (!product) return `<div class="label"><div class="label-inner placeholder"><div class="heading">${heading}</div><div class="sub">More coming soon!</div><div class="url">etprintworld.com</div></div></div>`;
+      if (!product) return `<div class="label"><div class="label-inner product-label"><div class="accent-bar"></div><div class="heading">${heading}</div><div class="sub" style="margin:auto;text-align:center;">More coming soon!</div><div class="url">etprintworld.com</div></div></div>`;
       const imgHtml = product.img ? `<img src="${product.img}" class="prod-img" />` : `<div class="prod-placeholder">📷</div>`;
       return `<div class="label"><div class="label-inner product-label">
+        <div class="accent-bar"></div>
         <div class="heading">${heading}</div>
         <div class="prod-row">${imgHtml}<div class="prod-info">
           <div class="prod-name">${product.name}</div>
           <div class="prod-price">£${product.price.toFixed(2)}</div>
-          <div class="prod-desc">${(product.description || "").slice(0, 60)}${(product.description || "").length > 60 ? "…" : ""}</div>
+          <div class="prod-desc">${(product.description || "").slice(0, 65)}${(product.description || "").length > 65 ? "…" : ""}</div>
         </div></div>
         <div class="url">etprintworld.com</div>
       </div></div>`;
@@ -799,21 +829,25 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   body { width: 210mm; height: 297mm; font-family: 'DM Sans', sans-serif; }
   .sheet { width: 210mm; height: 297mm; padding: 13mm 5.9mm; display: grid; grid-template-columns: 99.1mm 99.1mm; grid-template-rows: repeat(4, 67.7mm); }
   .label { width: 99.1mm; height: 67.7mm; overflow: hidden; padding: 3mm; }
-  .label-inner { width: 100%; height: 100%; border: 0.3mm dashed #ccc; border-radius: 3mm; padding: 4mm; display: flex; flex-direction: column; position: relative; }
+  .label-inner { width: 100%; height: 100%; border: 0.3mm dashed #ccc; border-radius: 3mm; padding: 4mm; display: flex; flex-direction: column; position: relative; overflow: hidden; }
   .heading { font-family: 'Space Grotesk', sans-serif; font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #00c9a7; margin-bottom: 2mm; }
   .sub { font-size: 8pt; color: #666; }
   .url { font-family: 'Space Grotesk', sans-serif; font-size: 6.5pt; color: #00c9a7; font-weight: 600; margin-top: auto; }
 
+  /* Teal accent bar for product labels */
+  .accent-bar { position: absolute; top: 0; left: 0; right: 0; height: 1.5mm; background: #00c9a7; border-radius: 3mm 3mm 0 0; }
+
   /* Label 1: Address */
   .address-label .from { font-size: 7.5pt; color: #00c9a7; font-weight: 700; font-family: 'Space Grotesk', sans-serif; margin-bottom: 3mm; }
-  .address-label .to-name { font-size: 11pt; font-weight: 700; margin-bottom: 1mm; }
-  .address-label .to-addr { font-size: 9pt; color: #333; white-space: pre-line; line-height: 1.4; }
+  .address-label .to-name { font-size: 12pt; font-weight: 700; margin-bottom: 1.5mm; }
+  .address-label .to-addr { font-size: 9.5pt; color: #333; white-space: pre-line; line-height: 1.5; }
 
-  /* Label 2: Thank you */
-  .thankyou-label { text-align: center; justify-content: center; align-items: center; }
+  /* Label 2: Thank you — DARK MODE */
+  .thankyou-label { background: #1a1a2e; border-radius: 3mm; text-align: center; justify-content: center; align-items: center; border: none !important; }
   .thankyou-label .emoji { font-size: 20pt; margin-bottom: 2mm; }
-  .thankyou-label .msg { font-family: 'Space Grotesk', sans-serif; font-size: 11pt; font-weight: 700; color: #1a1a2e; margin-bottom: 1.5mm; }
-  .thankyou-label .submsg { font-size: 7.5pt; color: #666; line-height: 1.4; max-width: 70mm; }
+  .thankyou-label .msg { font-family: 'Space Grotesk', sans-serif; font-size: 12pt; font-weight: 800; color: #ffffff; margin-bottom: 2mm; }
+  .thankyou-label .submsg { font-size: 7.5pt; color: rgba(255,255,255,0.5); line-height: 1.5; max-width: 72mm; }
+  .thankyou-label .url { color: #00c9a7; }
 
   /* Label 3: Order details */
   .order-label .ref { font-family: 'Space Grotesk', sans-serif; font-size: 10pt; font-weight: 800; color: #00c9a7; margin-bottom: 1mm; }
@@ -822,24 +856,28 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   .order-label .total { font-family: 'Space Grotesk', sans-serif; font-size: 9pt; font-weight: 800; color: #1a1a2e; margin-top: 1mm; }
 
   /* Product labels */
+  .product-label { padding-top: 5.5mm; }
   .product-label .prod-row { display: flex; gap: 3mm; flex: 1; align-items: center; }
-  .product-label .prod-img { width: 22mm; height: 22mm; object-fit: contain; border-radius: 2mm; background: #f5f5f5; }
-  .product-label .prod-placeholder { width: 22mm; height: 22mm; border-radius: 2mm; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 14pt; }
+  .product-label .prod-img { width: 26mm; height: 26mm; object-fit: contain; border-radius: 2.5mm; background: #f5f5f5; }
+  .product-label .prod-placeholder { width: 26mm; height: 26mm; border-radius: 2.5mm; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 16pt; }
   .product-label .prod-name { font-family: 'Space Grotesk', sans-serif; font-size: 9pt; font-weight: 700; color: #1a1a2e; margin-bottom: 0.5mm; }
-  .product-label .prod-price { font-size: 9pt; font-weight: 800; color: #00c9a7; font-family: 'Space Grotesk', sans-serif; margin-bottom: 0.5mm; }
-  .product-label .prod-desc { font-size: 6.5pt; color: #888; line-height: 1.3; }
+  .product-label .prod-price { font-size: 9.5pt; font-weight: 800; color: #00c9a7; font-family: 'Space Grotesk', sans-serif; margin-bottom: 0.5mm; }
+  .product-label .prod-desc { font-size: 6.5pt; color: #888; line-height: 1.35; }
 
-  /* Label 8: Elijah photo */
-  .elijah-label { text-align: center; justify-content: center; align-items: center; }
-  .elijah-label .emoji { font-size: 18pt; margin-bottom: 2mm; }
-  .elijah-label .title { font-family: 'Space Grotesk', sans-serif; font-size: 10pt; font-weight: 800; color: #1a1a2e; margin-bottom: 1mm; }
-  .elijah-label .tagline { font-size: 7pt; color: #666; font-style: italic; line-height: 1.4; max-width: 70mm; margin-bottom: 1.5mm; }
-  .elijah-label .fact { font-size: 7pt; color: #00c9a7; font-weight: 600; }
-
-  .placeholder { text-align: center; justify-content: center; align-items: center; }
+  /* Label 8: Elijah — DARK MODE */
+  .elijah-label { background: #1a1a2e; border-radius: 3mm; text-align: center; justify-content: center; align-items: center; border: none !important; overflow: hidden; }
+  .elijah-label .photo-row { display: flex; align-items: center; gap: 3mm; margin-bottom: 2mm; }
+  .elijah-label .photo { width: 28mm; height: 22mm; object-fit: cover; border-radius: 2mm; }
+  .elijah-label .text-col { text-align: left; }
+  .elijah-label .title { font-family: 'Space Grotesk', sans-serif; font-size: 10pt; font-weight: 800; color: #ffffff; margin-bottom: 1mm; }
+  .elijah-label .tagline { font-size: 6.5pt; color: rgba(255,255,255,0.5); font-style: italic; line-height: 1.4; }
+  .elijah-label .fact { font-size: 6.5pt; color: #00c9a7; font-weight: 600; margin-top: auto; }
+  .elijah-label .url { color: #00c9a7; }
+  .elijah-no-photo { font-size: 18pt; margin-bottom: 2mm; }
 
   @media print {
     .label-inner { border: none !important; }
+    .thankyou-label, .elijah-label { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
 </style></head><body>
@@ -852,7 +890,7 @@ function OrderBook({ orders, onUpdateOrder, products }) {
     <div class="to-addr">${isPostal ? addr : "🎒 School Collection"}</div>
   </div></div>
 
-  <!-- Label 2: Thank You -->
+  <!-- Label 2: Thank You (dark mode) -->
   <div class="label"><div class="label-inner thankyou-label">
     <div class="emoji">🧡</div>
     <div class="msg">Thanks for your order!</div>
@@ -869,25 +907,31 @@ function OrderBook({ orders, onUpdateOrder, products }) {
     <div class="total">Total: £${order.total.toFixed(2)}</div>
   </div></div>
 
-  <!-- Label 4: More from this range -->
-  ${productLabel(rangeProduct, "MORE FROM " + (mainCategory ? mainCategory.toUpperCase() : "THE SHOP"))}
+  <!-- Label 4: You might also like (same category) -->
+  ${productLabel(rangeProduct, "YOU MIGHT ALSO LIKE")}
 
   <!-- Label 5: Most Popular -->
   ${productLabel(popularProduct, "⭐ OUR MOST POPULAR")}
 
-  <!-- Label 6: Just Arrived #1 -->
+  <!-- Label 6: Just Arrived -->
   ${productLabel(newProduct1, "🆕 JUST ARRIVED")}
 
-  <!-- Label 7: Just Arrived #2 -->
-  ${productLabel(newProduct2, "🆕 JUST ARRIVED")}
+  <!-- Label 7: Also New -->
+  ${productLabel(newProduct2, "🆕 ALSO NEW")}
 
-  <!-- Label 8: Elijah / Brand label -->
+  <!-- Label 8: Elijah / Brand (dark mode with photo) -->
   <div class="label"><div class="label-inner elijah-label">
-    <div class="emoji">⬡</div>
+    ${photoSrc ? `<div class="photo-row">
+      <img src="${photoSrc}" class="photo" />
+      <div class="text-col">
+        <div class="title">Elijah's Print World</div>
+        <div class="tagline">I got BANNED from selling 3D prints at school — so I built this website instead.</div>
+      </div>
+    </div>` : `<div class="elijah-no-photo">⬡</div>
     <div class="title">Elijah's Print World</div>
-    <div class="tagline">I got BANNED from selling 3D prints at school — so I built this website instead.</div>
+    <div class="tagline">I got BANNED from selling 3D prints at school — so I built this website instead.</div>`}
     <div class="fact">🏴󠁧󠁢󠁷󠁬󠁳󠁿 Printed in Wales · Bambu Lab P1S Combo</div>
-    <div class="url" style="margin-top: 2mm; font-size: 8pt;">etprintworld.com</div>
+    <div class="url" style="margin-top: 1mm; font-size: 8pt;">etprintworld.com</div>
   </div></div>
 </div>
 <script>window.onload = () => { window.print(); }</script>
@@ -899,7 +943,6 @@ function OrderBook({ orders, onUpdateOrder, products }) {
     // Mark as label printed (skip for test prints)
     if (!isTest && !order.status.labelPrinted) {
       const newStatus = { ...order.status, labelPrinted: true, produced: true };
-      if (newStatus.labelPrinted === undefined) newStatus.labelPrinted = true;
       onUpdateOrder(order.id, newStatus);
     }
   };
@@ -935,7 +978,7 @@ function OrderBook({ orders, onUpdateOrder, products }) {
       <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         {stats.toLabel > 0 && (
           <button onClick={() => {
-            const unlabelled = sorted.filter(o => o.status.produced && !(o.status.labelPrinted || o.status.despatched) && !o.status.despatched);
+            const unlabelled = sorted.filter(o => o.status.produced && !o.status.labelPrinted && !o.status.despatched);
             unlabelled.forEach(o => printLabels(o));
           }} style={{
             padding: "10px 20px", borderRadius: 10, border: "none", cursor: "pointer",
@@ -962,6 +1005,25 @@ function OrderBook({ orders, onUpdateOrder, products }) {
           background: "rgba(255,255,255,0.03)", color: S.muted,
           fontSize: 13, fontWeight: 600, fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 8, marginLeft: stats.toLabel > 0 ? "auto" : 0,
         }}>🖨️ Test Print</button>
+      </div>
+
+      {/* Elijah's photo for labels */}
+      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12, background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, padding: "10px 16px" }}>
+        <label style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+          {elijahPhoto ? (
+            <img src={elijahPhoto} alt="Elijah" style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover" }} />
+          ) : (
+            <div style={{ width: 40, height: 40, borderRadius: 8, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📷</div>
+          )}
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: S.text, fontFamily: S.fontHead }}>{elijahPhoto ? "Elijah's photo ✓" : "Upload Elijah's photo"}</div>
+            <div style={{ fontSize: 10, color: S.dimmer }}>Used on the brand label (label 8)</div>
+          </div>
+          <input type="file" accept="image/*" style={{ display: "none" }} onChange={handlePhotoUpload} />
+        </label>
+        {elijahPhoto && (
+          <button onClick={async () => { setElijahPhoto(null); await storageSet("elijah-photo", ""); }} style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.dimmer, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Remove</button>
+        )}
       </div>
 
       {/* Column headers */}
