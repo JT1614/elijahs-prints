@@ -165,6 +165,68 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household", "Clickers", "Coasters"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
+
+/* ═══════════════════════════════════════════════
+   AUTO-BADGE COMPUTATION
+   Priority: NEW > Best Seller > Popular > Premium
+   ═══════════════════════════════════════════════ */
+function computeAutoBadges(products, orders) {
+  if (!products || !products.length) return {};
+  const now = Date.now();
+  const TWO_WEEKS = 14 * 24 * 60 * 60 * 1000;
+  const ONE_MONTH = 30 * 24 * 60 * 60 * 1000;
+
+  // Count all-time sales per product
+  const allTimeSales = {};
+  const lastMonthSales = {};
+  (orders || []).forEach(order => {
+    const orderDate = new Date(order.date).getTime();
+    const isLastMonth = (now - orderDate) <= ONE_MONTH;
+    (order.items || []).forEach(item => {
+      if (item.isTip) return;
+      allTimeSales[item.id] = (allTimeSales[item.id] || 0) + (item.qty || 1);
+      if (isLastMonth) lastMonthSales[item.id] = (lastMonthSales[item.id] || 0) + (item.qty || 1);
+    });
+  });
+
+  // Best Seller: #1 all-time (must have at least 1 sale)
+  const bestSellerId = Object.entries(allTimeSales).sort((a, b) => b[1] - a[1])[0]?.[0];
+
+  // Popular: top 5 by last-month sales (exclude #1 best seller to avoid overlap)
+  const popularIds = Object.entries(lastMonthSales)
+    .filter(([id]) => id !== bestSellerId)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .filter(([, count]) => count > 0)
+    .map(([id]) => id);
+
+  // Premium: any "Dragon" product + top 5 most expensive
+  const sortedByPrice = [...products].sort((a, b) => b.price - a.price);
+  const top5Expensive = sortedByPrice.slice(0, 5).map(p => String(p.id));
+  const premiumIds = new Set([
+    ...products.filter(p => /dragon/i.test(p.name)).map(p => String(p.id)),
+    ...top5Expensive,
+  ]);
+
+  // Compute badge per product (priority: NEW > Best Seller > Popular > Premium)
+  const badges = {};
+  products.forEach(p => {
+    const pid = String(p.id);
+    const addedDate = p.addedDate ? new Date(p.addedDate).getTime() : 0;
+    const isNew = addedDate && (now - addedDate) <= TWO_WEEKS;
+
+    if (isNew) { badges[p.id] = "New"; return; }
+    if (pid === String(bestSellerId) && allTimeSales[pid] > 0) { badges[p.id] = "Best Seller"; return; }
+    if (popularIds.includes(pid)) { badges[p.id] = "Popular"; return; }
+    if (premiumIds.has(pid)) { badges[p.id] = "Premium"; return; }
+  });
+  return badges;
+}
+const TIP_OPTIONS = [
+  { amount: 2, label: "£2", emoji: "🎉" },
+  { amount: 5, label: "£5", emoji: "🔥" },
+  { amount: 10, label: "£10", emoji: "💎" },
+];
 const FALLBACK_ADMIN_PASSWORD = "elijah3d"; // Only used when Firebase is NOT configured
 
 /* ═══════════════════════════════════════════════
@@ -292,7 +354,7 @@ async function sendOrderEmail(order) {
     if (!window.emailjs) return;
     window.emailjs.init(EMAILJS_CONFIG.publicKey);
     const itemsList = order.items.map(i =>
-      `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
     ).join("\n");
     const address = order.shipping.id === "collection"
       ? "🎒 School collection"
@@ -322,7 +384,7 @@ async function sendShippedEmail(order) {
     if (!window.emailjs) return;
     window.emailjs.init(EMAILJS_CONFIG.publicKey);
     const itemsList = order.items.map(i =>
-      `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
     ).join("\n");
     const isCollection = order.shipping?.id === "collection";
     await window.emailjs.send(EMAILJS_CONFIG.serviceId, EMAILJS_CONFIG.shippedTemplateId, {
@@ -414,7 +476,7 @@ const S = {
 function ColorSwatch({ name, selected, onClick, size = 22, disabled }) {
   const fil = FILAMENTS[name]; if (!fil) return null;
   return (
-    <button onClick={disabled ? undefined : onClick} title={`${name} (${fil.type})`} disabled={disabled} style={{
+    <button className="ep-swatch" onClick={disabled ? undefined : onClick} title={`${name} (${fil.type})`} disabled={disabled} style={{
       width: size, height: size, borderRadius: "50%", cursor: disabled ? "default" : "pointer", flexShrink: 0,
       background: fil.hex, border: selected ? "2.5px solid #00c9a7" : "2px solid rgba(255,255,255,0.15)",
       outline: selected ? "2px solid rgba(0,201,167,0.3)" : "none", outlineOffset: 1,
@@ -437,7 +499,7 @@ function ProductImage({ product, hovered }) {
   const hasImg = product.img && !err;
   return (
     <div style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(0,201,167,0.05), rgba(132,94,247,0.05))", position: "relative", overflow: "hidden" }}>
-      {hasImg ? <img src={product.img} alt={product.name} onError={() => setErr(true)} style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.4s", transform: hovered ? "scale(1.08)" : "scale(1)" }} />
+      {hasImg ? <img src={product.img} alt={product.name} onError={() => setErr(true)} style={{ width: "100%", height: "100%", objectFit: "contain", transition: "transform 0.4s", transform: hovered ? "scale(1.08)" : "scale(1)", padding: 8 }} />
       : <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, transition: "transform 0.4s", transform: hovered ? "scale(1.05)" : "scale(1)" }}>
           <span style={{ fontSize: 42, opacity: 0.3 }}>📷</span>
           <span style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontHead }}>No photo yet</span>
@@ -454,10 +516,18 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
   const maxC = product.maxColors || 1;
   const [selectedColors, setSelectedColors] = useState([product.colors[0]]);
   const [hovered, setHovered] = useState(false);
+  const [sameColour, setSameColour] = useState(false);
   const toggleColor = (color) => {
     if (maxC === 1) { setSelectedColors([color]); return; }
+    if (sameColour) { setSelectedColors(Array(maxC).fill(color)); return; }
     if (selectedColors.includes(color)) { if (selectedColors.length > 1) setSelectedColors(selectedColors.filter(c => c !== color)); }
     else { if (selectedColors.length < maxC) setSelectedColors([...selectedColors, color]); else setSelectedColors([...selectedColors.slice(1), color]); }
+  };
+  const handleSameToggle = () => {
+    const next = !sameColour;
+    setSameColour(next);
+    if (next) setSelectedColors(Array(maxC).fill(selectedColors[0]));
+    else setSelectedColors([selectedColors[0]]);
   };
   const canAdd = selectedColors.length >= Math.min(maxC, product.colors.length);
   return (
@@ -475,11 +545,29 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
         </div>
         <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.description}</p>
         {maxC > 1 && <div style={{ fontSize: 11, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 6, background: "rgba(132,94,247,0.08)", padding: "4px 8px", borderRadius: 6, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
+        {maxC > 1 && (
+          <button onClick={handleSameToggle} style={{
+            display: "flex", alignItems: "center", gap: 6, marginBottom: 6, padding: "4px 0",
+            background: "none", border: "none", cursor: "pointer", fontSize: 11, color: sameColour ? S.teal : S.dimmer,
+            fontFamily: S.fontHead, fontWeight: 600, transition: "color 0.2s",
+          }}>
+            <div style={{
+              width: 28, height: 16, borderRadius: 8, position: "relative", transition: "background 0.2s",
+              background: sameColour ? S.teal : "rgba(255,255,255,0.1)",
+            }}>
+              <div style={{ width: 12, height: 12, borderRadius: 6, background: "#fff", position: "absolute", top: 2, left: sameColour ? 14 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+            </div>
+            Same colour for all
+          </button>
+        )}
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
           {product.colors.map((c, i) => <ColorSwatch key={i} name={c} selected={selectedColors.includes(c)} onClick={() => toggleColor(c)} size={20} />)}
         </div>
         <div style={{ fontSize: 10, color: S.dimmer, marginTop: 4, marginBottom: 4 }}>
-          {selectedColors.map((c, i) => <span key={i}>{i > 0 && " + "}<span style={{ fontWeight: 600, color: S.muted }}>{c}</span></span>)}
+          {sameColour && maxC > 1
+            ? <span><span style={{ fontWeight: 600, color: S.muted }}>{selectedColors[0]}</span> × {maxC}</span>
+            : selectedColors.map((c, i) => <span key={i}>{i > 0 && " + "}<span style={{ fontWeight: 600, color: S.muted }}>{c}</span></span>)
+          }
         </div>
         <button onClick={() => canAdd && onAddToCart(product, selectedColors)} disabled={!canAdd} style={{
           width: "100%", padding: "10px 0", borderRadius: 10, border: "none", marginTop: 6,
@@ -559,7 +647,7 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
         </div>
 
         {/* Row: name + category */}
-        <div style={{ ...sectionStyle, display: "grid", gridTemplateColumns: "1fr 180px", gap: 12 }}>
+        <div className="ep-editor-2col" style={{ ...sectionStyle, display: "grid", gridTemplateColumns: "1fr 180px", gap: 12 }}>
           <div><label style={labelStyle}>Product Name *</label><input style={inputStyle} value={p.name} onChange={e => set("name", e.target.value)} placeholder="Product name" /></div>
           <div>
             <label style={labelStyle}>Category *</label>
@@ -576,22 +664,25 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
         </div>
 
         {/* Row: price, grams, print time, badge */}
-        <div style={{ ...sectionStyle, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+        <div className="ep-editor-2col" style={{ ...sectionStyle, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
           <div><label style={labelStyle}>Price (£) *</label><input style={inputStyle} type="number" step="0.05" min="0" value={p.price} onChange={e => set("price", parseFloat(e.target.value) || 0)} /></div>
           <div><label style={labelStyle}>Weight (g)</label><input style={inputStyle} type="number" min="0" value={p.grams} onChange={e => set("grams", parseInt(e.target.value) || 0)} /></div>
           <div><label style={labelStyle}>Print Time</label><input style={inputStyle} value={p.printTime} onChange={e => set("printTime", e.target.value)} placeholder="e.g. 2 hrs" /></div>
           <div>
-            <label style={labelStyle}>Badge</label>
-            <select value={p.badge || ""} onChange={e => set("badge", e.target.value || null)} style={{ ...inputStyle, cursor: "pointer" }}>
-              <option value="">None</option>
-              {BADGE_OPTIONS.filter(Boolean).map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
+            <label style={labelStyle}>Badge (auto)</label>
+            <div style={{ ...inputStyle, display: "flex", alignItems: "center", background: "rgba(255,255,255,0.02)", cursor: "default" }}>
+              <span style={{ fontSize: 13, color: S.dimmer }}>{p._autoBadge || "—"}</span>
+            </div>
           </div>
         </div>
 
         {/* Available Colours */}
         <div style={sectionStyle}>
           <label style={labelStyle}>Available Colours ({(p.colors || []).length} selected)</label>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <button onClick={() => set("colors", [...ALL_COLORS])} style={{ padding: "4px 12px", borderRadius: 8, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Select All</button>
+            <button onClick={() => set("colors", [])} style={{ padding: "4px 12px", borderRadius: 8, border: `1px solid rgba(255,107,107,0.3)`, background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Deselect All</button>
+          </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
             {ALL_COLORS.map(color => {
               const on = (p.colors || []).includes(color);
@@ -635,6 +726,14 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
           <span style={{ fontSize: 14, fontWeight: 600, color: p.available ? S.teal : "#ff6b6b", fontFamily: S.fontHead }}>{p.available ? "Available in shop" : "Hidden from shop"}</span>
         </div>
 
+        {/* Source Reference (admin only) */}
+        <div style={sectionStyle}>
+          <label style={labelStyle}>🔒 Source Reference (admin only — not shown to customers)</label>
+          <input style={{ ...inputStyle, marginBottom: 8 }} value={p.sourceRef || ""} onChange={e => set("sourceRef", e.target.value)} placeholder="e.g. Kumiko Planter Large by Foxwood" />
+          <label style={labelStyle}>🔗 Source URL (MakerWorld link — clickable in Order Book)</label>
+          <input style={inputStyle} value={p.sourceUrl || ""} onChange={e => set("sourceUrl", e.target.value)} placeholder="e.g. https://makerworld.com/en/models/569100" />
+        </div>
+
         {/* Actions */}
         <div style={{ display: "flex", gap: 12, justifyContent: "space-between", paddingTop: 16, borderTop: `1px solid ${S.border}` }}>
           <div>
@@ -662,7 +761,25 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
 /* ═══════════════════════════════════════════════
    ORDER BOOK
    ═══════════════════════════════════════════════ */
-function OrderBook({ orders, onUpdateOrder }) {
+function OrderBook({ orders, onUpdateOrder, products }) {
+  const [elijahPhoto, setElijahPhoto] = useState(null);
+
+  // Load Elijah's photo from Firebase on mount
+  useEffect(() => {
+    storageGet("elijah-photo").then(p => { if (p) setElijahPhoto(p); });
+  }, []);
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImage(file, 400, 0.75);
+      setElijahPhoto(compressed);
+      await storageSet("elijah-photo", compressed);
+    } catch (err) { console.error("Photo upload failed:", err); }
+    e.target.value = "";
+  };
+
   // Sort: undespatched first (by date oldest first), then despatched at bottom
   const sorted = useMemo(() => {
     return [...orders].sort((a, b) => {
@@ -676,7 +793,8 @@ function OrderBook({ orders, onUpdateOrder }) {
   const stats = useMemo(() => ({
     total: orders.length,
     toProduce: orders.filter(o => !o.status.produced && !o.status.despatched).length,
-    toDispatch: orders.filter(o => o.status.produced && !o.status.despatched).length,
+    toLabel: orders.filter(o => o.status.produced && !o.status.labelPrinted && !o.status.despatched).length,
+    toDispatch: orders.filter(o => o.status.produced && o.status.labelPrinted && !o.status.despatched).length,
     done: orders.filter(o => o.status.despatched).length,
     revenue: orders.reduce((s, o) => s + o.total, 0),
   }), [orders]);
@@ -685,10 +803,16 @@ function OrderBook({ orders, onUpdateOrder }) {
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
     const newStatus = { ...order.status, [field]: !order.status[field] };
-    // Auto-logic: if despatching, also mark produced
-    if (field === "despatched" && !order.status.despatched) newStatus.produced = true;
-    // If un-producing, also un-despatch
-    if (field === "produced" && order.status.produced) newStatus.despatched = false;
+    // Ensure labelPrinted field exists for older orders
+    if (newStatus.labelPrinted === undefined) newStatus.labelPrinted = false;
+    // Auto-logic: if despatching, also mark produced and labelled
+    if (field === "despatched" && !order.status.despatched) { newStatus.produced = true; newStatus.labelPrinted = true; }
+    // If labelling, also mark produced
+    if (field === "labelPrinted" && !order.status.labelPrinted) newStatus.produced = true;
+    // If un-producing, also un-label and un-despatch
+    if (field === "produced" && order.status.produced) { newStatus.despatched = false; newStatus.labelPrinted = false; }
+    // If un-labelling, also un-despatch
+    if (field === "labelPrinted" && order.status.labelPrinted) newStatus.despatched = false;
     onUpdateOrder(orderId, newStatus);
   };
 
@@ -707,6 +831,190 @@ function OrderBook({ orders, onUpdateOrder }) {
     </button>
   );
 
+  /* ── Label printing for Avery J8165 (2×4, 99.1mm × 67.7mm) ── */
+  const printLabels = (order, isTest = false) => {
+    const availProducts = (products || []).filter(p => p.available !== false);
+    const orderItemIds = order.items.filter(i => !i.isTip).map(i => i.id);
+    const orderCategories = order.items.filter(i => !i.isTip).map(i => i.category).filter(Boolean);
+    const mainCategory = orderCategories[0] || "";
+
+    // Build deduplicated recommendation list
+    const used = new Set(orderItemIds);
+    const pickProduct = (candidates) => {
+      const available = candidates.filter(p => !used.has(p.id));
+      if (available.length === 0) return null;
+      const pick = available[Math.floor(Math.random() * available.length)];
+      used.add(pick.id);
+      return pick;
+    };
+
+    // Label 4: Same category
+    const rangeProduct = pickProduct(availProducts.filter(p => p.category === mainCategory));
+    // Label 5: Most popular (badged first, then any)
+    const badged = availProducts.filter(p => p.badge === "Best Seller" || p.badge === "Popular");
+    const popularProduct = pickProduct(badged.length > 0 ? badged : availProducts);
+    // Label 6: Newest (highest ID)
+    const newestSorted = [...availProducts].sort((a, b) => b.id - a.id);
+    const newProduct1 = pickProduct(newestSorted);
+    // Label 7: Second newest
+    const newProduct2 = pickProduct(newestSorted);
+
+    // Address
+    const addr = order.shipping?.id === "collection"
+      ? "🎒 School Collection"
+      : [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join("\n");
+    const isPostal = order.shipping?.id !== "collection";
+
+    // Items list
+    const itemsList = order.items.filter(i => !i.isTip).map(i => `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`).join("\n");
+    const tipItem = order.items.find(i => i.isTip);
+    const orderDate = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+    // Elijah's photo
+    const photoSrc = elijahPhoto || "";
+
+    // Product label HTML helper
+    const productLabel = (product, heading) => {
+      if (!product) return `<div class="label"><div class="label-inner product-label"><div class="accent-bar"></div><div class="heading">${heading}</div><div class="sub" style="margin:auto;text-align:center;">More coming soon!</div><div class="url">etprintworld.com</div></div></div>`;
+      const imgHtml = product.img ? `<img src="${product.img}" class="prod-img" />` : `<div class="prod-placeholder">📷</div>`;
+      return `<div class="label"><div class="label-inner product-label">
+        <div class="accent-bar"></div>
+        <div class="heading">${heading}</div>
+        <div class="prod-row">${imgHtml}<div class="prod-info">
+          <div class="prod-name">${product.name}</div>
+          <div class="prod-price">£${product.price.toFixed(2)}</div>
+          <div class="prod-desc">${product.description || ""}</div>
+        </div></div>
+        <div class="url">etprintworld.com</div>
+      </div></div>`;
+    };
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Labels — ${order.id}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @page { size: A4; margin: 0; }
+  body { width: 210mm; height: 297mm; font-family: 'DM Sans', sans-serif; }
+  .sheet { width: 210mm; height: 297mm; padding: 13mm 5.9mm; display: grid; grid-template-columns: 99.1mm 99.1mm; grid-template-rows: repeat(4, 67.7mm); }
+  .label { width: 99.1mm; height: 67.7mm; overflow: hidden; padding: 3mm; }
+  .label-inner { width: 100%; height: 100%; border: 0.3mm dashed #ccc; border-radius: 3mm; padding: 4mm; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+  .heading { font-family: 'Space Grotesk', sans-serif; font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #00c9a7; margin-bottom: 2mm; }
+  .sub { font-size: 8pt; color: #666; }
+  .url { font-family: 'Space Grotesk', sans-serif; font-size: 6.5pt; color: #00c9a7; font-weight: 600; margin-top: auto; }
+
+  /* Teal accent bar for product labels */
+  .accent-bar { position: absolute; top: 0; left: 0; right: 0; height: 1.5mm; background: #00c9a7; border-radius: 3mm 3mm 0 0; }
+
+  /* Label 1: Address */
+  .address-label .from { font-size: 7.5pt; color: #00c9a7; font-weight: 700; font-family: 'Space Grotesk', sans-serif; margin-bottom: 3mm; }
+  .address-label .to-name { font-size: 12pt; font-weight: 700; margin-bottom: 1.5mm; }
+  .address-label .to-addr { font-size: 9.5pt; color: #333; white-space: pre-line; line-height: 1.5; }
+
+  /* Label 2: Thank you — DARK MODE */
+  .thankyou-label { background: #1a1a2e; border-radius: 3mm; text-align: center; justify-content: center; align-items: center; border: none !important; }
+  .thankyou-label .emoji { font-size: 20pt; margin-bottom: 2mm; }
+  .thankyou-label .msg { font-family: 'Space Grotesk', sans-serif; font-size: 12pt; font-weight: 800; color: #ffffff; margin-bottom: 2mm; }
+  .thankyou-label .submsg { font-size: 8.5pt; color: #ffffff; font-style: italic; line-height: 1.5; max-width: 72mm; }
+  .thankyou-label .banned-tagline { font-size: 8pt; color: #ffffff; line-height: 1.4; margin-top: 2mm; max-width: 72mm; }
+  .thankyou-label .banned-tagline b { color: #00c9a7; font-weight: 800; text-transform: uppercase; }
+  .thankyou-label .url { color: #00c9a7; background: rgba(255,255,255,0.92); padding: 0.3mm 2mm; border-radius: 1mm; display: inline-block; }
+
+  /* Label 3: Order details */
+  .order-label .ref { font-family: 'Space Grotesk', sans-serif; font-size: 10pt; font-weight: 800; color: #00c9a7; margin-bottom: 1mm; }
+  .order-label .date { font-size: 7pt; color: #999; margin-bottom: 2mm; }
+  .order-label .items { font-size: 7.5pt; color: #333; line-height: 1.5; white-space: pre-line; flex: 1; }
+  .order-label .total { font-family: 'Space Grotesk', sans-serif; font-size: 9pt; font-weight: 800; color: #1a1a2e; margin-top: 1mm; }
+
+  /* Product labels */
+  .product-label { padding-top: 5.5mm; }
+  .product-label .prod-row { display: flex; gap: 3mm; flex: 1; align-items: center; }
+  .product-label .prod-img { width: 38mm; height: 38mm; object-fit: contain; border-radius: 3mm; background: #f5f5f5; }
+  .product-label .prod-placeholder { width: 38mm; height: 38mm; border-radius: 3mm; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 18pt; }
+  .product-label .prod-name { font-family: 'Space Grotesk', sans-serif; font-size: 9pt; font-weight: 700; color: #1a1a2e; margin-bottom: 0.5mm; }
+  .product-label .prod-price { font-size: 10pt; font-weight: 800; color: #00c9a7; font-family: 'Space Grotesk', sans-serif; margin-bottom: 0.5mm; }
+  .product-label .prod-desc { font-size: 6.5pt; color: #888; line-height: 1.35; }
+
+  /* Label 8: Elijah — DARK MODE with full-bleed photo */
+  .elijah-label { background: #1a1a2e; border-radius: 3mm; border: none !important; overflow: hidden; padding: 0 !important; position: relative; }
+  .elijah-label .photo-bg { width: 100%; height: 100%; object-fit: cover; border-radius: 3mm; display: block; }
+  .elijah-label .overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 2.5mm 3mm; background: linear-gradient(transparent, rgba(26,26,46,0.6) 25%, rgba(26,26,46,0.95)); display: flex; justify-content: space-between; align-items: flex-end; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+  .elijah-label .tagline { font-size: 8pt; color: #ffffff; font-style: italic; line-height: 1.3; font-family: 'DM Sans', sans-serif; flex: 1; }
+  .elijah-label .tagline b { color: #00c9a7; font-weight: 800; font-style: normal; text-transform: uppercase; background: rgba(255,255,255,0.92); padding: 0.3mm 1.5mm; border-radius: 1mm; text-shadow: none; }
+  .elijah-label .url { color: #00c9a7; font-size: 6.5pt; font-family: 'Space Grotesk', sans-serif; font-weight: 600; margin-left: 3mm; white-space: nowrap; margin-top: 0; background: rgba(255,255,255,0.92); padding: 0.3mm 2mm; border-radius: 1mm; text-shadow: none; }
+  .elijah-no-photo { font-size: 18pt; margin-bottom: 2mm; }
+
+  @media print {
+    .label-inner { border: none !important; }
+    .thankyou-label, .elijah-label { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style></head><body>
+<div class="sheet">
+  <!-- Label 1: Shipping Address -->
+  <div class="label"><div class="label-inner address-label">
+    <div class="from">FROM: etprintworld.com</div>
+    <div class="heading">DELIVER TO</div>
+    <div class="to-name">${order.customer.name}</div>
+    <div class="to-addr">${isPostal ? addr : "🎒 School Collection"}</div>
+  </div></div>
+
+  <!-- Label 2: Thank You (dark mode) -->
+  <div class="label"><div class="label-inner thankyou-label">
+    <div class="emoji">🧡</div>
+    <div class="msg">Thanks for your order!</div>
+    <div class="submsg">I got <b style="color:#00c9a7;font-weight:800;text-transform:uppercase;background:rgba(255,255,255,0.92);padding:0.3mm 1.5mm;border-radius:1mm;">BANNED</b> from selling 3D prints at school,<br/>so I built this website instead!</div>
+    <div class="url" style="margin-top: 2mm;">etprintworld.com</div>
+    <div class="banned-tagline">Every product is 3D printed by Elijah, age 10, on his Bambu Lab P1S right here in Wales.</div>
+  </div></div>
+
+  <!-- Label 3: Order Details -->
+  <div class="label"><div class="label-inner order-label">
+    <div class="heading">YOUR ORDER</div>
+    <div class="ref">${order.id}</div>
+    <div class="date">${orderDate}</div>
+    <div class="items">${itemsList}${tipItem ? "\n🧡 Tip: £" + tipItem.price.toFixed(2) : ""}</div>
+    <div class="total">Total: £${order.total.toFixed(2)}</div>
+  </div></div>
+
+  <!-- Label 4: You might also like (same category) -->
+  ${productLabel(rangeProduct, "YOU MIGHT ALSO LIKE")}
+
+  <!-- Label 5: Most Popular -->
+  ${productLabel(popularProduct, "⭐ OUR MOST POPULAR")}
+
+  <!-- Label 6: Just Arrived -->
+  ${productLabel(newProduct1, "🆕 JUST ARRIVED")}
+
+  <!-- Label 7: Also New -->
+  ${productLabel(newProduct2, "🆕 ALSO NEW")}
+
+  <!-- Label 8: Elijah / Brand (full-bleed photo) -->
+  <div class="label"><div class="label-inner elijah-label">
+    ${photoSrc ? `<img src="${photoSrc}" class="photo-bg" />
+    <div class="overlay">
+      <span class="tagline">I got <b>BANNED</b> from selling 3D prints at school — so I built this website instead.</span>
+      <span class="url">etprintworld.com</span>
+    </div>` : `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:4mm;">
+    <div class="elijah-no-photo">⬡</div>
+    <div style="font-family:'Space Grotesk',sans-serif;font-size:10pt;font-weight:800;color:#fff;margin-bottom:1mm;">Elijah's Print World</div>
+    <div class="tagline" style="max-width:70mm;margin-bottom:2mm;text-align:center;color:#ffffff;">I got <b>BANNED</b> from selling 3D prints at school — so I built this website instead.</div>
+    <div style="font-size:6.5pt;color:#00c9a7;font-weight:600;background:rgba(255,255,255,0.92);padding:0.3mm 2mm;border-radius:1mm;display:inline-block;">etprintworld.com</div>
+    </div>`}
+  </div></div>
+</div>
+<script>window.onload = () => { window.print(); }</script>
+</body></html>`;
+
+    const win = window.open("", "_blank", "width=800,height=1000");
+    if (win) { win.document.write(html); win.document.close(); }
+
+    // Mark as label printed (skip for test prints)
+    if (!isTest && !order.status.labelPrinted) {
+      const newStatus = { ...order.status, labelPrinted: true, produced: true };
+      onUpdateOrder(order.id, newStatus);
+    }
+  };
+
   if (orders.length === 0) return (
     <div style={{ textAlign: "center", padding: "80px 24px", color: S.dimmer }}>
       <div style={{ fontSize: 48, marginBottom: 16 }}>📦</div>
@@ -718,9 +1026,10 @@ function OrderBook({ orders, onUpdateOrder }) {
   return (
     <div>
       {/* Stats bar */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
+      <div className="ep-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 24 }}>
         {[
           { label: "To Make", value: stats.toProduce, color: "#ff6b35", icon: "🔨" },
+          { label: "To Label", value: stats.toLabel, color: "#f59f00", icon: "🏷️" },
           { label: "To Send", value: stats.toDispatch, color: S.purple, icon: "📦" },
           { label: "Complete", value: stats.done, color: S.teal, icon: "✅" },
           { label: "Revenue", value: `£${stats.revenue.toFixed(2)}`, color: "#ffd43b", icon: "💰" },
@@ -733,11 +1042,64 @@ function OrderBook({ orders, onUpdateOrder }) {
         ))}
       </div>
 
+      {/* Batch print & test buttons */}
+      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        {stats.toLabel > 0 && (
+          <button onClick={() => {
+            const unlabelled = sorted.filter(o => o.status.produced && !o.status.labelPrinted && !o.status.despatched);
+            unlabelled.forEach(o => printLabels(o));
+          }} style={{
+            padding: "10px 20px", borderRadius: 10, border: "none", cursor: "pointer",
+            background: "linear-gradient(135deg, #f59f00, #f08c00)", color: "#1a1a2e",
+            fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 8,
+          }}>🏷️ Print All Labels ({stats.toLabel})</button>
+        )}
+        {stats.toLabel > 0 && (
+          <span style={{ fontSize: 11, color: S.dimmer }}>Prints one sheet per order — {stats.toLabel} {stats.toLabel === 1 ? "sheet" : "sheets"} total</span>
+        )}
+        <button onClick={() => {
+          const testOrder = {
+            id: "EP-TEST123",
+            date: new Date().toISOString(),
+            customer: { name: "Test Customer", email: "test@example.com", phone: "07700 900000", address1: "42 Sample Street", address2: "", city: "Wrexham", county: "Clwyd", postcode: "LL11 1AA" },
+            shipping: { id: "standard", name: "Royal Mail Tracked 48" },
+            items: [{ id: 999, name: "Test Product", qty: 2, selectedColors: ["Matte Charcoal", "Turquoise"], price: 4.50, category: "Key Rings", isTip: false }],
+            total: 12.49,
+            status: { paid: true, produced: true, labelPrinted: false, despatched: false },
+          };
+          printLabels(testOrder, true);
+        }} style={{
+          padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, cursor: "pointer",
+          background: "rgba(255,255,255,0.03)", color: S.muted,
+          fontSize: 13, fontWeight: 600, fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 8, marginLeft: stats.toLabel > 0 ? "auto" : 0,
+        }}>🖨️ Test Print</button>
+      </div>
+
+      {/* Elijah's photo for labels */}
+      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12, background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, padding: "10px 16px" }}>
+        <label style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+          {elijahPhoto ? (
+            <img src={elijahPhoto} alt="Elijah" style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover" }} />
+          ) : (
+            <div style={{ width: 40, height: 40, borderRadius: 8, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📷</div>
+          )}
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: S.text, fontFamily: S.fontHead }}>{elijahPhoto ? "Elijah's photo ✓" : "Upload Elijah's photo"}</div>
+            <div style={{ fontSize: 10, color: S.dimmer }}>Used on the brand label (label 8)</div>
+          </div>
+          <input type="file" accept="image/*" style={{ display: "none" }} onChange={handlePhotoUpload} />
+        </label>
+        {elijahPhoto && (
+          <button onClick={async () => { setElijahPhoto(null); await storageSet("elijah-photo", ""); }} style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.dimmer, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Remove</button>
+        )}
+      </div>
+
       {/* Column headers */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 70px", gap: 8, padding: "0 16px 8px", alignItems: "center" }}>
+      <div className="ep-order-header" style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 70px 70px", gap: 8, padding: "0 16px 8px", alignItems: "center" }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px" }}>Order</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Paid</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Made</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Label</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Sent</span>
       </div>
 
@@ -746,10 +1108,10 @@ function OrderBook({ orders, onUpdateOrder }) {
         {sorted.map(order => {
           const allDone = order.status.despatched;
           return (
-            <div key={order.id} style={{
+            <div key={order.id} className="ep-order-row" style={{
               background: S.card, border: `1px solid ${S.border}`, borderRadius: 14, padding: "14px 16px",
               opacity: allDone ? 0.45 : 1, transition: "opacity 0.3s",
-              display: "grid", gridTemplateColumns: "1fr 70px 70px 70px", gap: 8, alignItems: "center",
+              display: "grid", gridTemplateColumns: "1fr 70px 70px 70px 70px", gap: 8, alignItems: "center",
             }}>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
@@ -765,22 +1127,38 @@ function OrderBook({ orders, onUpdateOrder }) {
                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                   {order.items.map((item, i) => (
                     <div key={i} style={{ fontSize: 12, color: S.muted, display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontWeight: 600, color: S.text }}>{item.qty}×</span>
-                      <span>{item.name}</span>
-                      <span style={{ fontSize: 10, color: S.dimmer }}>({item.selectedColors.join(" + ")})</span>
+                      {item.isTip ? (
+                        <span style={{ color: S.teal, fontWeight: 600 }}>🧡 Tip: £{item.price.toFixed(2)}</span>
+                      ) : (<>
+                        <span style={{ fontWeight: 600, color: S.text }}>{item.qty}×</span>
+                        <span>{item.name}</span>
+                        <span style={{ fontSize: 10, color: S.dimmer }}>({item.selectedColors.join(" + ")})</span>
+                        {(() => { const prod = products.find(p => p.id === item.id); if (!prod?.sourceRef) return null; return prod.sourceUrl ? <a href={prod.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2, textDecoration: "none" }} title={`Open: ${prod.sourceRef}`}>🔗 {prod.sourceRef}</a> : <span style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2 }} title={prod.sourceRef}>🔒 {prod.sourceRef}</span>; })()}
+                      </>)}
                     </div>
                   ))}
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, marginTop: 6 }}>£{order.total.toFixed(2)}</div>
               </div>
-              <div style={{ display: "flex", justifyContent: "center" }}>
+              <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Checkbox checked={order.status.paid} onChange={() => toggleStatus(order.id, "paid")} color={S.teal} />
+                <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: S.teal, fontWeight: 600, fontFamily: S.fontHead }}>Paid</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "center" }}>
+              <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Checkbox checked={order.status.produced} onChange={() => toggleStatus(order.id, "produced")} color="#ff6b35" />
+                <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#ff6b35", fontWeight: 600, fontFamily: S.fontHead }}>Made</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "center" }}>
+              <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
+                <button onClick={() => printLabels(order)} title="Print label sheet" style={{
+                  width: 22, height: 22, borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                  border: (order.status.labelPrinted || order.status.despatched) ? "2px solid #f59f00" : "2px solid rgba(255,255,255,0.15)",
+                  background: (order.status.labelPrinted || order.status.despatched) ? "#f59f00" : "transparent", transition: "all 0.2s", flexShrink: 0, padding: 0, fontSize: 11,
+                }}>{(order.status.labelPrinted || order.status.despatched) ? <span style={{ color: "#1a1a2e", fontSize: 13, fontWeight: 800, lineHeight: 1 }}>✓</span> : "🏷️"}</button>
+                <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#f59f00", fontWeight: 600, fontFamily: S.fontHead }}>Label</span>
+              </div>
+              <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Checkbox checked={order.status.despatched} onChange={() => toggleStatus(order.id, "despatched")} color={S.purple} />
+                <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: S.purple, fontWeight: 600, fontFamily: S.fontHead }}>Sent</span>
               </div>
             </div>
           );
@@ -793,7 +1171,7 @@ function OrderBook({ orders, onUpdateOrder }) {
 /* ═══════════════════════════════════════════════
    ADMIN PANEL
    ═══════════════════════════════════════════════ */
-function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories }) {
+function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories, autoBadges }) {
   const [filter, setFilter] = useState("All");
   const [editing, setEditing] = useState(null);
   const [addingNew, setAddingNew] = useState(false);
@@ -808,6 +1186,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [newCatName, setNewCatName] = useState("");
   const [editingCat, setEditingCat] = useState(null);
   const [editCatName, setEditCatName] = useState("");
+  const [importingJSON, setImportingJSON] = useState(false);
+  const [importText, setImportText] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerLoading, setScannerLoading] = useState(false);
   const [scannerResult, setScannerResult] = useState(null);
@@ -902,7 +1282,7 @@ Important:
     reader.readAsDataURL(file);
   };
 
-  const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, maxColors: 1 };
+  const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, maxColors: 1, addedDate: new Date().toISOString(), sourceRef: "", sourceUrl: "" };
 
   const pendingOrders = orders.filter(o => !o.status.despatched).length;
 
@@ -975,12 +1355,13 @@ Important:
 
       {/* Orders tab */}
       {adminTab === "orders" && (
-        <OrderBook orders={orders} onUpdateOrder={onUpdateOrders} />
+        <OrderBook orders={orders} onUpdateOrder={onUpdateOrders} products={products} />
       )}
 
       {/* Products tab */}
       {adminTab === "products" && (<>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16, gap: 10 }}>
+          <button onClick={() => { setImportText(""); setImportingJSON(true); }} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.teal, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>📋 Import JSON</button>
           <button onClick={() => setAddingNew(true)} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.purple}, #6c3ce0)`, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, boxShadow: "0 4px 16px rgba(132,94,247,0.3)" }}>+ Add Product</button>
         </div>
 
@@ -1004,7 +1385,7 @@ Important:
                 <span style={{ fontSize: 14, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{product.name}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{product.price.toFixed(2)}</span>
                 <span style={{ fontSize: 11, color: S.dimmer }}>{product.grams}g</span>
-                {product.badge && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(0,201,167,0.1)", color: S.teal, fontWeight: 600, fontFamily: S.fontHead }}>{product.badge}</span>}
+                {autoBadges[product.id] && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(0,201,167,0.1)", color: S.teal, fontWeight: 600, fontFamily: S.fontHead }}>{autoBadges[product.id]}</span>}
                 {!product.available && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(255,107,107,0.1)", color: "#ff6b6b", fontWeight: 600 }}>Hidden</span>}
                 {product.maxColors > 1 && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(132,94,247,0.1)", color: S.purple, fontWeight: 600 }}>{product.maxColors} colours</span>}
               </div>
@@ -1176,7 +1557,7 @@ Important:
             <h3 style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: editingColour ? S.teal : S.text, margin: "0 0 16px" }}>
               {editingColour ? `✏️ Editing: ${editingColour}` : "+ Add New Colour"}
             </h3>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div className="ep-colour-form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div>
                 <label style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono, textTransform: "uppercase", display: "block", marginBottom: 4 }}>Colour Name</label>
                 <input value={newColourName} onChange={e => setNewColourName(e.target.value)} placeholder="e.g. Sky Blue" style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none", boxSizing: "border-box" }} />
@@ -1259,7 +1640,7 @@ Important:
           </div>
 
           {/* Existing colours grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+          <div className="ep-admin-colours-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
             {ALL_COLORS.map(name => {
               const f = FILAMENTS[name];
               const isEditing = editingColour === name;
@@ -1340,9 +1721,65 @@ Important:
         </div>
       )}
        
+      {importingJSON && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div onClick={() => setImportingJSON(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }} />
+          <div style={{ position: "relative", width: "min(540px, 100%)", background: "#151530", border: `1px solid ${S.border}`, borderRadius: 20, padding: 32 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 20, fontWeight: 800, fontFamily: S.fontHead, color: S.text, margin: 0 }}>📋 Import Product from JSON</h3>
+              <button onClick={() => setImportingJSON(false)} style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`, color: "#aaa", width: 36, height: 36, borderRadius: "50%", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+            </div>
+            <p style={{ fontSize: 13, color: S.muted, lineHeight: 1.6, marginBottom: 16 }}>Paste the JSON block from Claude to instantly create a new product. You'll still need to upload the photo afterwards.</p>
+            <textarea
+              value={importText}
+              onChange={e => setImportText(e.target.value)}
+              placeholder='Paste JSON here...'
+              style={{ width: "100%", height: 200, padding: 14, borderRadius: 12, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.teal, fontSize: 13, fontFamily: S.fontMono, resize: "vertical", outline: "none", boxSizing: "border-box" }}
+            />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={() => setImportingJSON(false)} style={{ padding: "10px 24px", borderRadius: 10, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Cancel</button>
+              <button onClick={async () => {
+                try {
+                  const raw = importText.trim().replace(/^```json?\s*/i, "").replace(/```\s*$/, "");
+                  const data = JSON.parse(raw);
+                  if (!data.name) { alert("JSON must include a 'name' field"); return; }
+                  const maxId = products.reduce((m, p) => Math.max(m, p.id), 0);
+                  const imported = {
+                    id: maxId + 1,
+                    name: data.name || "",
+                    price: parseFloat(data.price) || 0,
+                    category: data.category || categories[0] || "Planters",
+                    description: data.description || "",
+                    colors: Array.isArray(data.colors) ? data.colors.filter(c => ALL_COLORS.includes(c)) : ["Matte Charcoal"],
+                    maxColors: parseInt(data.maxColors) || 1,
+                    printTime: data.printTime || "",
+                    grams: parseInt(data.grams) || 0,
+                    available: data.available !== false,
+                    badge: null,
+                    emoji: data.emoji || "",
+                    img: "",
+                    sourceRef: data.sourceRef || "",
+                    sourceUrl: data.sourceUrl || "",
+                    addedDate: new Date().toISOString(),
+                  };
+                  setSaving(true);
+                  await onSave([...products, imported]);
+                  setSaving(false);
+                  setImportingJSON(false);
+                  setImportText("");
+                  setSavedMsg("Imported!"); setTimeout(() => setSavedMsg(""), 2000);
+                } catch (err) {
+                  alert("Invalid JSON: " + err.message);
+                }
+              }} style={{ padding: "10px 28px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, boxShadow: "0 4px 16px rgba(0,201,167,0.25)" }}>Import Product</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {(editing || addingNew) && (
         <ProductEditor
-          product={addingNew ? newProduct : editing}
+          product={addingNew ? newProduct : { ...editing, _autoBadge: autoBadges[editing?.id] || null }}
           isNew={addingNew}
           onSave={handleSaveProduct}
           onDelete={handleDelete}
@@ -1407,14 +1844,16 @@ function AdminLogin({ onLogin }) {
 /* ═══════════════════════════════════════════════
    CHECKOUT + CART (simplified)
    ═══════════════════════════════════════════════ */
-function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
+function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAddTip, onRemoveTip }) {
   const [form, setForm] = useState({ email: "", name: "", address1: "", address2: "", city: "", county: "", postcode: "", phone: "" });
   const [step, setStep] = useState(1);
   const [processing, setProcessing] = useState(false);
   const [errors, setErrors] = useState({});
   const [lastOrderId, setLastOrderId] = useState("");
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
-  const qualifiesFree = subtotal >= FREE_SHIPPING_THRESHOLD;
+  const productSubtotal = cart.filter(i => !i.isTip).reduce((s, i) => s + i.price * i.qty, 0);
+  const qualifiesFree = productSubtotal >= FREE_SHIPPING_THRESHOLD;
+  const currentTip = cart.find(i => i.isTip);
   const shippingCost = shipping?.id === "collection" ? 0 : (qualifiesFree ? 0 : (shipping?.price || 0));
   const stripeFee = getStripeFee(subtotal + shippingCost);
   const total = subtotal + shippingCost + stripeFee;
@@ -1434,7 +1873,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
       const pendingOrder = {
         customer: { ...form },
         shipping: { id: shipping.id, name: shipping.name },
-        items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors })),
+        items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}) })),
         subtotal, shippingCost, stripeFee, total,
       };
       localStorage.setItem("ep_pending_order", JSON.stringify(pendingOrder));
@@ -1474,7 +1913,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
       date: new Date().toISOString(),
       customer: { ...form },
       shipping: { id: shipping.id, name: shipping.name },
-      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors })),
+      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}) })),
       subtotal, shippingCost, stripeFee, total,
       status: { paid: true, produced: false, despatched: false },
     };
@@ -1502,18 +1941,18 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
     </div>
   );
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto", padding: "40px 24px 80px" }}>
+    <div className="ep-checkout-page" style={{ maxWidth: 900, margin: "0 auto", padding: "40px 24px 80px" }}>
       <button onClick={step === 1 ? onBack : () => setStep(step - 1)} style={{ background: "none", border: "none", color: S.teal, cursor: "pointer", fontSize: 14, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 24 }}>← {step === 1 ? "Back to Shop" : "Back"}</button>
       <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 40 }}>
         {["Shipping", shipping?.id === "collection" ? "Details" : "Address", "Payment"].map((label, i) => (
           <div key={i} style={{ flex: 1, display: "flex", alignItems: "center" }}>
             <div style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, background: step > i + 1 ? S.teal : step === i + 1 ? "rgba(0,201,167,0.15)" : "rgba(255,255,255,0.05)", color: step > i + 1 ? "#1a1a2e" : step === i + 1 ? S.teal : S.dimmer, border: step === i + 1 ? `1.5px solid ${S.teal}` : `1px solid ${S.border}`, flexShrink: 0 }}>{step > i + 1 ? "✓" : i + 1}</div>
-            <span style={{ fontSize: 12, fontWeight: 600, color: step >= i + 1 ? S.text : S.dimmer, fontFamily: S.fontHead, marginLeft: 8, whiteSpace: "nowrap" }}>{label}</span>
+            <span className="ep-step-label" style={{ fontSize: 12, fontWeight: 600, color: step >= i + 1 ? S.text : S.dimmer, fontFamily: S.fontHead, marginLeft: 8, whiteSpace: "nowrap" }}>{label}</span>
             {i < 2 && <div style={{ flex: 1, height: 1, marginLeft: 12, background: step > i + 1 ? S.teal : S.border }} />}
           </div>
         ))}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 32, alignItems: "start" }}>
+      <div className="ep-checkout-grid" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 32, alignItems: "start" }}>
         <div>
           {step === 1 && (<div style={secBox}>
             <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 16 }}>How do you want your prints?</h3>
@@ -1532,7 +1971,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
           {step === 2 && (<div style={secBox}>
             <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 20 }}>{shipping?.id === "collection" ? "Your Details" : "Delivery Address"}</h3>
             <div style={{ display: "grid", gap: 16 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div className="ep-form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div><label style={labS}>Full Name *</label><input style={inpS("name")} value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></div>
                 <div><label style={labS}>Email *</label><input style={inpS("email")} type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} /></div>
               </div>
@@ -1541,7 +1980,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
               ) : (<>
 <div><label style={labS}>Address Line 1 *</label><input style={inpS("address1")} value={form.address1} onChange={e => setForm({...form, address1: e.target.value})} placeholder="House number and street" /></div>
                 <div><label style={labS}>Address Line 2</label><input style={inpS("address2")} value={form.address2} onChange={e => setForm({...form, address2: e.target.value})} placeholder="Flat, building, floor (optional)" /></div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                <div className="ep-form-3col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
                   <div><label style={labS}>City / Town *</label><input style={inpS("city")} value={form.city} onChange={e => setForm({...form, city: e.target.value})} /></div>
                   <div><label style={labS}>County</label><input style={inpS("county")} value={form.county} onChange={e => setForm({...form, county: e.target.value})} /></div>
                   <div><label style={labS}>Postcode *</label><input style={inpS("postcode")} value={form.postcode} onChange={e => setForm({...form, postcode: e.target.value})} /></div>
@@ -1553,21 +1992,41 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced }) {
           </div>)}
           {step === 3 && (<div style={secBox}>
             <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 16 }}>Review & Pay</h3>
+            {/* Tip selector at checkout */}
+            {!currentTip && (
+              <div style={{ background: "rgba(255,165,0,0.04)", border: "1px solid rgba(255,165,0,0.12)", borderRadius: 14, padding: "18px 20px", marginBottom: 16, textAlign: "center" }}>
+                <p style={{ fontSize: 14, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 4 }}>🧡 Support Elijah</p>
+                <p style={{ fontSize: 12, color: S.muted, marginBottom: 12, lineHeight: 1.5 }}>Buy him a roll of filament to keep the printer running!</p>
+                <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                  {TIP_OPTIONS.map(t => (
+                    <button key={t.amount} onClick={() => onAddTip(t.amount)} style={{ padding: "8px 18px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.2)`, background: "rgba(0,201,167,0.06)", color: S.teal, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontMono, transition: "all 0.2s" }}>{t.emoji} {t.label}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {currentTip && (
+              <div style={{ background: "rgba(0,201,167,0.04)", border: `1px solid rgba(0,201,167,0.15)`, borderRadius: 14, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: S.teal, fontFamily: S.fontHead }}>🧡 £{currentTip.price.toFixed(2)} tip added — thank you!</span>
+                </div>
+                <button onClick={onRemoveTip} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 12, fontFamily: S.fontHead, textDecoration: "underline" }}>Remove</button>
+              </div>
+            )}
             <div style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
               <p style={{ fontSize: 11, color: S.dimmer, textAlign: "center" }}>{USE_STRIPE ? "🔒 Secure payment via Stripe" : "Demo mode — connect Stripe for real payments"}</p>
             </div>
             <button onClick={handlePayment} disabled={processing} style={{ width: "100%", padding: "16px 0", borderRadius: 12, border: "none", background: processing ? "rgba(0,201,167,0.3)" : `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 16, fontWeight: 800, cursor: processing ? "wait" : "pointer", fontFamily: S.fontHead, textTransform: "uppercase" }}>{processing ? "Redirecting to payment..." : `🔒 Pay £${total.toFixed(2)}`}</button>
           </div>)}
         </div>
-        <div style={{ background: "rgba(255,255,255,0.02)", border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 16, padding: 20, position: "sticky", top: 84 }}>
+        <div className="ep-checkout-summary" style={{ background: "rgba(255,255,255,0.02)", border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 16, padding: 20, position: "sticky", top: 84 }}>
           <h4 style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 12, textTransform: "uppercase" }}>Order</h4>
           {cart.map((item, i) => (
             <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-              <div style={{ width: 32, height: 32, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 14, opacity: 0.4 }}>📷</span>}
+              <div style={{ width: 32, height: 32, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: item.isTip ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {item.isTip ? <span style={{ fontSize: 16 }}>🧡</span> : item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 14, opacity: 0.4 }}>📷</span>}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div><div style={{ fontSize: 10, color: S.dimmer }}>{item.selectedColors.join(" + ")} × {item.qty}</div></div>
-              <span style={{ fontSize: 12, fontWeight: 700, color: S.text, fontFamily: S.fontMono }}>£{(item.price * item.qty).toFixed(2)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: item.isTip ? S.teal : S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>{!item.isTip && <div style={{ fontSize: 10, color: S.dimmer }}>{item.selectedColors.join(" + ")} × {item.qty}</div>}</div>
+              <span style={{ fontSize: 12, fontWeight: 700, color: item.isTip ? S.teal : S.text, fontFamily: S.fontMono }}>£{(item.price * item.qty).toFixed(2)}</span>
             </div>
           ))}
           <div style={{ borderTop: `1px solid ${S.border}`, paddingTop: 10, marginTop: 8 }}>
@@ -1598,24 +2057,30 @@ function CartDrawer({ cart, onClose, onRemove, onUpdateQty, onCheckout }) {
         <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
           {cart.length === 0 ? <div style={{ textAlign: "center", padding: "60px 0", color: S.dimmer }}><div style={{ fontSize: 48, marginBottom: 16 }}>🛒</div><p>Empty</p></div>
           : cart.map((item, i) => (
-            <div key={i} style={{ display: "flex", gap: 12, padding: 12, background: S.card, borderRadius: 12, border: `1px solid ${S.border}`, marginBottom: 12 }}>
-              <div style={{ width: 48, height: 48, borderRadius: 10, overflow: "hidden", flexShrink: 0, alignSelf: "center", background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 22, opacity: 0.4 }}>📷</span>}
+            <div key={i} style={{ display: "flex", gap: 12, padding: 12, background: item.isTip ? "rgba(0,201,167,0.04)" : S.card, borderRadius: 12, border: `1px solid ${item.isTip ? "rgba(0,201,167,0.15)" : S.border}`, marginBottom: 12 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 10, overflow: "hidden", flexShrink: 0, alignSelf: "center", background: item.isTip ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {item.isTip ? <span style={{ fontSize: 24 }}>🧡</span> : item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 22, opacity: 0.4 }}>📷</span>}
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead }}>{item.name}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, color: item.isTip ? S.teal : S.text }}>{item.name}</span>
                   <button onClick={() => onRemove(i)} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 14 }}>✕</button>
                 </div>
-                <div style={{ fontSize: 11, color: S.dimmer, marginTop: 2, display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  {item.selectedColors.map((c, ci) => <span key={ci} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>{ci > 0 && "+"}<span style={{ width: 8, height: 8, borderRadius: "50%", background: FILAMENTS[c]?.hex || "#666" }} />{c}</span>)}
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <button onClick={() => onUpdateQty(i, Math.max(1, item.qty - 1))} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${S.border}`, background: S.card, color: "#aaa", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                    <span style={{ fontWeight: 600, fontFamily: S.fontMono }}>{item.qty}</span>
-                    <button onClick={() => onUpdateQty(i, item.qty + 1)} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${S.border}`, background: S.card, color: "#aaa", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                {!item.isTip && (
+                  <div style={{ fontSize: 11, color: S.dimmer, marginTop: 2, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    {item.selectedColors.map((c, ci) => <span key={ci} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>{ci > 0 && "+"}<span style={{ width: 8, height: 8, borderRadius: "50%", background: FILAMENTS[c]?.hex || "#666" }} />{c}</span>)}
                   </div>
+                )}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                  {!item.isTip ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button onClick={() => onUpdateQty(i, Math.max(1, item.qty - 1))} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${S.border}`, background: S.card, color: "#aaa", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                      <span style={{ fontWeight: 600, fontFamily: S.fontMono }}>{item.qty}</span>
+                      <button onClick={() => onUpdateQty(i, item.qty + 1)} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${S.border}`, background: S.card, color: "#aaa", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 11, color: S.muted, fontFamily: S.fontHead }}>Filament fund</span>
+                  )}
                   <span style={{ fontSize: 14, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{(item.price * item.qty).toFixed(2)}</span>
                 </div>
               </div>
@@ -1845,11 +2310,37 @@ function ElijahsPrintsInner() {
   const [authChecked, setAuthChecked] = useState(!USE_FIREBASE); // skip auth check if no Firebase
   const [stripeSuccess, setStripeSuccess] = useState(null); // holds completed order after Stripe redirect
 
+  // Scroll to top when navigating between pages
+  useEffect(() => { window.scrollTo(0, 0); }, [page]);
+
+  // Auto-redirect: if on login page but already authenticated, go straight to admin
+  useEffect(() => {
+    if (page === "admin-login" && adminLoggedIn) {
+      setPage("admin");
+      loadOrders().then(o => setOrders(o || []));
+    }
+  }, [page, adminLoggedIn]);
+
   useEffect(() => {
     setLoaded(true);
+    // Ensure viewport meta tag exists for mobile rendering
+    if (!document.querySelector('meta[name="viewport"]')) {
+      const meta = document.createElement('meta');
+      meta.name = 'viewport';
+      meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+      document.head.appendChild(meta);
+    }
     loadProducts().then(p => {
       if (!p) { setProducts([...SEED_PRODUCTS]); saveProducts([...SEED_PRODUCTS]); return; }
-      setProducts(p);
+      // Ensure all products have addedDate (set today for existing products without one)
+      const today = new Date().toISOString();
+      let needsSave = false;
+      const enriched = p.map(prod => {
+        if (!prod.addedDate) { needsSave = true; return { ...prod, addedDate: today }; }
+        return prod;
+      });
+      setProducts(enriched);
+      if (needsSave) saveProducts(enriched);
     });
     loadOrders().then(o => setOrders(o || []));
     loadFilaments().then(f => {
@@ -1877,11 +2368,14 @@ function ElijahsPrintsInner() {
       if (pending) {
         try {
           const orderData = JSON.parse(pending);
+          const isTipOnly = orderData.items && orderData.items.length > 0 && orderData.items.every(i => i.isTip);
           const order = {
             id: "EP-" + Date.now().toString(36).toUpperCase(),
             date: new Date().toISOString(),
             ...orderData,
-            status: { paid: true, produced: false, despatched: false },
+            status: isTipOnly
+              ? { paid: true, produced: true, labelPrinted: true, despatched: true }
+              : { paid: true, produced: false, labelPrinted: false, despatched: false },
           };
           addOrder(order).catch(e => console.error("Order save failed:", e));
           sendOrderEmail(order);
@@ -1917,7 +2411,16 @@ function ElijahsPrintsInner() {
   const removeFromCart = i => setCart(cart.filter((_, idx) => idx !== i));
   const updateQty = (i, q) => { const u = [...cart]; u[i].qty = q; setCart(u); };
   const totalItems = cart.reduce((s, i) => s + i.qty, 0);
+  const addTip = (amount) => {
+    const withoutTip = cart.filter(i => !i.isTip);
+    setCart([...withoutTip, { id: "tip", name: "Support Elijah 🧡", price: amount, qty: 1, selectedColors: [], isTip: true, img: "" }]);
+  };
+  const removeTip = () => setCart(cart.filter(i => !i.isTip));
+  const currentTip = cart.find(i => i.isTip);
   const handleSaveProducts = async (p) => { setProducts(p); await saveProducts(p); };
+
+  // Auto-compute badges based on sales data and product attributes
+  const autoBadges = useMemo(() => computeAutoBadges(products || [], orders), [products, orders]);
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
     const order = orders.find(o => o.id === orderId);
     const wasDespatched = order?.status?.despatched;
@@ -1953,18 +2456,47 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
         @keyframes spin { from { transform: rotate(0) } to { transform: rotate(360deg) } }
         ::-webkit-scrollbar { width: 6px } ::-webkit-scrollbar-track { background: transparent } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px }
         input:focus, textarea:focus, select:focus { border-color: ${S.teal} !important; box-shadow: 0 0 0 3px rgba(0,201,167,0.1); outline: none }
+        input, textarea, select { font-size: 16px !important; }
+        @media (max-width: 768px) {
+          .ep-checkout-grid { grid-template-columns: 1fr !important; }
+          .ep-checkout-summary { position: static !important; order: -1; margin-bottom: 20px; }
+          .ep-form-2col { grid-template-columns: 1fr !important; }
+          .ep-form-3col { grid-template-columns: 1fr !important; }
+          .ep-checkout-steps span.ep-step-label { display: none !important; }
+          .ep-order-header { display: none !important; }
+          .ep-order-row { grid-template-columns: 1fr !important; }
+          .ep-order-check { justify-content: flex-start !important; }
+          .ep-check-label { display: inline !important; }
+          .ep-stats-grid { grid-template-columns: repeat(3, 1fr) !important; }
+          .ep-editor-2col { grid-template-columns: 1fr !important; }
+          .ep-hero { padding: 40px 16px 28px !important; }
+          .ep-product-grid { padding: 0 12px 40px !important; gap: 12px !important; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
+          .ep-cat-bar { padding: 0 12px 20px !important; }
+          .ep-nav-request { display: none !important; }
+          .ep-nav { padding: 0 12px !important; }
+          .ep-section-pad { padding-left: 12px !important; padding-right: 12px !important; }
+          .ep-cta-box { padding: 28px 20px !important; }
+          .ep-checkout-page { padding: 24px 12px 60px !important; }
+          .ep-admin-colours-grid { grid-template-columns: 1fr !important; }
+          .ep-colour-form-grid { grid-template-columns: 1fr !important; }
+          button:not(.ep-swatch), [role="button"] { min-height: 44px; }
+          .ep-checkout-page input, .ep-checkout-page select, .ep-checkout-page textarea { min-height: 48px; font-size: 16px !important; }
+        }
+        @media (max-width: 380px) {
+          .ep-product-grid { grid-template-columns: 1fr !important; }
+        }
       `}</style>
 
-      <nav style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(14,14,31,0.85)", backdropFilter: "blur(20px)", borderBottom: `1px solid rgba(255,255,255,0.05)`, padding: "0 24px" }}>
+      <nav className="ep-nav" style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(14,14,31,0.85)", backdropFilter: "blur(20px)", borderBottom: `1px solid rgba(255,255,255,0.05)`, padding: "0 24px" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", height: 64, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div onClick={async () => { setPage("shop"); if (USE_FIREBASE && adminLoggedIn) await firebaseSignOut(); setAdminLoggedIn(false); }} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(135deg, ${S.teal}, ${S.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>⬡</div>
-            <span style={{ fontSize: 20, fontWeight: 800, fontFamily: S.fontHead }}><span style={{ color: S.teal }}>E</span>lijah's 3D <span style={{ color: S.teal }}>P</span>rint <span style={{ color: S.teal }}>W</span>orld</span>
+            <span style={{ fontSize: 20, fontWeight: 800, fontFamily: S.fontHead }}><span style={{ color: S.teal }}>Elijah's</span> 3D Print World</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {page !== "admin" && (<>
-              <button onClick={() => setPage("request")} style={{ background: "none", border: `1px solid rgba(132,94,247,0.3)`, color: S.purple, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: S.fontHead, fontWeight: 600 }}>✨ Request</button>
-              <button onClick={() => setPage("admin-login")} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 16, padding: 8 }} title="Admin">🔧</button>
+              <button className="ep-nav-request" onClick={() => setPage("request")} style={{ background: "none", border: `1px solid rgba(132,94,247,0.3)`, color: S.purple, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: S.fontHead, fontWeight: 600 }}>✨ Request</button>
+              <button onClick={() => { if (adminLoggedIn) { setPage("admin"); loadOrders().then(o => setOrders(o || [])); } else { setPage("admin-login"); } }} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 16, padding: 8 }} title="Admin">🔧</button>
               <button onClick={() => setCartOpen(true)} style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`, color: S.text, padding: "8px 16px", borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontFamily: S.fontHead, fontWeight: 600, position: "relative" }}>
                 🛒{totalItems > 0 && <span style={{ background: S.teal, color: "#1a1a2e", width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, position: "absolute", top: -6, right: -6 }}>{totalItems}</span>}<span style={{ fontSize: 13 }}>Cart</span>
               </button>
@@ -1974,8 +2506,8 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
       </nav>
 
       {page === "admin-login" && !adminLoggedIn && <AdminLogin onLogin={() => { setAdminLoggedIn(true); setPage("admin"); }} />}
-      {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} />}
-      {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} />}
+      {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} autoBadges={autoBadges} />}
+      {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} onAddTip={addTip} onRemoveTip={removeTip} />}
       {page === "request" && <SpecialRequestPage onBack={() => setPage("shop")} />}
 
       {/* Stripe payment success — shown after redirect back from Stripe */}
@@ -1985,7 +2517,9 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
           <h2 style={{ fontSize: 28, fontWeight: 800, fontFamily: S.fontHead, marginBottom: 12, color: S.text }}>Payment Successful!</h2>
           {stripeSuccess.id && <p style={{ fontSize: 13, fontFamily: S.fontMono, color: S.teal, fontWeight: 700, marginBottom: 8 }}>Ref: {stripeSuccess.id}</p>}
           <p style={{ color: S.muted, fontSize: 15, marginBottom: 32 }}>
-            {stripeSuccess.shipping?.id === "collection"
+            {stripeSuccess.items?.every(i => i.isTip)
+              ? `Thanks ${stripeSuccess.customer?.name?.split(" ")[0] || ""}! 🧡 Your support means the world to Elijah!`
+              : stripeSuccess.shipping?.id === "collection"
               ? `Thanks ${stripeSuccess.customer?.name?.split(" ")[0] || ""}! Elijah will bring it to school.`
               : `Thanks ${stripeSuccess.customer?.name?.split(" ")[0] || ""}! Elijah will print and ship it.`}
           </p>
@@ -1994,16 +2528,16 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
       )}
 
       {page === "shop" && (<>
-        <header style={{ position: "relative", padding: "60px 24px 40px", textAlign: "center", overflow: "hidden" }}>
+        <header className="ep-hero" style={{ position: "relative", padding: "60px 24px 40px", textAlign: "center", overflow: "hidden" }}>
           <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 500, height: 500, borderRadius: "50%", background: "radial-gradient(circle, rgba(0,201,167,0.12), transparent 70%)", animation: "heroGlow 4s ease-in-out infinite", pointerEvents: "none" }} />
           <div style={{ position: "relative", opacity: loaded ? 1 : 0, transform: loaded ? "translateY(0)" : "translateY(30px)", transition: "all 0.8s cubic-bezier(0.16,1,0.3,1)" }}>
-            <div style={{ display: "inline-block", background: "rgba(0,201,167,0.08)", border: "1px solid rgba(0,201,167,0.15)", padding: "8px 18px", borderRadius: 20, fontSize: 13, color: S.text, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 20, lineHeight: 1.6, maxWidth: 400 }}>
-              I got <span style={{ color: S.teal, fontWeight: 800 }}>BANNED</span> from selling 3D prints<br />at school… so I built this website instead!!
-            </div>
             <h1 style={{ fontSize: "clamp(32px, 5vw, 56px)", fontWeight: 800, fontFamily: S.fontHead, lineHeight: 1.1, letterSpacing: "-2px", marginBottom: 12, background: "linear-gradient(135deg, #fff, #a0a0a0)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
               Elijah's 3D<br /><span style={{ background: `linear-gradient(135deg, ${S.teal}, ${S.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Print World</span>
             </h1>
-            <p style={{ fontSize: 12, color: S.dimmer, fontFamily: S.fontMono, fontWeight: 600, textTransform: "uppercase", marginBottom: 16 }}>Bambu Lab P1S Combo · Ships from Wales 🏴󠁧󠁢󠁷󠁬󠁳󠁿</p>
+            <div style={{ display: "inline-block", background: "rgba(0,201,167,0.08)", border: "1px solid rgba(0,201,167,0.15)", padding: "10px 24px", borderRadius: 20, fontSize: "clamp(11px, 2.5vw, 13px)", color: S.muted, fontFamily: S.font, fontWeight: 600, marginBottom: 20, fontStyle: "italic", lineHeight: 1.8, textAlign: "center", maxWidth: 460 }}>
+              I got <span style={{ color: S.teal, fontWeight: 800, fontStyle: "normal", fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "1px" }}>BANNED</span> from selling 3D prints at school…<br /><span style={{ color: S.teal, fontWeight: 700, fontStyle: "normal" }}>so I built this website instead!!</span>
+            </div>
+            <p style={{ fontSize: "clamp(13px, 2.5vw, 16px)", color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.7, fontStyle: "italic" }}>Bambu Lab P1S Combo · Ships from Wales 🏴󠁧󠁢󠁷󠁬󠁳󠁿</p>
             <p style={{ fontSize: 15, color: S.muted, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {ALL_COLORS.length} colours · Free school drop-off or UK-wide shipping</p>
             <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap", maxWidth: 340, margin: "0 auto" }}>
               {ALL_COLORS.map(name => <div key={name} title={name} style={{ width: 20, height: 20, borderRadius: "50%", background: FILAMENTS[name].hex, border: "2px solid rgba(255,255,255,0.15)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }} />)}
@@ -2011,12 +2545,12 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
           </div>
         </header>
 
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 12px" }}>
+        <div className="ep-section-pad" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 12px" }}>
           <div style={{ maxWidth: 400, margin: "0 auto 16px" }}>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products..." style={{ width: "100%", padding: "10px 16px", borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 14, fontFamily: S.font, outline: "none", textAlign: "center" }} />
           </div>
         </div>
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 28px", display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+        <div className="ep-cat-bar" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 28px", display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
           {displayCategories.map(cat => (
             <button key={cat} onClick={() => setActiveCat(cat)} style={{ padding: "8px 16px", borderRadius: 20, border: activeCat === cat ? `1.5px solid ${S.teal}` : `1px solid ${S.border}`, background: activeCat === cat ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.02)", color: activeCat === cat ? S.teal : S.muted, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 6 }}>
               {cat}<span style={{ fontSize: 11, color: activeCat === cat ? "rgba(0,201,167,0.6)" : S.dimmer, fontFamily: S.fontMono }}>{catCounts[cat] || 0}</span>
@@ -2024,20 +2558,44 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
           ))}
         </div>
 
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 60px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 18 }}>
+        <div className="ep-product-grid" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 60px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 18 }}>
           {shopProducts.length === 0 ? <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px 0", color: S.dimmer }}>{search ? `Nothing found for "${search}"` : "No products available"}</div>
           : shopProducts.map((product, i) => (
             <div key={product.id} style={{ opacity: loaded ? 1 : 0, transform: loaded ? "translateY(0)" : "translateY(20px)", transition: `all 0.5s cubic-bezier(0.16,1,0.3,1) ${Math.min(i * 0.05, 0.4)}s` }}>
-              <ProductCard product={product} onAddToCart={addToCart} cartAnimation={cartAnim} />
+              <ProductCard product={{ ...product, badge: autoBadges[product.id] || null }} onAddToCart={addToCart} cartAnimation={cartAnim} />
             </div>
           ))}
         </div>
 
         <div style={{ maxWidth: 800, margin: "0 auto 60px", padding: "0 24px" }}>
-          <div style={{ background: `linear-gradient(135deg, rgba(0,201,167,0.08), rgba(132,94,247,0.08))`, border: "1px solid rgba(0,201,167,0.12)", borderRadius: 20, padding: "36px 28px", textAlign: "center" }}>
+          <div className="ep-cta-box" style={{ background: `linear-gradient(135deg, rgba(0,201,167,0.08), rgba(132,94,247,0.08))`, border: "1px solid rgba(0,201,167,0.12)", borderRadius: 20, padding: "36px 28px", textAlign: "center" }}>
             <h2 style={{ fontSize: 24, fontWeight: 800, fontFamily: S.fontHead, marginBottom: 8 }}>Got a Custom Idea? 💡</h2>
             <p style={{ color: S.muted, fontSize: 14, marginBottom: 18, lineHeight: 1.6 }}>Can't find what you're looking for? Describe it and we'll see if we can print it for you!</p>
             <button onClick={() => setPage("request")} style={{ padding: "12px 28px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, textTransform: "uppercase" }}>Request Custom Print</button>
+          </div>
+        </div>
+
+        {/* Tip Jar Section */}
+        <div style={{ maxWidth: 600, margin: "0 auto 60px", padding: "0 24px" }}>
+          <div style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}`, borderRadius: 20, padding: "32px 28px", textAlign: "center" }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>🧡</div>
+            <h2 style={{ fontSize: 22, fontWeight: 800, fontFamily: S.fontHead, marginBottom: 6, color: S.text }}>Buy Elijah a Roll of Filament</h2>
+            <p style={{ color: S.muted, fontSize: 13, marginBottom: 20, lineHeight: 1.6, maxWidth: 400, margin: "0 auto 20px" }}>Every print uses filament — your tip helps keep the printer running and the ideas flowing!</p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBottom: 12 }}>
+              {TIP_OPTIONS.map(t => {
+                const isActive = currentTip?.price === t.amount;
+                return (
+                  <button key={t.amount} onClick={() => isActive ? removeTip() : addTip(t.amount)} style={{
+                    padding: "12px 24px", borderRadius: 12, cursor: "pointer", fontSize: 16, fontWeight: 800, fontFamily: S.fontMono, transition: "all 0.2s",
+                    border: isActive ? `2px solid ${S.teal}` : `1px solid ${S.border}`,
+                    background: isActive ? "rgba(0,201,167,0.12)" : "rgba(255,255,255,0.03)",
+                    color: isActive ? S.teal : S.text,
+                    transform: isActive ? "scale(1.05)" : "scale(1)",
+                  }}>{t.emoji} {t.label}</button>
+                );
+              })}
+            </div>
+            {currentTip && <p style={{ fontSize: 12, color: S.teal, fontFamily: S.fontHead, fontWeight: 600 }}>✓ £{currentTip.price.toFixed(2)} added to your cart</p>}
           </div>
         </div>
 
