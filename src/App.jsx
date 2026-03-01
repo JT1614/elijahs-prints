@@ -1805,6 +1805,7 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
             <h1 style={{ fontSize: "clamp(32px, 5vw, 56px)", fontWeight: 800, fontFamily: S.fontHead, lineHeight: 1.1, letterSpacing: "-2px", marginBottom: 12, background: "linear-gradient(135deg, #fff, #a0a0a0)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
               Custom 3D Prints<br /><span style={{ background: `linear-gradient(135deg, ${S.teal}, ${S.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Made to Order</span>
             </h1>
+            <p style={{ fontSize: "clamp(13px, 2.5vw, 16px)", color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.7, fontStyle: "italic" }}>I got banned from selling 3D prints at school — so I built this website instead.</p>
             <p style={{ fontSize: 15, color: S.muted, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {ALL_COLORS.length} colours · Free school drop-off or UK-wide shipping</p>
             <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap", maxWidth: 340, margin: "0 auto" }}>
               {ALL_COLORS.map(name => <div key={name} title={name} style={{ width: 20, height: 20, borderRadius: "50%", background: FILAMENTS[name].hex, border: "2px solid rgba(255,255,255,0.15)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }} />)}
