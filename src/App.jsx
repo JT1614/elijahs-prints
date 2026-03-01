@@ -414,7 +414,7 @@ const S = {
 function ColorSwatch({ name, selected, onClick, size = 22, disabled }) {
   const fil = FILAMENTS[name]; if (!fil) return null;
   return (
-    <button onClick={disabled ? undefined : onClick} title={`${name} (${fil.type})`} disabled={disabled} style={{
+    <button className="ep-swatch" onClick={disabled ? undefined : onClick} title={`${name} (${fil.type})`} disabled={disabled} style={{
       width: size, height: size, borderRadius: "50%", cursor: disabled ? "default" : "pointer", flexShrink: 0,
       background: fil.hex, border: selected ? "2.5px solid #00c9a7" : "2px solid rgba(255,255,255,0.15)",
       outline: selected ? "2px solid rgba(0,201,167,0.3)" : "none", outlineOffset: 1,
@@ -437,7 +437,7 @@ function ProductImage({ product, hovered }) {
   const hasImg = product.img && !err;
   return (
     <div style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(0,201,167,0.05), rgba(132,94,247,0.05))", position: "relative", overflow: "hidden" }}>
-      {hasImg ? <img src={product.img} alt={product.name} onError={() => setErr(true)} style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.4s", transform: hovered ? "scale(1.08)" : "scale(1)" }} />
+      {hasImg ? <img src={product.img} alt={product.name} onError={() => setErr(true)} style={{ width: "100%", height: "100%", objectFit: "contain", transition: "transform 0.4s", transform: hovered ? "scale(1.08)" : "scale(1)", padding: 8 }} />
       : <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, transition: "transform 0.4s", transform: hovered ? "scale(1.05)" : "scale(1)" }}>
           <span style={{ fontSize: 42, opacity: 0.3 }}>📷</span>
           <span style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontHead }}>No photo yet</span>
@@ -1749,7 +1749,7 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
           .ep-checkout-page { padding: 24px 12px 60px !important; }
           .ep-admin-colours-grid { grid-template-columns: 1fr !important; }
           .ep-colour-form-grid { grid-template-columns: 1fr !important; }
-          button, [role="button"] { min-height: 44px; }
+          button:not(.ep-swatch), [role="button"] { min-height: 44px; }
           .ep-checkout-page input, .ep-checkout-page select, .ep-checkout-page textarea { min-height: 48px; font-size: 16px !important; }
         }
         @media (max-width: 380px) {
