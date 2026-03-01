@@ -896,7 +896,7 @@ function OrderBook({ orders, onUpdateOrder, products }) {
     <div class="msg">Thanks for your order!</div>
     <div class="submsg">Every product is 3D printed by Elijah, age 10, on his Bambu Lab P1S right here in Wales.</div>
     <div class="url" style="margin-top: 2mm;">etprintworld.com</div>
-    <div class="banned-tagline">I got <b>BANNED</b> from selling 3D prints at school, so I built this website instead!</div>
+    <div class="banned-tagline">I got <b>BANNED</b> from selling 3D prints at school,<br/>so I built this website instead!</div>
   </div></div>
 
   <!-- Label 3: Order Details -->
