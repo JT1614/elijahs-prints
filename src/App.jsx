@@ -165,6 +165,63 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household", "Clickers", "Coasters"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
+
+/* ═══════════════════════════════════════════════
+   AUTO-BADGE COMPUTATION
+   Priority: NEW > Best Seller > Popular > Premium
+   ═══════════════════════════════════════════════ */
+function computeAutoBadges(products, orders) {
+  if (!products || !products.length) return {};
+  const now = Date.now();
+  const TWO_WEEKS = 14 * 24 * 60 * 60 * 1000;
+  const ONE_MONTH = 30 * 24 * 60 * 60 * 1000;
+
+  // Count all-time sales per product
+  const allTimeSales = {};
+  const lastMonthSales = {};
+  (orders || []).forEach(order => {
+    const orderDate = new Date(order.date).getTime();
+    const isLastMonth = (now - orderDate) <= ONE_MONTH;
+    (order.items || []).forEach(item => {
+      if (item.isTip) return;
+      allTimeSales[item.id] = (allTimeSales[item.id] || 0) + (item.qty || 1);
+      if (isLastMonth) lastMonthSales[item.id] = (lastMonthSales[item.id] || 0) + (item.qty || 1);
+    });
+  });
+
+  // Best Seller: #1 all-time (must have at least 1 sale)
+  const bestSellerId = Object.entries(allTimeSales).sort((a, b) => b[1] - a[1])[0]?.[0];
+
+  // Popular: top 5 by last-month sales (exclude #1 best seller to avoid overlap)
+  const popularIds = Object.entries(lastMonthSales)
+    .filter(([id]) => id !== bestSellerId)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .filter(([, count]) => count > 0)
+    .map(([id]) => id);
+
+  // Premium: any "Dragon" product + top 5 most expensive
+  const sortedByPrice = [...products].sort((a, b) => b.price - a.price);
+  const top5Expensive = sortedByPrice.slice(0, 5).map(p => String(p.id));
+  const premiumIds = new Set([
+    ...products.filter(p => /dragon/i.test(p.name)).map(p => String(p.id)),
+    ...top5Expensive,
+  ]);
+
+  // Compute badge per product (priority: NEW > Best Seller > Popular > Premium)
+  const badges = {};
+  products.forEach(p => {
+    const pid = String(p.id);
+    const addedDate = p.addedDate ? new Date(p.addedDate).getTime() : 0;
+    const isNew = addedDate && (now - addedDate) <= TWO_WEEKS;
+
+    if (isNew) { badges[p.id] = "New"; return; }
+    if (pid === String(bestSellerId) && allTimeSales[pid] > 0) { badges[p.id] = "Best Seller"; return; }
+    if (popularIds.includes(pid)) { badges[p.id] = "Popular"; return; }
+    if (premiumIds.has(pid)) { badges[p.id] = "Premium"; return; }
+  });
+  return badges;
+}
 const TIP_OPTIONS = [
   { amount: 2, label: "£2", emoji: "🎉" },
   { amount: 5, label: "£5", emoji: "🔥" },
@@ -612,11 +669,10 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
           <div><label style={labelStyle}>Weight (g)</label><input style={inputStyle} type="number" min="0" value={p.grams} onChange={e => set("grams", parseInt(e.target.value) || 0)} /></div>
           <div><label style={labelStyle}>Print Time</label><input style={inputStyle} value={p.printTime} onChange={e => set("printTime", e.target.value)} placeholder="e.g. 2 hrs" /></div>
           <div>
-            <label style={labelStyle}>Badge</label>
-            <select value={p.badge || ""} onChange={e => set("badge", e.target.value || null)} style={{ ...inputStyle, cursor: "pointer" }}>
-              <option value="">None</option>
-              {BADGE_OPTIONS.filter(Boolean).map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
+            <label style={labelStyle}>Badge (auto)</label>
+            <div style={{ ...inputStyle, display: "flex", alignItems: "center", background: "rgba(255,255,255,0.02)", cursor: "default" }}>
+              <span style={{ fontSize: 13, color: S.dimmer }}>{p._autoBadge || "—"}</span>
+            </div>
           </div>
         </div>
 
@@ -673,7 +729,9 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
         {/* Source Reference (admin only) */}
         <div style={sectionStyle}>
           <label style={labelStyle}>🔒 Source Reference (admin only — not shown to customers)</label>
-          <input style={inputStyle} value={p.sourceRef || ""} onChange={e => set("sourceRef", e.target.value)} placeholder="e.g. Kumiko Planter Large by Foxwood" />
+          <input style={{ ...inputStyle, marginBottom: 8 }} value={p.sourceRef || ""} onChange={e => set("sourceRef", e.target.value)} placeholder="e.g. Kumiko Planter Large by Foxwood" />
+          <label style={labelStyle}>🔗 Source URL (MakerWorld link — clickable in Order Book)</label>
+          <input style={inputStyle} value={p.sourceUrl || ""} onChange={e => set("sourceUrl", e.target.value)} placeholder="e.g. https://makerworld.com/en/models/569100" />
         </div>
 
         {/* Actions */}
@@ -1075,7 +1133,7 @@ function OrderBook({ orders, onUpdateOrder, products }) {
                         <span style={{ fontWeight: 600, color: S.text }}>{item.qty}×</span>
                         <span>{item.name}</span>
                         <span style={{ fontSize: 10, color: S.dimmer }}>({item.selectedColors.join(" + ")})</span>
-                        {(() => { const prod = products.find(p => p.id === item.id); return prod?.sourceRef ? <span style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2 }} title={prod.sourceRef}>🔒 {prod.sourceRef}</span> : null; })()}
+                        {(() => { const prod = products.find(p => p.id === item.id); if (!prod?.sourceRef) return null; return prod.sourceUrl ? <a href={prod.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2, textDecoration: "none" }} title={`Open: ${prod.sourceRef}`}>🔗 {prod.sourceRef}</a> : <span style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2 }} title={prod.sourceRef}>🔒 {prod.sourceRef}</span>; })()}
                       </>)}
                     </div>
                   ))}
@@ -1113,7 +1171,7 @@ function OrderBook({ orders, onUpdateOrder, products }) {
 /* ═══════════════════════════════════════════════
    ADMIN PANEL
    ═══════════════════════════════════════════════ */
-function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories }) {
+function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories, autoBadges }) {
   const [filter, setFilter] = useState("All");
   const [editing, setEditing] = useState(null);
   const [addingNew, setAddingNew] = useState(false);
@@ -1131,7 +1189,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [importingJSON, setImportingJSON] = useState(false);
   const [importText, setImportText] = useState("");
 
-  const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, maxColors: 1 };
+  const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, maxColors: 1, addedDate: new Date().toISOString(), sourceRef: "", sourceUrl: "" };
 
   const pendingOrders = orders.filter(o => !o.status.despatched).length;
 
@@ -1234,7 +1292,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 <span style={{ fontSize: 14, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{product.name}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{product.price.toFixed(2)}</span>
                 <span style={{ fontSize: 11, color: S.dimmer }}>{product.grams}g</span>
-                {product.badge && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(0,201,167,0.1)", color: S.teal, fontWeight: 600, fontFamily: S.fontHead }}>{product.badge}</span>}
+                {autoBadges[product.id] && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(0,201,167,0.1)", color: S.teal, fontWeight: 600, fontFamily: S.fontHead }}>{autoBadges[product.id]}</span>}
                 {!product.available && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(255,107,107,0.1)", color: "#ff6b6b", fontWeight: 600 }}>Hidden</span>}
                 {product.maxColors > 1 && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(132,94,247,0.1)", color: S.purple, fontWeight: 600 }}>{product.maxColors} colours</span>}
               </div>
@@ -1460,10 +1518,12 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     printTime: data.printTime || "",
                     grams: parseInt(data.grams) || 0,
                     available: data.available !== false,
-                    badge: data.badge || null,
+                    badge: null,
                     emoji: data.emoji || "",
                     img: "",
                     sourceRef: data.sourceRef || "",
+                    sourceUrl: data.sourceUrl || "",
+                    addedDate: new Date().toISOString(),
                   };
                   setSaving(true);
                   await onSave([...products, imported]);
@@ -1482,7 +1542,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
       {(editing || addingNew) && (
         <ProductEditor
-          product={addingNew ? newProduct : editing}
+          product={addingNew ? newProduct : { ...editing, _autoBadge: autoBadges[editing?.id] || null }}
           isNew={addingNew}
           onSave={handleSaveProduct}
           onDelete={handleDelete}
@@ -2035,7 +2095,15 @@ function ElijahsPrintsInner() {
     }
     loadProducts().then(p => {
       if (!p) { setProducts([...SEED_PRODUCTS]); saveProducts([...SEED_PRODUCTS]); return; }
-      setProducts(p);
+      // Ensure all products have addedDate (set today for existing products without one)
+      const today = new Date().toISOString();
+      let needsSave = false;
+      const enriched = p.map(prod => {
+        if (!prod.addedDate) { needsSave = true; return { ...prod, addedDate: today }; }
+        return prod;
+      });
+      setProducts(enriched);
+      if (needsSave) saveProducts(enriched);
     });
     loadOrders().then(o => setOrders(o || []));
     loadFilaments().then(f => {
@@ -2113,6 +2181,9 @@ function ElijahsPrintsInner() {
   const removeTip = () => setCart(cart.filter(i => !i.isTip));
   const currentTip = cart.find(i => i.isTip);
   const handleSaveProducts = async (p) => { setProducts(p); await saveProducts(p); };
+
+  // Auto-compute badges based on sales data and product attributes
+  const autoBadges = useMemo(() => computeAutoBadges(products || [], orders), [products, orders]);
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
     const order = orders.find(o => o.id === orderId);
     const wasDespatched = order?.status?.despatched;
@@ -2198,7 +2269,7 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
       </nav>
 
       {page === "admin-login" && !adminLoggedIn && <AdminLogin onLogin={() => { setAdminLoggedIn(true); setPage("admin"); }} />}
-      {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} />}
+      {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} autoBadges={autoBadges} />}
       {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} onAddTip={addTip} onRemoveTip={removeTip} />}
       {page === "request" && <SpecialRequestPage onBack={() => setPage("shop")} />}
 
@@ -2254,7 +2325,7 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
           {shopProducts.length === 0 ? <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px 0", color: S.dimmer }}>{search ? `Nothing found for "${search}"` : "No products available"}</div>
           : shopProducts.map((product, i) => (
             <div key={product.id} style={{ opacity: loaded ? 1 : 0, transform: loaded ? "translateY(0)" : "translateY(20px)", transition: `all 0.5s cubic-bezier(0.16,1,0.3,1) ${Math.min(i * 0.05, 0.4)}s` }}>
-              <ProductCard product={product} onAddToCart={addToCart} cartAnimation={cartAnim} />
+              <ProductCard product={{ ...product, badge: autoBadges[product.id] || null }} onAddToCart={addToCart} cartAnimation={cartAnim} />
             </div>
           ))}
         </div>
