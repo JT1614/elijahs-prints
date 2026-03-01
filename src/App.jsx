@@ -1178,6 +1178,115 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
   const [adminTab, setAdminTab] = useState("orders");
+  const [exporting, setExporting] = useState(false);
+
+  /* ── Export Data to Excel ── */
+  const exportData = async () => {
+    setExporting(true);
+    try {
+      if (!window.XLSX) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+      const XLSX = window.XLSX;
+      const wb = XLSX.utils.book_new();
+
+      /* Products tab */
+      const prodRows = products.map(p => ({
+        "ID": p.id,
+        "Name": p.name,
+        "Category": p.category,
+        "Price (£)": p.price,
+        "Weight (g)": p.grams,
+        "Print Time": p.printTime,
+        "Description": p.description,
+        "Available": p.available ? "Yes" : "No",
+        "Max Colours": p.maxColors,
+        "Colours": (p.colors || []).join(", "),
+        "Badge": p.badge || "",
+        "Source Ref": p.sourceRef || "",
+        "Source URL": p.sourceUrl || "",
+        "Added Date": p.addedDate || "",
+        "── LICENCE AUDIT ──": "",
+        "Creator": "",
+        "Licence Type": "",
+        "Commercial Available?": "",
+        "Monthly Cost": "",
+        "Action Required": "",
+        "Notes": "",
+      }));
+      const wsProd = XLSX.utils.json_to_sheet(prodRows);
+      wsProd["!cols"] = [
+        { wch: 8 }, { wch: 28 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 12 },
+        { wch: 50 }, { wch: 10 }, { wch: 12 }, { wch: 60 }, { wch: 12 },
+        { wch: 30 }, { wch: 50 }, { wch: 20 }, { wch: 20 },
+        { wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 20 }, { wch: 30 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsProd, "Products");
+
+      /* Orders tab */
+      const orderRows = orders.map(o => ({
+        "Order ID": o.id,
+        "Date": o.date ? new Date(o.date).toLocaleDateString("en-GB") : "",
+        "Customer": o.customer?.name || "",
+        "Email": o.customer?.email || "",
+        "Phone": o.customer?.phone || "",
+        "Address": [o.customer?.address1, o.customer?.address2, o.customer?.city, o.customer?.county, o.customer?.postcode].filter(Boolean).join(", "),
+        "Shipping": o.shipping?.name || "",
+        "Items": (o.items || []).map(i => `${i.qty}x ${i.name} (${(i.selectedColors || []).join("/")})`).join("; "),
+        "Total (£)": o.total,
+        "Paid": o.status?.paid ? "Yes" : "No",
+        "Produced": o.status?.produced ? "Yes" : "No",
+        "Label Printed": o.status?.labelPrinted ? "Yes" : "No",
+        "Despatched": o.status?.despatched ? "Yes" : "No",
+      }));
+      const wsOrd = XLSX.utils.json_to_sheet(orderRows);
+      wsOrd["!cols"] = [
+        { wch: 14 }, { wch: 12 }, { wch: 20 }, { wch: 28 }, { wch: 16 }, { wch: 50 },
+        { wch: 22 }, { wch: 60 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 12 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsOrd, "Orders");
+
+      /* Colours tab */
+      const colourRows = ALL_COLORS.map(name => {
+        const f = FILAMENTS[name];
+        return {
+          "Colour Name": name,
+          "Hex": f?.hex || "",
+          "Type": f?.type || "",
+          "Premium": f?.premium ? "Yes" : "No",
+          "Used By Products": products.filter(p => (p.colors || []).includes(name)).length,
+        };
+      });
+      const wsCol = XLSX.utils.json_to_sheet(colourRows);
+      wsCol["!cols"] = [{ wch: 22 }, { wch: 50 }, { wch: 18 }, { wch: 10 }, { wch: 18 }];
+      XLSX.utils.book_append_sheet(wb, wsCol, "Colours");
+
+      /* Categories tab */
+      const catRows = categories.map(cat => ({
+        "Category": cat,
+        "Product Count": products.filter(p => p.category === cat).length,
+        "Products": products.filter(p => p.category === cat).map(p => p.name).join(", "),
+      }));
+      const wsCat = XLSX.utils.json_to_sheet(catRows);
+      wsCat["!cols"] = [{ wch: 20 }, { wch: 14 }, { wch: 80 }];
+      XLSX.utils.book_append_sheet(wb, wsCat, "Categories");
+
+      /* Download */
+      const date = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `ET-Print-World-Export-${date}.xlsx`);
+      setSavedMsg("Exported!"); setTimeout(() => setSavedMsg(""), 3000);
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("Export failed: " + err.message);
+    }
+    setExporting(false);
+  };
   const [newColourName, setNewColourName] = useState("");
   const [newColourHex, setNewColourHex] = useState("#888888");
   const [newColourType, setNewColourType] = useState("PLA Basic");
@@ -1320,6 +1429,7 @@ Important:
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {savedMsg && <span style={{ color: S.teal, fontWeight: 700, fontFamily: S.fontHead, fontSize: 14 }}>✓ {savedMsg}</span>}
+          <button onClick={exportData} disabled={exporting} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 14, fontWeight: 700, cursor: exporting ? "wait" : "pointer", fontFamily: S.fontHead, opacity: exporting ? 0.5 : 1 }}>{exporting ? "⏳ Exporting…" : "📊 Export Data"}</button>
           <button onClick={onLogout} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.muted, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Log Out</button>
         </div>
       </div>
