@@ -847,6 +847,8 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   .thankyou-label .emoji { font-size: 20pt; margin-bottom: 2mm; }
   .thankyou-label .msg { font-family: 'Space Grotesk', sans-serif; font-size: 12pt; font-weight: 800; color: #ffffff; margin-bottom: 2mm; }
   .thankyou-label .submsg { font-size: 7.5pt; color: rgba(255,255,255,0.5); line-height: 1.5; max-width: 72mm; }
+  .thankyou-label .banned-tagline { font-size: 6.5pt; color: rgba(255,255,255,0.5); font-style: italic; line-height: 1.4; margin-top: 2mm; max-width: 72mm; }
+  .thankyou-label .banned-tagline b { color: #00c9a7; font-weight: 800; font-style: normal; text-transform: uppercase; }
   .thankyou-label .url { color: #00c9a7; }
 
   /* Label 3: Order details */
@@ -893,7 +895,8 @@ function OrderBook({ orders, onUpdateOrder, products }) {
     <div class="emoji">🧡</div>
     <div class="msg">Thanks for your order!</div>
     <div class="submsg">Every product is 3D printed by Elijah, age 10, on his Bambu Lab P1S right here in Wales.</div>
-    <div class="url" style="margin-top: 3mm;">etprintworld.com</div>
+    <div class="url" style="margin-top: 2mm;">etprintworld.com</div>
+    <div class="banned-tagline">I got <b>BANNED</b> from selling 3D prints at school, so I built this website instead!</div>
   </div></div>
 
   <!-- Label 3: Order Details -->
@@ -1944,6 +1947,14 @@ function ElijahsPrintsInner() {
 
   // Scroll to top when navigating between pages
   useEffect(() => { window.scrollTo(0, 0); }, [page]);
+
+  // Auto-redirect: if on login page but already authenticated, go straight to admin
+  useEffect(() => {
+    if (page === "admin-login" && adminLoggedIn) {
+      setPage("admin");
+      loadOrders().then(o => setOrders(o || []));
+    }
+  }, [page, adminLoggedIn]);
 
   useEffect(() => {
     setLoaded(true);
