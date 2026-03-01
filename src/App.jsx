@@ -871,8 +871,8 @@ function OrderBook({ orders, onUpdateOrder, products }) {
   .elijah-label .photo-bg { width: 100%; height: 100%; object-fit: cover; border-radius: 3mm; display: block; }
   .elijah-label .overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 2.5mm 3mm; background: linear-gradient(transparent, rgba(26,26,46,0.6) 25%, rgba(26,26,46,0.95)); display: flex; justify-content: space-between; align-items: flex-end; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
   .elijah-label .tagline { font-size: 8pt; color: #ffffff; font-style: italic; line-height: 1.3; font-family: 'DM Sans', sans-serif; flex: 1; }
-  .elijah-label .tagline b { color: #00c9a7; font-weight: 800; font-style: normal; text-transform: uppercase; background: rgba(255,255,255,0.92); padding: 0.3mm 1.5mm; border-radius: 1mm; }
-  .elijah-label .url { color: #00c9a7; font-size: 6.5pt; font-family: 'Space Grotesk', sans-serif; font-weight: 600; margin-left: 3mm; white-space: nowrap; margin-top: 0; background: rgba(255,255,255,0.92); padding: 0.3mm 2mm; border-radius: 1mm; }
+  .elijah-label .tagline b { color: #00c9a7; font-weight: 800; font-style: normal; text-transform: uppercase; background: rgba(255,255,255,0.92); padding: 0.3mm 1.5mm; border-radius: 1mm; text-shadow: none; }
+  .elijah-label .url { color: #00c9a7; font-size: 6.5pt; font-family: 'Space Grotesk', sans-serif; font-weight: 600; margin-left: 3mm; white-space: nowrap; margin-top: 0; background: rgba(255,255,255,0.92); padding: 0.3mm 2mm; border-radius: 1mm; text-shadow: none; }
   .elijah-no-photo { font-size: 18pt; margin-bottom: 2mm; }
 
   @media print {
@@ -2155,13 +2155,13 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
         <header className="ep-hero" style={{ position: "relative", padding: "60px 24px 40px", textAlign: "center", overflow: "hidden" }}>
           <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 500, height: 500, borderRadius: "50%", background: "radial-gradient(circle, rgba(0,201,167,0.12), transparent 70%)", animation: "heroGlow 4s ease-in-out infinite", pointerEvents: "none" }} />
           <div style={{ position: "relative", opacity: loaded ? 1 : 0, transform: loaded ? "translateY(0)" : "translateY(30px)", transition: "all 0.8s cubic-bezier(0.16,1,0.3,1)" }}>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(0,201,167,0.08)", border: "1px solid rgba(0,201,167,0.15)", padding: "6px 16px", borderRadius: 20, fontSize: 12, color: S.teal, fontFamily: S.fontMono, fontWeight: 600, textTransform: "uppercase", marginBottom: 20 }}>
-              <span style={{ display: "inline-block", animation: "spin 4s linear infinite" }}>⬡</span>Bambu Lab P1S Combo · Ships from Wales 🏴󠁧󠁢󠁷󠁬󠁳󠁿
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(0,201,167,0.08)", border: "1px solid rgba(0,201,167,0.15)", padding: "6px 16px", borderRadius: 20, fontSize: 12, color: S.muted, fontFamily: S.font, fontWeight: 600, marginBottom: 20, fontStyle: "italic" }}>
+              <span style={{ display: "inline-block", animation: "spin 4s linear infinite", fontStyle: "normal" }}>⬡</span>I got <span style={{ color: S.teal, fontWeight: 800, fontStyle: "normal", fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "1px" }}>BANNED</span> from selling 3D prints at school… so I built this website instead!!
             </div>
             <h1 style={{ fontSize: "clamp(32px, 5vw, 56px)", fontWeight: 800, fontFamily: S.fontHead, lineHeight: 1.1, letterSpacing: "-2px", marginBottom: 12, background: "linear-gradient(135deg, #fff, #a0a0a0)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
               Custom 3D Prints<br /><span style={{ background: `linear-gradient(135deg, ${S.teal}, ${S.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Made to Order</span>
             </h1>
-            <p style={{ fontSize: "clamp(13px, 2.5vw, 16px)", color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.7, fontStyle: "italic" }}>I got <span style={{ color: S.teal, fontWeight: 800, fontStyle: "normal", fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "1px" }}>banned</span> from selling 3D prints at school — so I built this website instead.</p>
+            <p style={{ fontSize: "clamp(13px, 2.5vw, 16px)", color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.7, fontStyle: "italic" }}>Bambu Lab P1S Combo · Ships from Wales 🏴󠁧󠁢󠁷󠁬󠁳󠁿</p>
             <p style={{ fontSize: 15, color: S.muted, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {ALL_COLORS.length} colours · Free school drop-off or UK-wide shipping</p>
             <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap", maxWidth: 340, margin: "0 auto" }}>
               {ALL_COLORS.map(name => <div key={name} title={name} style={{ width: 20, height: 20, borderRadius: "50%", background: FILAMENTS[name].hex, border: "2px solid rgba(255,255,255,0.15)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }} />)}
