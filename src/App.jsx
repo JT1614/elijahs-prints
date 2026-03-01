@@ -2158,10 +2158,10 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(0,201,167,0.08)", border: "1px solid rgba(0,201,167,0.15)", padding: "6px 16px", borderRadius: 20, fontSize: 12, color: S.teal, fontFamily: S.fontMono, fontWeight: 600, textTransform: "uppercase", marginBottom: 20 }}>
               <span style={{ display: "inline-block", animation: "spin 4s linear infinite" }}>⬡</span>Bambu Lab P1S Combo · Ships from Wales 🏴󠁧󠁢󠁷󠁬󠁳󠁿
             </div>
-            <h1 style={{ fontSize: "clamp(28px, 4.5vw, 48px)", fontWeight: 800, fontFamily: S.fontHead, lineHeight: 1.2, letterSpacing: "-1px", marginBottom: 12, color: "#fff" }}>
-              I got <span style={{ color: S.teal }}>BANNED</span> from selling<br />3D prints at school...<br /><span style={{ background: `linear-gradient(135deg, ${S.teal}, ${S.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>so I built this website instead!!</span>
+            <h1 style={{ fontSize: "clamp(32px, 5vw, 56px)", fontWeight: 800, fontFamily: S.fontHead, lineHeight: 1.1, letterSpacing: "-2px", marginBottom: 12, background: "linear-gradient(135deg, #fff, #a0a0a0)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+              Custom 3D Prints<br /><span style={{ background: `linear-gradient(135deg, ${S.teal}, ${S.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Made to Order</span>
             </h1>
-            <p style={{ fontSize: "clamp(13px, 2.5vw, 16px)", color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.7 }}>Custom 3D prints made to order</p>
+            <p style={{ fontSize: "clamp(13px, 2.5vw, 16px)", color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.7, fontStyle: "italic" }}>I got <span style={{ color: S.teal, fontWeight: 800, fontStyle: "normal", fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "1px" }}>banned</span> from selling 3D prints at school — so I built this website instead.</p>
             <p style={{ fontSize: 15, color: S.muted, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {ALL_COLORS.length} colours · Free school drop-off or UK-wide shipping</p>
             <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap", maxWidth: 340, margin: "0 auto" }}>
               {ALL_COLORS.map(name => <div key={name} title={name} style={{ width: 20, height: 20, borderRadius: "50%", background: FILAMENTS[name].hex, border: "2px solid rgba(255,255,255,0.15)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }} />)}
