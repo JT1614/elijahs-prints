@@ -2115,7 +2115,7 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
         <div style={{ maxWidth: 1200, margin: "0 auto", height: 64, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div onClick={async () => { setPage("shop"); if (USE_FIREBASE && adminLoggedIn) await firebaseSignOut(); setAdminLoggedIn(false); }} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(135deg, ${S.teal}, ${S.purple})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>⬡</div>
-            <span style={{ fontSize: 20, fontWeight: 800, fontFamily: S.fontHead }}><span style={{ color: S.teal }}>E</span>lijah's Prints</span>
+            <span style={{ fontSize: 20, fontWeight: 800, fontFamily: S.fontHead }}><span style={{ color: S.teal }}>E</span>lijah's 3D Print World</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {page !== "admin" && (<>
@@ -2224,7 +2224,7 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
         </div>
 
         <footer style={{ borderTop: `1px solid rgba(255,255,255,0.05)`, padding: "28px 24px", textAlign: "center" }}>
-          <div style={{ fontSize: 13, color: S.dimmer }}><span style={{ color: S.teal, fontWeight: 700, fontFamily: S.fontHead }}>Elijah's Prints</span> · Bambu Lab P1S Combo · Flintshire, Wales<br /><span style={{ fontSize: 11, marginTop: 8, display: "inline-block" }}>© 2026</span></div>
+          <div style={{ fontSize: 13, color: S.dimmer }}><span style={{ color: S.teal, fontWeight: 700, fontFamily: S.fontHead }}>Elijah's 3D Print World</span> · Bambu Lab P1S Combo · Flintshire, Wales<br /><span style={{ fontSize: 11, marginTop: 8, display: "inline-block" }}>© 2026</span></div>
         </footer>
       </>)}
 
