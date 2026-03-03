@@ -2681,7 +2681,7 @@ function ElijahsPrintsInner() {
     // Firebase auth state: auto-login if session persists (e.g. browser refresh)
     if (USE_FIREBASE) {
       firebaseOnAuth(user => {
-        if (user) { setAdminLoggedIn(true); if (page === "admin-login") setPage("admin"); loadOrders().then(o => setOrders(o || [])); }
+        if (user) { setAdminLoggedIn(true); if (page === "admin-login") setPage("admin"); loadOrders().then(o => setOrders(o || [])); loadCreators().then(c => { if (c) setCreators(c); }); }
         else setAdminLoggedIn(false);
         setAuthChecked(true);
       });
