@@ -140,6 +140,12 @@ async function loadCategories() {
 async function saveCategories(cats) {
   try { await storageSet("categories-v1", JSON.stringify(cats)); } catch (e) { console.error("Save categories failed:", e); }
 }
+async function loadCreators() {
+  try { const r = await storageGet("creators-v1"); return r ? JSON.parse(r) : null; } catch { return null; }
+}
+async function saveCreators(creators) {
+  try { await storageSet("creators-v1", JSON.stringify(creators)); } catch (e) { console.error("Save creators failed:", e); }
+}
 const SHIPPING_OPTIONS = [
   { id: "collection", name: "School Collection", description: "Elijah will drop it off at school — free!", price: 0, icon: "🎒" },
   { id: "standard", name: "Royal Mail Tracked 48", description: "2–3 working days · tracked delivery", price: 3.49, icon: "📦" },
@@ -732,6 +738,20 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
           <input style={{ ...inputStyle, marginBottom: 8 }} value={p.sourceRef || ""} onChange={e => set("sourceRef", e.target.value)} placeholder="e.g. Kumiko Planter Large by Foxwood" />
           <label style={labelStyle}>🔗 Source URL (MakerWorld link — clickable in Order Book)</label>
           <input style={inputStyle} value={p.sourceUrl || ""} onChange={e => set("sourceUrl", e.target.value)} placeholder="e.g. https://makerworld.com/en/models/569100" />
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4, fontFamily: S.fontHead, fontWeight: 600 }}>CREATOR</div>
+              <input style={inputStyle} value={p.creator || ""} onChange={e => set("creator", e.target.value)} placeholder="e.g. helloadorable" list="creator-datalist" />
+              <datalist id="creator-datalist">{creators.map(c => <option key={c.id} value={c.name} />)}</datalist>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4, fontFamily: S.fontHead, fontWeight: 600 }}>PHOTO SOURCE</div>
+              <select style={{ ...inputStyle, cursor: "pointer" }} value={p.photoSource || "own"} onChange={e => set("photoSource", e.target.value)}>
+                <option value="own">&#x2705; Own photo</option>
+                <option value="makerworld">&#x26A0;&#xFE0F; MakerWorld</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         {/* Actions */}
@@ -1178,6 +1198,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
   const [adminTab, setAdminTab] = useState("orders");
+  const [creators, setCreators] = useState([]);
   const [exporting, setExporting] = useState(false);
 
   /* ── Export Data to Excel ── */
@@ -1213,7 +1234,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         "Source URL": p.sourceUrl || "",
         "Added Date": p.addedDate || "",
         "── LICENCE AUDIT ──": "",
-        "Creator": "",
+        "Creator": p.creator || "",
         "Licence Type": "",
         "Commercial Available?": "",
         "Monthly Cost": "",
@@ -1406,7 +1427,7 @@ Important:
 
   const scanGalleryRef = React.useRef(null);
 
-  const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, maxColors: 1, addedDate: new Date().toISOString(), sourceRef: "", sourceUrl: "" };
+  const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, maxColors: 1, addedDate: new Date().toISOString(), sourceRef: "", sourceUrl: "", creator: "", photoSource: "own" };
 
   const pendingOrders = orders.filter(o => !o.status.despatched).length;
 
@@ -1456,6 +1477,7 @@ Important:
           { id: "products", label: "🏷️ Products", count: products.length },
 { id: "colours", label: "🎨 Colours", count: ALL_COLORS.length },
           { id: "categories", label: "📂 Categories", count: categories.length },
+          { id: "creators", label: "👤 Creators", count: creators.length },
         ].map(tab => (
 
            
@@ -1854,6 +1876,174 @@ Important:
         </div>
       )}
        
+      {adminTab === "creators" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Health summary */}
+          {(() => {
+            const activeProds = products.filter(p => p.available);
+            const red = creators.filter(c => {
+              if (c.licenceStatus === "deleted") return false;
+              const hasProds = activeProds.some(p => p.creator === c.name);
+              return hasProds && c.licenceStatus === "no_licence";
+            }).length;
+            const amber = creators.filter(c => {
+              if (c.licenceStatus === "deleted") return false;
+              const hasProds = activeProds.some(p => p.creator === c.name);
+              return hasProds && (c.licenceStatus === "unconfirmed" || c.licenceStatus === "dm_sent");
+            }).length;
+            const green = creators.filter(c => {
+              if (c.licenceStatus === "deleted") return false;
+              const hasProds = activeProds.some(p => p.creator === c.name);
+              return !hasProds || c.licenceStatus === "subscribed" || c.licenceStatus === "free";
+            }).length;
+            const totalCost = creators.reduce((sum, c) => sum + (parseFloat(c.monthlyCost) || 0), 0);
+            return (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {[
+                  { label: "🔴 Action needed", val: red, bg: "rgba(220,53,69,0.1)", border: "rgba(220,53,69,0.3)", color: "#dc3545" },
+                  { label: "🟡 Unconfirmed", val: amber, bg: "rgba(245,159,0,0.1)", border: "rgba(245,159,0,0.3)", color: "#f59f00" },
+                  { label: "✅ Covered", val: green, bg: "rgba(0,201,167,0.1)", border: "rgba(0,201,167,0.3)", color: S.teal },
+                  { label: "💷 Monthly spend", val: "£" + totalCost.toFixed(2), bg: "rgba(255,255,255,0.03)", border: S.border, color: S.text },
+                ].map(s => (
+                  <div key={s.label} style={{ flex: 1, minWidth: 120, background: s.bg, border: `1px solid ${s.border}`, borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: s.color, fontFamily: S.fontHead }}>{s.val}</div>
+                    <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Import buttons */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <label style={{ padding: "10px 18px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>
+              📥 Import Creator Register (CSV)
+              <input type="file" accept=".csv" style={{ display: "none" }} onChange={e => {
+                const file = e.target.files[0]; if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async ev => {
+                  try {
+                    const lines = ev.target.result.split("
+").filter(l => l.trim());
+                    const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
+                    const parsed = lines.slice(1).map((line, idx) => {
+                      const vals = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|^(?=,)|(?<=,)$)/g) || [];
+                      const clean = vals.map(v => v.trim().replace(/^"|"$/g, ""));
+                      return {
+                        id: Date.now() + idx,
+                        name: clean[0] || "",
+                        platform: clean[1] || "",
+                        profileUrl: clean[2] || "",
+                        licenceStatus: (clean[3] || "unconfirmed").toLowerCase().replace(/\s+/g, "_").replace("-","_"),
+                        monthlyCost: parseFloat(clean[4]) || 0,
+                        productsCovered: clean[5] || "",
+                        actionRequired: clean[6] || "",
+                      };
+                    }).filter(c => c.name);
+                    setCreators(parsed);
+                    await saveCreators(parsed);
+                    alert("Imported " + parsed.length + " creators");
+                  } catch(err) { alert("Import failed: " + err.message); }
+                };
+                reader.readAsText(file);
+                e.target.value = "";
+              }} />
+            </label>
+            <label style={{ padding: "10px 18px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>
+              🔗 Import Product-Creator Mapping (CSV)
+              <input type="file" accept=".csv" style={{ display: "none" }} onChange={e => {
+                const file = e.target.files[0]; if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async ev => {
+                  try {
+                    const lines = ev.target.result.split("
+").filter(l => l.trim());
+                    const rows = lines.slice(1).map(line => {
+                      const parts = line.split(",");
+                      return { id: parseInt(parts[0]), creator: (parts[2] || "").trim().replace(/^"|"$/g, "") };
+                    }).filter(r => r.id && r.creator);
+                    const updated = products.map(p => {
+                      const match = rows.find(r => r.id === p.id);
+                      return match ? { ...p, creator: match.creator } : p;
+                    });
+                    await onSave(updated);
+                    alert("Updated creators for " + rows.length + " products");
+                  } catch(err) { alert("Import failed: " + err.message); }
+                };
+                reader.readAsText(file);
+                e.target.value = "";
+              }} />
+            </label>
+            <button onClick={async () => {
+              const newC = { id: Date.now(), name: "", platform: "MakerWorld", profileUrl: "", licenceStatus: "unconfirmed", monthlyCost: 0, productsCovered: "", actionRequired: "" };
+              const updated = [...creators, newC];
+              setCreators(updated);
+              await saveCreators(updated);
+            }} style={{ padding: "10px 18px", borderRadius: 10, border: `1px solid ${S.teal}`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>+ Add Creator</button>
+          </div>
+
+          {/* Creators table */}
+          <div style={{ background: S.card, borderRadius: 16, border: `1px solid ${S.border}`, overflow: "hidden" }}>
+            {creators.length === 0 && <p style={{ textAlign: "center", color: S.dimmer, fontSize: 13, padding: 32 }}>No creators yet — import the Creator Register CSV to get started.</p>}
+            {creators.map((c, idx) => {
+              const activeProds = products.filter(p => p.available && p.creator === c.name);
+              const hasProds = activeProds.length > 0;
+              const health = (() => {
+                if (!hasProds) return { color: S.teal, label: "✅ No exposure", bg: "rgba(0,201,167,0.1)" };
+                if (c.licenceStatus === "subscribed") return { color: S.teal, label: "✅ Subscribed", bg: "rgba(0,201,167,0.1)" };
+                if (c.licenceStatus === "free") return { color: S.teal, label: "✅ Free commercial", bg: "rgba(0,201,167,0.1)" };
+                if (c.licenceStatus === "deleted") return { color: S.dimmer, label: "🗑 Deleted", bg: "rgba(255,255,255,0.04)" };
+                if (c.licenceStatus === "no_licence") return { color: "#dc3545", label: "🔴 No licence", bg: "rgba(220,53,69,0.1)" };
+                if (c.licenceStatus === "dm_sent") return { color: "#f59f00", label: "🟡 DM sent", bg: "rgba(245,159,0,0.1)" };
+                return { color: "#f59f00", label: "🟡 Unconfirmed", bg: "rgba(245,159,0,0.1)" };
+              })();
+              const isEditing = editing === "creator_" + c.id;
+              return (
+                <div key={c.id} style={{ padding: "14px 16px", borderBottom: `1px solid ${S.border}`, background: health.bg }}>
+                  {isEditing ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <input value={c.name} onChange={e => { const u=[...creators]; u[idx]={...u[idx],name:e.target.value}; setCreators(u); }} placeholder="Creator name" style={{ flex: 2, minWidth: 120, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
+                        <input value={c.platform} onChange={e => { const u=[...creators]; u[idx]={...u[idx],platform:e.target.value}; setCreators(u); }} placeholder="Platform" style={{ flex: 1, minWidth: 100, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
+                        <select value={c.licenceStatus} onChange={e => { const u=[...creators]; u[idx]={...u[idx],licenceStatus:e.target.value}; setCreators(u); }} style={{ flex: 1, minWidth: 130, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "#1a1a2e", color: S.text, fontSize: 13, fontFamily: S.fontHead }}>
+                          <option value="unconfirmed">Unconfirmed</option>
+                          <option value="subscribed">Subscribed</option>
+                          <option value="free">Free commercial</option>
+                          <option value="dm_sent">DM sent</option>
+                          <option value="no_licence">No licence</option>
+                          <option value="deleted">Deleted</option>
+                        </select>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <input value={c.profileUrl} onChange={e => { const u=[...creators]; u[idx]={...u[idx],profileUrl:e.target.value}; setCreators(u); }} placeholder="Profile URL" style={{ flex: 3, minWidth: 160, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
+                        <input value={c.monthlyCost} onChange={e => { const u=[...creators]; u[idx]={...u[idx],monthlyCost:parseFloat(e.target.value)||0}; setCreators(u); }} placeholder="£/mo" type="number" step="0.01" style={{ flex: 1, minWidth: 70, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
+                      </div>
+                      <input value={c.actionRequired} onChange={e => { const u=[...creators]; u[idx]={...u[idx],actionRequired:e.target.value}; setCreators(u); }} placeholder="Action required" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={async () => { setEditing(null); await saveCreators(creators); }} style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: S.teal, color: "#1a1a2e", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Save</button>
+                        <button onClick={() => setEditing(null)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 13, cursor: "pointer", fontFamily: S.fontHead }}>Cancel</button>
+                        <button onClick={async () => { if (!window.confirm("Delete " + c.name + "?")) return; const u=creators.filter((_,i)=>i!==idx); setCreators(u); await saveCreators(u); setEditing(null); }} style={{ marginLeft: "auto", padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(220,53,69,0.3)", background: "rgba(220,53,69,0.08)", color: "#dc3545", fontSize: 13, cursor: "pointer", fontFamily: S.fontHead }}>Delete</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ flex: 1, minWidth: 120 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{c.name || <em style={{color:S.dimmer}}>Unnamed</em>}</div>
+                        <div style={{ fontSize: 11, color: S.muted }}>{c.platform}{c.profileUrl ? <> · <a href={c.profileUrl} target="_blank" rel="noopener noreferrer" style={{ color: S.teal }}>Profile ↗</a></> : ""}</div>
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: health.color, background: health.bg, padding: "3px 10px", borderRadius: 20, fontFamily: S.fontHead }}>{health.label}</span>
+                      {c.monthlyCost > 0 && <span style={{ fontSize: 12, color: S.muted, fontFamily: S.fontMono }}>£{c.monthlyCost.toFixed(2)}/mo</span>}
+                      <span style={{ fontSize: 11, color: S.dimmer }}>{activeProds.length} active product{activeProds.length !== 1 ? "s" : ""}</span>
+                      <button onClick={() => setEditing("creator_" + c.id)} style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 12, cursor: "pointer", fontFamily: S.fontHead }}>Edit</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {importingJSON && (
         <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div onClick={() => setImportingJSON(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }} />
@@ -1893,6 +2083,8 @@ Important:
                     img: "",
                     sourceRef: data.sourceRef || "",
                     sourceUrl: data.sourceUrl || "",
+                    creator: data.creator || "",
+                    photoSource: data.photoSource || "own",
                     addedDate: new Date().toISOString(),
                   };
                   setSaving(true);
@@ -2482,6 +2674,7 @@ function ElijahsPrintsInner() {
     loadCategories().then(cats => {
       if (cats) { categories = cats; setCatVer(v => v + 1); }
     });
+    loadCreators().then(c => { if (c) setCreators(c); });
     // Firebase auth state: auto-login if session persists (e.g. browser refresh)
     if (USE_FIREBASE) {
       firebaseOnAuth(user => {
