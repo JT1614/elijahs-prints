@@ -138,13 +138,16 @@ async function saveCategories(cats) {
 }
 async function loadCreators() {
   try {
+    console.log("loadCreators: step 1 — calling storageGet");
     const r = await storageGet("creators-v1");
+    console.log("loadCreators: step 2 — storageGet returned:", r ? "data (" + r.length + " chars)" : "null");
     if (!r) { return { data: null, debug: "📭 No creators document found in Firebase (key: creators-v1). Import the CSV to get started." }; }
     const parsed = JSON.parse(r);
+    console.log("loadCreators: step 3 — parsed OK:", parsed.length, "creators");
     return { data: parsed, debug: "✅ Loaded " + parsed.length + " creators from Firebase" };
   } catch (e) {
     console.error("Load creators failed:", e);
-    return { data: null, debug: "❌ Firebase read error: " + e.message };
+    return { data: null, debug: "❌ Firebase read error: " + (e && e.message ? e.message : String(e)) };
   }
 }
 async function saveCreators(creators) {
@@ -1205,6 +1208,23 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [creators, setCreators] = useState([]);
   const [creatorsDebug, setCreatorsDebug] = useState("⏳ Loading creators...");
   const [exporting, setExporting] = useState(false);
+
+  /* ── Load creators from Firebase on mount ── */
+  useEffect(() => {
+    (async () => {
+      try {
+        setCreatorsDebug("Step 1: calling storageGet...");
+        const r = await storageGet("creators-v1");
+        setCreatorsDebug("Step 2: storageGet returned " + (r ? r.length + " chars" : "null"));
+        if (!r) { setCreatorsDebug("📭 No creators document in Firebase. Import CSV to start."); return; }
+        const parsed = JSON.parse(r);
+        setCreators(parsed);
+        setCreatorsDebug("✅ Loaded " + parsed.length + " creators from Firebase");
+      } catch (e) {
+        setCreatorsDebug("❌ Error: " + (e && e.message ? e.message : String(e)));
+      }
+    })();
+  }, []);
 
   /* ── Export Data to Excel ── */
   const exportData = async () => {
@@ -2687,11 +2707,10 @@ function ElijahsPrintsInner() {
     loadCategories().then(cats => {
       if (cats) { categories = cats; setCatVer(v => v + 1); }
     });
-    loadCreators().then(r => { if (r.data) setCreators(r.data); setCreatorsDebug(r.debug); });
     // Firebase auth state: auto-login if session persists (e.g. browser refresh)
     if (USE_FIREBASE) {
       firebaseOnAuth(user => {
-        if (user) { setAdminLoggedIn(true); if (page === "admin-login") setPage("admin"); loadOrders().then(o => setOrders(o || [])); loadCreators().then(r => { if (r.data) setCreators(r.data); setCreatorsDebug(r.debug); }); }
+        if (user) { setAdminLoggedIn(true); if (page === "admin-login") setPage("admin"); loadOrders().then(o => setOrders(o || [])); }
         else setAdminLoggedIn(false);
         setAuthChecked(true);
       });
