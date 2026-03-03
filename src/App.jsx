@@ -1923,8 +1923,7 @@ Important:
                 const reader = new FileReader();
                 reader.onload = async ev => {
                   try {
-                    const lines = ev.target.result.split("
-").filter(l => l.trim());
+                    const lines = ev.target.result.split("\n").filter(l => l.trim());
                     const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
                     const parsed = lines.slice(1).map((line, idx) => {
                       const vals = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|^(?=,)|(?<=,)$)/g) || [];
@@ -1956,8 +1955,7 @@ Important:
                 const reader = new FileReader();
                 reader.onload = async ev => {
                   try {
-                    const lines = ev.target.result.split("
-").filter(l => l.trim());
+                    const lines = ev.target.result.split("\n").filter(l => l.trim());
                     const rows = lines.slice(1).map(line => {
                       const parts = line.split(",");
                       return { id: parseInt(parts[0]), creator: (parts[2] || "").trim().replace(/^"|"$/g, "") };
