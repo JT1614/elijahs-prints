@@ -590,7 +590,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
 /* ═══════════════════════════════════════════════
    ADMIN: Product Editor Modal
    ═══════════════════════════════════════════════ */
-function ProductEditor({ product, onSave, onDelete, onCancel, isNew }) {
+function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = [] }) {
   const [p, setP] = useState({ ...product });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const set = (key, val) => setP(prev => ({ ...prev, [key]: val }));
@@ -2107,6 +2107,7 @@ Important:
           onSave={handleSaveProduct}
           onDelete={handleDelete}
           onCancel={() => { setEditing(null); setAddingNew(false); }}
+          creators={creators}
         />
       )}
     </div>
