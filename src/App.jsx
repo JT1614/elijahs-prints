@@ -139,14 +139,12 @@ async function saveCategories(cats) {
 async function loadCreators() {
   try {
     const r = await storageGet("creators-v1");
-    if (!r) { console.log("loadCreators: no data found in Firebase (document may not exist yet)"); return null; }
+    if (!r) { return { data: null, debug: "📭 No creators document found in Firebase (key: creators-v1). Import the CSV to get started." }; }
     const parsed = JSON.parse(r);
-    console.log("loadCreators: loaded " + parsed.length + " creators from Firebase");
-    return parsed;
+    return { data: parsed, debug: "✅ Loaded " + parsed.length + " creators from Firebase" };
   } catch (e) {
     console.error("Load creators failed:", e);
-    alert("⚠️ Could not load creators from Firebase: " + e.message);
-    return null;
+    return { data: null, debug: "❌ Firebase read error: " + e.message };
   }
 }
 async function saveCreators(creators) {
@@ -1205,6 +1203,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [savedMsg, setSavedMsg] = useState("");
   const [adminTab, setAdminTab] = useState("orders");
   const [creators, setCreators] = useState([]);
+  const [creatorsDebug, setCreatorsDebug] = useState("⏳ Loading creators...");
   const [exporting, setExporting] = useState(false);
 
   /* ── Export Data to Excel ── */
@@ -1884,6 +1883,10 @@ Important:
        
       {adminTab === "creators" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Diagnostic — remove once working */}
+          <div style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.04)", border: `1px solid ${S.border}`, fontSize: 12, color: S.muted, fontFamily: S.fontMono }}>
+            🔍 Debug: {creatorsDebug}
+          </div>
           {/* Health summary */}
           {(() => {
             const activeProds = products.filter(p => p.available);
@@ -1948,6 +1951,7 @@ Important:
                     setCreators(parsed);
                     try {
                       await saveCreators(parsed);
+                      setCreatorsDebug("✅ Imported and saved " + parsed.length + " creators to Firebase");
                       alert("✅ Imported " + parsed.length + " creators and saved to Firebase");
                     } catch(saveErr) {
                       alert("⚠️ Imported " + parsed.length + " creators but Firebase save failed: " + saveErr.message + "\n\nCheck your Firestore security rules allow writes to the 'shop' collection.");
@@ -2683,11 +2687,11 @@ function ElijahsPrintsInner() {
     loadCategories().then(cats => {
       if (cats) { categories = cats; setCatVer(v => v + 1); }
     });
-    loadCreators().then(c => { if (c) setCreators(c); });
+    loadCreators().then(r => { if (r.data) setCreators(r.data); setCreatorsDebug(r.debug); });
     // Firebase auth state: auto-login if session persists (e.g. browser refresh)
     if (USE_FIREBASE) {
       firebaseOnAuth(user => {
-        if (user) { setAdminLoggedIn(true); if (page === "admin-login") setPage("admin"); loadOrders().then(o => setOrders(o || [])); loadCreators().then(c => { if (c) setCreators(c); }); }
+        if (user) { setAdminLoggedIn(true); if (page === "admin-login") setPage("admin"); loadOrders().then(o => setOrders(o || [])); loadCreators().then(r => { if (r.data) setCreators(r.data); setCreatorsDebug(r.debug); }); }
         else setAdminLoggedIn(false);
         setAuthChecked(true);
       });
