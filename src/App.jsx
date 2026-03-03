@@ -110,10 +110,8 @@ async function storageGet(key) {
 
 async function storageSet(key, value) {
   if (USE_FIREBASE) {
-    try {
-      const { db, doc, setDoc } = await getFirebase();
-      await setDoc(doc(db, "shop", key), { value, updatedAt: new Date().toISOString() });
-    } catch (e) { console.error("Firebase set failed:", e); }
+    const { db, doc, setDoc } = await getFirebase();
+    await setDoc(doc(db, "shop", key), { value, updatedAt: new Date().toISOString() });
     return;
   }
   try { await window.storage.set(key, value); } catch (e) { console.error("Storage set failed:", e); }
@@ -141,7 +139,7 @@ async function saveCategories(cats) {
   try { await storageSet("categories-v1", JSON.stringify(cats)); } catch (e) { console.error("Save categories failed:", e); }
 }
 async function loadCreators() {
-  try { const r = await storageGet("creators-v1"); return r ? JSON.parse(r) : null; } catch { return null; }
+  try { const r = await storageGet("creators-v1"); return r ? JSON.parse(r) : null; } catch (e) { console.error("Load creators failed:", e); alert("⚠️ Could not load creators from Firebase: " + e.message); return null; }
 }
 async function saveCreators(creators) {
   try { await storageSet("creators-v1", JSON.stringify(creators)); } catch (e) { console.error("Save creators failed:", e); throw e; }
