@@ -144,7 +144,7 @@ async function loadCreators() {
   try { const r = await storageGet("creators-v1"); return r ? JSON.parse(r) : null; } catch { return null; }
 }
 async function saveCreators(creators) {
-  try { await storageSet("creators-v1", JSON.stringify(creators)); } catch (e) { console.error("Save creators failed:", e); }
+  try { await storageSet("creators-v1", JSON.stringify(creators)); } catch (e) { console.error("Save creators failed:", e); throw e; }
 }
 const SHIPPING_OPTIONS = [
   { id: "collection", name: "School Collection", description: "Elijah will drop it off at school — free!", price: 0, icon: "🎒" },
@@ -1940,8 +1940,12 @@ Important:
                       };
                     }).filter(c => c.name);
                     setCreators(parsed);
-                    await saveCreators(parsed);
-                    alert("Imported " + parsed.length + " creators");
+                    try {
+                      await saveCreators(parsed);
+                      alert("✅ Imported " + parsed.length + " creators and saved to Firebase");
+                    } catch(saveErr) {
+                      alert("⚠️ Imported " + parsed.length + " creators but Firebase save failed: " + saveErr.message + "\n\nCheck your Firestore security rules allow writes to the 'shop' collection.");
+                    }
                   } catch(err) { alert("Import failed: " + err.message); }
                 };
                 reader.readAsText(file);
