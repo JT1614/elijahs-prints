@@ -96,11 +96,9 @@ async function firebaseOnAuth(callback) {
 
 async function storageGet(key) {
   if (USE_FIREBASE) {
-    try {
-      const { db, doc, getDoc } = await getFirebase();
-      const snap = await getDoc(doc(db, "shop", key));
-      return snap.exists() ? snap.data().value : null;
-    } catch (e) { console.error("Firebase get failed:", e); return null; }
+    const { db, doc, getDoc } = await getFirebase();
+    const snap = await getDoc(doc(db, "shop", key));
+    return snap.exists() ? snap.data().value : null;
   }
   try {
     const r = await window.storage.get(key);
@@ -139,7 +137,17 @@ async function saveCategories(cats) {
   try { await storageSet("categories-v1", JSON.stringify(cats)); } catch (e) { console.error("Save categories failed:", e); }
 }
 async function loadCreators() {
-  try { const r = await storageGet("creators-v1"); return r ? JSON.parse(r) : null; } catch (e) { console.error("Load creators failed:", e); alert("⚠️ Could not load creators from Firebase: " + e.message); return null; }
+  try {
+    const r = await storageGet("creators-v1");
+    if (!r) { console.log("loadCreators: no data found in Firebase (document may not exist yet)"); return null; }
+    const parsed = JSON.parse(r);
+    console.log("loadCreators: loaded " + parsed.length + " creators from Firebase");
+    return parsed;
+  } catch (e) {
+    console.error("Load creators failed:", e);
+    alert("⚠️ Could not load creators from Firebase: " + e.message);
+    return null;
+  }
 }
 async function saveCreators(creators) {
   try { await storageSet("creators-v1", JSON.stringify(creators)); } catch (e) { console.error("Save creators failed:", e); throw e; }
@@ -2102,7 +2110,7 @@ Important:
         </div>
       )}
 
-      {(editing || addingNew) && (
+      {((editing && typeof editing === "object") || addingNew) && (
         <ProductEditor
           product={addingNew ? newProduct : { ...editing, _autoBadge: autoBadges[editing?.id] || null }}
           isNew={addingNew}
