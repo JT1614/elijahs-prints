@@ -1903,10 +1903,6 @@ Important:
        
       {adminTab === "creators" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Diagnostic — remove once working */}
-          <div style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.04)", border: `1px solid ${S.border}`, fontSize: 12, color: S.muted, fontFamily: S.fontMono }}>
-            🔍 Debug: {creatorsDebug}
-          </div>
           {/* Health summary */}
           {(() => {
             const activeProds = products.filter(p => p.available);
