@@ -1372,7 +1372,7 @@ Important:
       setScannerResult(parsed);
     } catch (err) {
       console.error("Filament scan error:", err);
-      setScannerResult({ error: "Analysis failed. Please try again with a clearer photo." });
+      setScannerResult({ error: "Analysis failed — this might be a network issue or the image was too large. Try again or use a different photo." });
     }
     setScannerLoading(false);
   };
@@ -1380,16 +1380,31 @@ Important:
   const handleScanUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
     const reader = new FileReader();
     reader.onload = () => {
-      const full = reader.result;
-      const base64 = full.split(",")[1];
-      const mediaType = file.type || "image/jpeg";
-      setScannerImage(full);
-      analyseFilament(base64, mediaType);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const max = 800;
+        let w = img.width, h = img.height;
+        if (w > max || h > max) {
+          if (w > h) { h = Math.round(h * max / w); w = max; }
+          else { w = Math.round(w * max / h); h = max; }
+        }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        const compressed = canvas.toDataURL("image/jpeg", 0.8);
+        const base64 = compressed.split(",")[1];
+        setScannerImage(compressed);
+        analyseFilament(base64, "image/jpeg");
+      };
+      img.src = reader.result;
     };
     reader.readAsDataURL(file);
   };
+
+  const scanGalleryRef = React.useRef(null);
 
   const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, maxColors: 1, addedDate: new Date().toISOString(), sourceRef: "", sourceUrl: "" };
 
@@ -1535,12 +1550,20 @@ Important:
 
                 {/* Upload area */}
                 {!scannerImage && !scannerLoading && (
-                  <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: "40px 20px", borderRadius: 16, border: `2px dashed ${S.border}`, background: "rgba(255,255,255,0.02)", cursor: "pointer", transition: "all 0.2s" }}>
-                    <div style={{ fontSize: 40, opacity: 0.6 }}>📸</div>
-                    <div style={{ fontSize: 14, color: S.muted, fontFamily: S.fontHead, fontWeight: 600 }}>Tap to upload photo</div>
-                    <div style={{ fontSize: 11, color: S.dimmer }}>Spool or box — I'll work it out</div>
-                    <input type="file" accept="image/*" capture="environment" onChange={handleScanUpload} style={{ display: "none" }} />
-                  </label>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <label style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: "32px 16px", borderRadius: 16, border: `2px dashed ${S.border}`, background: "rgba(255,255,255,0.02)", cursor: "pointer", transition: "all 0.2s" }}>
+                      <div style={{ fontSize: 32, opacity: 0.6 }}>📷</div>
+                      <div style={{ fontSize: 13, color: S.teal, fontFamily: S.fontHead, fontWeight: 600 }}>Take Photo</div>
+                      <div style={{ fontSize: 10, color: S.dimmer }}>Open camera</div>
+                      <input type="file" accept="image/*" capture="environment" onChange={handleScanUpload} style={{ display: "none" }} />
+                    </label>
+                    <label style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: "32px 16px", borderRadius: 16, border: `2px dashed ${S.border}`, background: "rgba(255,255,255,0.02)", cursor: "pointer", transition: "all 0.2s" }}>
+                      <div style={{ fontSize: 32, opacity: 0.6 }}>📁</div>
+                      <div style={{ fontSize: 13, color: S.purple, fontFamily: S.fontHead, fontWeight: 600 }}>Upload Photo</div>
+                      <div style={{ fontSize: 10, color: S.dimmer }}>From gallery or files</div>
+                      <input type="file" accept="image/*" onChange={handleScanUpload} style={{ display: "none" }} />
+                    </label>
+                  </div>
                 )}
 
                 {/* Loading state */}
