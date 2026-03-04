@@ -528,6 +528,35 @@ function Badge({ text }) {
   return <span style={{ background: bg[text] || "#666", color: fg[text] || "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", position: "absolute", top: 12, right: 12, zIndex: 2 }}>{text}</span>;
 }
 
+function Tooltip({ text, children, position = "bottom" }) {
+  const [show, setShow] = useState(false);
+  const posStyle = position === "bottom"
+    ? { top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)" }
+    : position === "top"
+    ? { bottom: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)" }
+    : position === "left"
+    ? { right: "calc(100% + 8px)", top: "50%", transform: "translateY(-50%)" }
+    : { left: "calc(100% + 8px)", top: "50%", transform: "translateY(-50%)" };
+  return (
+    <div style={{ position: "relative", display: "inline-flex" }}
+      onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      {children}
+      {show && (
+        <div style={{
+          position: "absolute", ...posStyle, zIndex: 9999,
+          background: "#1a1a35", border: "1px solid rgba(132,94,247,0.35)",
+          borderRadius: 10, padding: "10px 14px", width: 240,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.5)", pointerEvents: "none",
+          animation: "fadeIn 0.15s ease",
+        }}>
+          <p style={{ fontSize: 12, color: "#e8e8f0", lineHeight: 1.6, margin: 0, fontFamily: "'Inter', sans-serif" }}
+            dangerouslySetInnerHTML={{ __html: text }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProductImage({ product, hovered }) {
   const [err, setErr] = useState(false);
   const hasImg = product.img && !err;
@@ -704,9 +733,11 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
           <div><label style={labelStyle}>Print Time</label><input style={inputStyle} value={p.printTime} onChange={e => set("printTime", e.target.value)} placeholder="e.g. 2 hrs" /></div>
           <div>
             <label style={labelStyle}>Badge (auto)</label>
+            <Tooltip position="bottom" text="Badges are assigned automatically based on order history and product attributes:<br/><br/>🆕 <strong>NEW</strong> — added in the last 14 days<br/>🏆 <strong>Best Seller</strong> — most ordered product<br/>🔥 <strong>Popular</strong> — ordered 3+ times<br/>⭐ <strong>Premium</strong> — manually set<br/><br/>You cannot edit this — it updates itself.">
             <div style={{ ...inputStyle, display: "flex", alignItems: "center", background: "rgba(255,255,255,0.02)", cursor: "default" }}>
               <span style={{ fontSize: 13, color: S.dimmer }}>{p._autoBadge || "—"}</span>
             </div>
+            </Tooltip>
           </div>
         </div>
 
@@ -749,15 +780,32 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
           </div>
         </div>
 
-        {/* Available toggle */}
-        <div style={{ ...sectionStyle, display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={() => set("available", !p.available)} style={{
-            width: 48, height: 28, borderRadius: 14, border: "none", cursor: "pointer", position: "relative", transition: "background 0.2s",
-            background: p.available ? S.teal : "rgba(255,255,255,0.1)",
-          }}>
-            <div style={{ width: 22, height: 22, borderRadius: 11, background: "#fff", position: "absolute", top: 3, left: p.available ? 23 : 3, transition: "left 0.2s", boxShadow: "0 2px 4px rgba(0,0,0,0.3)" }} />
-          </button>
-          <span style={{ fontSize: 14, fontWeight: 600, color: p.available ? S.teal : "#ff6b6b", fontFamily: S.fontHead }}>{p.available ? "Available in shop" : "Hidden from shop"}</span>
+        {/* Product Status */}
+        <div style={sectionStyle}>
+          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 6 }}>
+            Product Status
+            <Tooltip position="right" text="Controls where this product is in its lifecycle:<br/><br/>📝 <strong>Draft</strong> — just imported, needs review<br/>✅ <strong>Approved</strong> — reviewed, ready for photo<br/>📷 <strong>Needs Photo</strong> — photo outstanding<br/>🟢 <strong>Live</strong> — visible to customers<br/>⏸ <strong>Paused</strong> — hidden (seasonal etc.)<br/>🗑 <strong>Removed</strong> — delisted permanently<br/><br/>Only <strong>Live</strong> products appear in the shop.">
+              <span style={{ fontSize: 11, color: S.purple, fontFamily: S.fontHead, cursor: "help", border: `1px solid ${S.purple}`, borderRadius: "50%", width: 16, height: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700, opacity: 0.8 }}>?</span>
+            </Tooltip>
+          </label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+            {[
+              { value: "draft", label: "📝 Draft", desc: "Imported, not reviewed", col: "#f59f00" },
+              { value: "approved", label: "✅ Approved", desc: "Ready, awaiting photo", col: "#845ef7" },
+              { value: "photo_needed", label: "📷 Needs Photo", desc: "Photo outstanding", col: "#cc5de8" },
+              { value: "live", label: "🟢 Live", desc: "Visible in shop", col: "#51cf66" },
+              { value: "paused", label: "⏸ Paused", desc: "Hidden — seasonal etc", col: "#868e96" },
+              { value: "removed", label: "🗑 Removed", desc: "Delisted", col: "#ff6b6b" },
+            ].map(({ value, label, desc, col }) => {
+              const active = (p.status || (p.available !== false ? "live" : "paused")) === value;
+              return (
+                <button key={value} onClick={() => { set("status", value); set("available", value === "live"); }} style={{ padding: "8px 14px", borderRadius: 12, border: active ? `2px solid ${col}` : `1px solid ${S.border}`, background: active ? `${col}18` : "rgba(255,255,255,0.02)", cursor: "pointer", textAlign: "left", transition: "all 0.2s", minWidth: 130 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: active ? col : S.muted, fontFamily: S.fontHead }}>{label}</div>
+                  <div style={{ fontSize: 10, color: S.dimmer, marginTop: 2 }}>{desc}</div>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Source Reference (admin only) */}
@@ -1197,11 +1245,13 @@ function OrderBook({ orders, onUpdateOrder, products }) {
                 <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#ff6b35", fontWeight: 600, fontFamily: S.fontHead }}>Made</span>
               </div>
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
+                <Tooltip position="left" text="Prints an Avery J8165 label sheet (8 labels/A4) on your Canon MX535.<br/><br/>Opens a print-ready page automatically. Also marks the order as Label Printed.">
                 <button onClick={() => printLabels(order)} title="Print label sheet" style={{
                   width: 22, height: 22, borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                   border: (order.status.labelPrinted || order.status.despatched) ? "2px solid #f59f00" : "2px solid rgba(255,255,255,0.15)",
                   background: (order.status.labelPrinted || order.status.despatched) ? "#f59f00" : "transparent", transition: "all 0.2s", flexShrink: 0, padding: 0, fontSize: 11,
                 }}>{(order.status.labelPrinted || order.status.despatched) ? <span style={{ color: "#1a1a2e", fontSize: 13, fontWeight: 800, lineHeight: 1 }}>✓</span> : "🏷️"}</button>
+                </Tooltip>
                 <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#f59f00", fontWeight: 600, fontFamily: S.fontHead }}>Label</span>
               </div>
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
@@ -1221,6 +1271,7 @@ function OrderBook({ orders, onUpdateOrder, products }) {
    ═══════════════════════════════════════════════ */
 function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories, autoBadges }) {
   const [filter, setFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
   const [editing, setEditing] = useState(null);
   const [addingNew, setAddingNew] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1428,12 +1479,18 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
 
 
-  const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, maxColors: 1, addedDate: new Date().toISOString(), sourceRef: "", sourceUrl: "", creator: "", photoSource: "own" };
+  const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, status: "live", maxColors: 1, addedDate: new Date().toISOString(), sourceRef: "", sourceUrl: "", creator: "", photoSource: "own" };
 
   const pendingOrders = orders.filter(o => !o.status.despatched).length;
 
   const displayCategories = ["All", ...categories];
-   const filtered = filter === "All" ? products : products.filter(p => p.category === filter);
+  const STATUS_OPTIONS = ["All", "draft", "approved", "photo_needed", "live", "paused", "removed"];
+  const STATUS_LABELS = { All: "All", draft: "📝 Draft", approved: "✅ Approved", photo_needed: "📷 Needs Photo", live: "🟢 Live", paused: "⏸ Paused", removed: "🗑 Removed" };
+  const STATUS_COLORS = { All: S.muted, draft: "#f59f00", approved: "#845ef7", photo_needed: "#cc5de8", live: "#51cf66", paused: "#868e96", removed: "#ff6b6b" };
+  const getProductStatus = p => p.status || (p.available !== false ? "live" : "paused");
+  const draftCount = products.filter(p => getProductStatus(p) === "draft").length;
+  const filteredByStatus = statusFilter === "All" ? products : products.filter(p => getProductStatus(p) === statusFilter);
+  const filtered = filter === "All" ? filteredByStatus : filteredByStatus.filter(p => p.category === filter);
 
   const handleSaveProduct = async (updated) => {
     setSaving(true);
@@ -1462,11 +1519,13 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h2 style={{ fontSize: 24, fontWeight: 800, fontFamily: S.fontHead, color: S.text, margin: 0 }}>🔧 Admin Panel</h2>
-          <p style={{ fontSize: 13, color: S.muted, margin: "4px 0 0" }}>{products.filter(p => p.available).length} products live · {orders.length} orders</p>
+          <p style={{ fontSize: 13, color: S.muted, margin: "4px 0 0" }}>{products.filter(p => p.available).length} products live{draftCount > 0 ? ` · ${draftCount} draft` : ""} · {orders.length} orders</p>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {savedMsg && <span style={{ color: S.teal, fontWeight: 700, fontFamily: S.fontHead, fontSize: 14 }}>✓ {savedMsg}</span>}
-          <button onClick={exportData} disabled={exporting} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 14, fontWeight: 700, cursor: exporting ? "wait" : "pointer", fontFamily: S.fontHead, opacity: exporting ? 0.5 : 1 }}>{exporting ? "⏳ Exporting…" : "📊 Export Data"}</button>
+          <Tooltip position="bottom" text="Downloads a full Excel spreadsheet (.xlsx) with four tabs: Products, Orders, Colours, and Categories.<br/><br/>Useful for records, the licence audit tracker, or sharing data with Claude for analysis.">
+            <button onClick={exportData} disabled={exporting} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 14, fontWeight: 700, cursor: exporting ? "wait" : "pointer", fontFamily: S.fontHead, opacity: exporting ? 0.5 : 1 }}>{exporting ? "⏳ Exporting…" : "📊 Export Data"}</button>
+          </Tooltip>
           <button onClick={onLogout} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.muted, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Log Out</button>
         </div>
       </div>
@@ -1509,9 +1568,27 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       {/* Products tab */}
       {adminTab === "products" && (<>
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16, gap: 10 }}>
-          <button onClick={() => { setImportText(""); setImportingJSON(true); }} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.teal, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>📋 Import JSON</button>
-          <button onClick={() => setAddingNew(true)} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.purple}, #6c3ce0)`, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, boxShadow: "0 4px 16px rgba(132,94,247,0.3)" }}>+ Add Product</button>
+          <Tooltip position="bottom" text="Paste a JSON block generated by Claude to instantly create a new product.<br/><br/><strong>Process:</strong> Claude generates JSON → copy it → click here → paste → Import Product → then upload the photo in the product editor.">
+            <button onClick={() => { setImportText(""); setImportingJSON(true); }} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.teal, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>📋 Import JSON</button>
+          </Tooltip>
+          <Tooltip position="bottom" text="Manually create a new product from scratch. Use <strong>Import JSON</strong> instead if Claude has generated a product for you — it's much faster.">
+            <button onClick={() => setAddingNew(true)} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.purple}, #6c3ce0)`, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, boxShadow: "0 4px 16px rgba(132,94,247,0.3)" }}>+ Add Product</button>
+          </Tooltip>
         </div>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontHead, fontWeight: 600, marginRight: 4 }}>STATUS</span>
+        {STATUS_OPTIONS.map(s => {
+          const count = s === "All" ? products.length : products.filter(p => getProductStatus(p) === s).length;
+          const col = STATUS_COLORS[s];
+          const active = statusFilter === s;
+          return (
+            <button key={s} onClick={() => setStatusFilter(s)} style={{ padding: "5px 12px", borderRadius: 20, border: active ? `1.5px solid ${col}` : `1px solid ${S.border}`, background: active ? `${col}18` : "rgba(255,255,255,0.02)", color: active ? col : S.muted, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 5 }}>
+              {STATUS_LABELS[s]}{count > 0 && s !== "All" && <span style={{ background: active ? `${col}30` : "rgba(255,255,255,0.06)", borderRadius: 8, padding: "0 5px", fontSize: 10 }}>{count}</span>}
+            </button>
+          );
+        })}
+      </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
         {displayCategories.map(cat => (
@@ -1534,7 +1611,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 <span style={{ fontSize: 13, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{product.price.toFixed(2)}</span>
                 <span style={{ fontSize: 11, color: S.dimmer }}>{product.grams}g</span>
                 {autoBadges[product.id] && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(0,201,167,0.1)", color: S.teal, fontWeight: 600, fontFamily: S.fontHead }}>{autoBadges[product.id]}</span>}
-                {!product.available && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(255,107,107,0.1)", color: "#ff6b6b", fontWeight: 600 }}>Hidden</span>}
+                {(() => { const st = getProductStatus(product); if (st === "live") return null; const col = STATUS_COLORS[st]; return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: `${col}18`, color: col, fontWeight: 700, fontFamily: S.fontHead }}>{STATUS_LABELS[st]}</span>; })()}
                 {product.maxColors > 1 && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(132,94,247,0.1)", color: S.purple, fontWeight: 600 }}>{product.maxColors} colours</span>}
               </div>
               <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
@@ -1570,12 +1647,16 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
               <div style={{ padding: "0 20px 20px" }}>
                 {/* Mode toggle tabs */}
                 <div style={{ display: "flex", gap: 0, marginBottom: 16, borderRadius: 12, overflow: "hidden", border: `1px solid ${S.border}` }}>
+                  <Tooltip position="top" text="<strong>Match Spool:</strong> Take a photo of an existing filament spool to identify which colour in your library it matches. Great when spools lose their labels.">
                   <button onClick={() => { setScannerMode("match"); setScannerResult(null); setScannerImage(null); }} style={{ flex: 1, padding: "10px 16px", border: "none", background: scannerMode === "match" ? "rgba(0,201,167,0.12)" : "transparent", color: scannerMode === "match" ? S.teal : S.muted, fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.2s" }}>
                     <span>🎯</span> Match Spool
                   </button>
+                  </Tooltip>
+                  <Tooltip position="top" text="<strong>Scan Box:</strong> Photograph a filament box or packaging to automatically read the colour name, brand, and material — and add it to your colour library.">
                   <button onClick={() => { setScannerMode("scan"); setScannerResult(null); setScannerImage(null); }} style={{ flex: 1, padding: "10px 16px", border: "none", borderLeft: `1px solid ${S.border}`, background: scannerMode === "scan" ? "rgba(132,94,247,0.12)" : "transparent", color: scannerMode === "scan" ? S.purple : S.muted, fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.2s" }}>
                     <span>📦</span> Scan Box
                   </button>
+                  </Tooltip>
                 </div>
 
                 <p style={{ fontSize: 12, color: S.dimmer, marginBottom: 14, lineHeight: 1.5 }}>
@@ -1946,6 +2027,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
           {/* Import buttons */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Tooltip position="bottom" text="Upload the Creator Register CSV exported from the licence audit spreadsheet. This populates the creator list with licence status, monthly cost, and subscription details.">
             <label style={{ padding: "10px 18px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>
               📥 Import Creator Register (CSV)
               <input type="file" accept=".csv" style={{ display: "none" }} onChange={e => {
@@ -1984,6 +2066,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 e.target.value = "";
               }} />
             </label>
+            </Tooltip>
+            <Tooltip position="bottom" text="Upload the Product-Creator Mapping CSV to link each product to its creator. This drives the licence risk indicators on the product list and the creator dashboard.">
             <label style={{ padding: "10px 18px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>
               🔗 Import Product-Creator Mapping (CSV)
               <input type="file" accept=".csv" style={{ display: "none" }} onChange={e => {
@@ -2008,12 +2092,15 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 e.target.value = "";
               }} />
             </label>
+            </Tooltip>
+            <Tooltip position="bottom" text="Manually add a new creator entry. Fill in their name, platform, Patreon URL, licence status, and monthly cost. Use the CSV import above if you're adding many at once.">
             <button onClick={async () => {
               const newC = { id: Date.now(), name: "", platform: "MakerWorld", profileUrl: "", licenceStatus: "unconfirmed", monthlyCost: 0, productsCovered: "", actionRequired: "", photoRights: "own_needed" };
               const updated = [...creators, newC];
               setCreators(updated);
               await saveCreators(updated);
             }} style={{ padding: "10px 18px", borderRadius: 10, border: `1px solid ${S.teal}`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>+ Add Creator</button>
+            </Tooltip>
           </div>
 
           {/* Creators table */}
@@ -2051,7 +2138,9 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <input value={c.profileUrl} onChange={e => { const u=[...creators]; u[idx]={...u[idx],profileUrl:e.target.value}; setCreators(u); }} placeholder="Profile URL" style={{ flex: 3, minWidth: 160, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
                         <input value={c.monthlyCost} onChange={e => { const u=[...creators]; u[idx]={...u[idx],monthlyCost:parseFloat(e.target.value)||0}; setCreators(u); }} placeholder="£/mo" type="number" step="0.01" style={{ flex: 1, minWidth: 70, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
+                        <Tooltip position="top" text="Does this creator's subscription include rights to use their <strong>official product photos</strong> on the ET Print World website?<br/><br/>If yes, you can use MakerWorld/Patreon images. If no, Elijah must photograph every product himself before it goes live.">
                         <button onClick={() => { const u=[...creators]; u[idx]={...u[idx], photoRights: c.photoRights === "included" ? "own_needed" : "included"}; setCreators(u); }} style={{ minWidth: 140, padding: "8px 12px", borderRadius: 8, border: `1px solid ${c.photoRights === "included" ? S.teal : "rgba(245,159,0,0.4)"}`, background: c.photoRights === "included" ? "rgba(0,201,167,0.12)" : "rgba(245,159,0,0.08)", color: c.photoRights === "included" ? S.teal : "#f59f00", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>{c.photoRights === "included" ? "📷 Photos included" : "📷 Own photos needed"}</button>
+                        </Tooltip>
                       </div>
                       <input value={c.actionRequired} onChange={e => { const u=[...creators]; u[idx]={...u[idx],actionRequired:e.target.value}; setCreators(u); }} placeholder="Action required" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
                       <div style={{ display: "flex", gap: 8 }}>
@@ -2113,7 +2202,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     maxColors: parseInt(data.maxColors) || 1,
                     printTime: data.printTime || "",
                     grams: parseInt(data.grams) || 0,
-                    available: data.available !== false,
+                    available: data.available === true || data.status === "live",
+                    status: data.status || "draft",
                     badge: null,
                     emoji: data.emoji || "",
                     img: "",
