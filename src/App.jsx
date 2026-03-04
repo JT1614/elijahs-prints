@@ -72,10 +72,12 @@ async function getFirebase() {
   const { initializeApp } = await import("https://www.gstatic.com/firebasejs/11.3.0/firebase-app.js");
   const { getFirestore, doc, getDoc, setDoc, collection, getDocs, updateDoc } = await import("https://www.gstatic.com/firebasejs/11.3.0/firebase-firestore.js");
   const { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/11.3.0/firebase-auth.js");
+  const { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } = await import("https://www.gstatic.com/firebasejs/11.3.0/firebase-storage.js");
   const app = initializeApp(FIREBASE_CONFIG);
   const db = getFirestore(app);
   const auth = getAuth(app);
-  _fb = { db, doc, getDoc, setDoc, collection, getDocs, updateDoc, auth, signInWithEmailAndPassword, signOut, onAuthStateChanged };
+  const storage = getStorage(app);
+  _fb = { db, doc, getDoc, setDoc, collection, getDocs, updateDoc, auth, signInWithEmailAndPassword, signOut, onAuthStateChanged, storage, ref, uploadBytes, getDownloadURL, deleteObject };
   return _fb;
 }
 
@@ -491,6 +493,43 @@ function compressImage(file, maxWidth = 400, quality = 0.75) {
 }
 
 /* ═══════════════════════════════════════════════
+   PRODUCT IMAGE STORAGE (Firebase Storage)
+   ═══════════════════════════════════════════════ */
+function dataURLtoBlob(dataURL) {
+  const [header, data] = dataURL.split(",");
+  const mime = header.match(/:(.*?);/)[1];
+  const bytes = atob(data);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+async function uploadProductImage(productId, dataURL) {
+  if (!USE_FIREBASE) return dataURL; // fallback: keep base64 if no Firebase
+  try {
+    const { storage, ref, uploadBytes, getDownloadURL } = await getFirebase();
+    const blob = dataURLtoBlob(dataURL);
+    const imageRef = ref(storage, `product-images/${productId}.jpg`);
+    await uploadBytes(imageRef, blob, { contentType: "image/jpeg" });
+    return await getDownloadURL(imageRef);
+  } catch (e) {
+    console.error("Image upload failed:", e);
+    return dataURL; // fallback to base64 if upload fails
+  }
+}
+
+async function deleteProductImage(productId) {
+  if (!USE_FIREBASE) return;
+  try {
+    const { storage, ref, deleteObject } = await getFirebase();
+    const imageRef = ref(storage, `product-images/${productId}.jpg`);
+    await deleteObject(imageRef);
+  } catch (e) {
+    console.error("Image delete failed (may not exist):", e);
+  }
+}
+
+/* ═══════════════════════════════════════════════
    SHARED COMPONENTS
    ═══════════════════════════════════════════════ */
 const S = {
@@ -693,14 +732,16 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
                 if (!file) return;
                 try {
                   const compressed = await compressImage(file);
-                  set("img", compressed);
-                } catch(err) { console.error("Image compression failed:", err); }
+                  set("img", compressed); // show preview immediately
+                  const url = await uploadProductImage(p.id || Date.now(), compressed);
+                  if (url !== compressed) set("img", url); // replace base64 with URL
+                } catch(err) { console.error("Image upload failed:", err); }
                 e.target.value = "";
               }} />
             </label>
             <div style={{ flex: 1 }}>
               {p.img && (
-                <button onClick={() => set("img", "")} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, marginBottom: 8 }}>✕ Remove photo</button>
+                <button onClick={() => { deleteProductImage(p.id); set("img", ""); }} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, marginBottom: 8 }}>✕ Remove photo</button>
               )}
               <p style={{ fontSize: 11, color: S.dimmer, lineHeight: 1.5, margin: 0 }}>
                 {p.img ? "Photo uploaded and compressed. Click the image to replace it." : "Upload a photo of the printed product. JPG or PNG, any size — it'll be compressed automatically."}
@@ -1415,6 +1456,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [editCatName, setEditCatName] = useState("");
   const [importingJSON, setImportingJSON] = useState(false);
   const [importText, setImportText] = useState("");
+  const [migratingImages, setMigratingImages] = useState(false);
+  const [migrationMsg, setMigrationMsg] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerLoading, setScannerLoading] = useState(false);
   const [scannerResult, setScannerResult] = useState(null);
@@ -1492,6 +1535,33 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const filteredByStatus = statusFilter === "All" ? products : products.filter(p => getProductStatus(p) === statusFilter);
   const filtered = filter === "All" ? filteredByStatus : filteredByStatus.filter(p => p.category === filter);
 
+  const migrateImages = async () => {
+    const base64Products = products.filter(p => p.img && p.img.startsWith("data:"));
+    if (base64Products.length === 0) { setMigrationMsg("✅ No base64 images to migrate — all clean!"); setTimeout(() => setMigrationMsg(""), 3000); return; }
+    if (!window.confirm(`Migrate ${base64Products.length} product image${base64Products.length !== 1 ? "s" : ""} to Firebase Storage? This will shrink your database and fix save issues.`)) return;
+    setMigratingImages(true);
+    setMigrationMsg(`⏳ Migrating 0/${base64Products.length}...`);
+    let migrated = 0;
+    let failed = 0;
+    const updated = [...products];
+    for (let i = 0; i < updated.length; i++) {
+      if (updated[i].img && updated[i].img.startsWith("data:")) {
+        try {
+          const url = await uploadProductImage(updated[i].id, updated[i].img);
+          if (url !== updated[i].img) {
+            updated[i] = { ...updated[i], img: url };
+            migrated++;
+          } else { failed++; }
+        } catch (e) { failed++; console.error("Migration failed for product " + updated[i].id, e); }
+        setMigrationMsg(`⏳ Migrating ${migrated + failed}/${base64Products.length}...`);
+      }
+    }
+    await onSave(updated);
+    setMigratingImages(false);
+    setMigrationMsg(`✅ Migrated ${migrated} image${migrated !== 1 ? "s" : ""}${failed > 0 ? `, ${failed} failed` : ""}`);
+    setTimeout(() => setMigrationMsg(""), 5000);
+  };
+
   const handleSaveProduct = async (updated) => {
     setSaving(true);
     let next;
@@ -1567,8 +1637,14 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
       {/* Products tab */}
       {adminTab === "products" && (<>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16, gap: 10 }}>
-          <Tooltip position="bottom" text="Paste a JSON block or array generated by Claude to import one or many products.<br/><br/><strong>Process:</strong> Claude generates JSON → copy it → click here → paste → Import Product → then upload the photo in the product editor.">
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16, gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          {migrationMsg && <span style={{ fontSize: 12, fontFamily: S.fontHead, color: migrationMsg.startsWith("✅") ? "#51cf66" : S.teal, fontWeight: 600 }}>{migrationMsg}</span>}
+          {products.some(p => p.img && p.img.startsWith("data:")) && (
+            <Tooltip position="bottom" text="Move product photos from database to Firebase Storage. This fixes save failures caused by oversized database documents and speeds up the site.">
+              <button onClick={migrateImages} disabled={migratingImages} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(255,165,0,0.3)", background: "rgba(255,165,0,0.08)", color: "#ffa500", fontSize: 14, fontWeight: 700, cursor: migratingImages ? "wait" : "pointer", fontFamily: S.fontHead, opacity: migratingImages ? 0.5 : 1 }}>{migratingImages ? "⏳ Migrating…" : "🖼️ Migrate Images"}</button>
+            </Tooltip>
+          )}
+          <Tooltip position="bottom" text="Paste a JSON block or array generated by Claude to import one or many products.<br/><br/><strong>Process:</strong> Claude generates JSON → copy it → click here → paste → Import Product(s) → then upload photos in the product editor.">
             <button onClick={() => { setImportText(""); setImportingJSON(true); }} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.teal, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>📋 Import JSON</button>
           </Tooltip>
           <Tooltip position="bottom" text="Manually create a new product from scratch. Use <strong>Import JSON</strong> instead if Claude has generated a product for you — it's much faster.">
