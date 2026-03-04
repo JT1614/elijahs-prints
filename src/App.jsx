@@ -2198,7 +2198,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     price: parseFloat(data.price) || 0,
                     category: data.category || categories[0] || "Planters",
                     description: data.description || "",
-                    colors: Array.isArray(data.colors) ? data.colors.filter(c => ALL_COLORS.includes(c)) : ["Matte Charcoal"],
+                    colors: Array.isArray(data.colors) ? (data.colors.includes("all") ? [...ALL_COLORS] : data.colors.filter(c => ALL_COLORS.includes(c))) : ["Matte Charcoal"],
                     maxColors: parseInt(data.maxColors) || 1,
                     printTime: data.printTime || "",
                     grams: parseInt(data.grams) || 0,
