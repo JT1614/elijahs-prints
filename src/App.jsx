@@ -336,26 +336,10 @@ async function updateOrderStatus(orderId, status) {
           4) Replace the IDs below
    ═══════════════════════════════════════════════ */
 const EMAILJS_CONFIG = {
-  serviceId: "service_yfqmmph",
-  templateId: "template_ses8533",
-  requestTemplateId: "template_ses8533", // this is the confirmation to Elijah
-  shippedTemplateId: "template_qouy2wj", // this is the confirmation to customer when sent 
-  publicKey: "7wzdRK1WVUcOewtz3",
   recipientEmail: "johnianthompson@outlook.com, etprintworld@outlook.com",
   enabled: true,
+  // Credentials moved server-side to /api/send-email — no longer exposed in frontend
 };
-
-let emailjsLoaded = false;
-function loadEmailJS() {
-  if (emailjsLoaded) return Promise.resolve();
-  return new Promise((resolve) => {
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js";
-    script.onload = () => { emailjsLoaded = true; resolve(); };
-    script.onerror = () => resolve(); // fail silently
-    document.head.appendChild(script);
-  });
-}
 
 async function sendOrderEmail(order) {
   if (!EMAILJS_CONFIG.enabled) {
@@ -363,27 +347,31 @@ async function sendOrderEmail(order) {
     return;
   }
   try {
-    await loadEmailJS();
-    if (!window.emailjs) return;
-    window.emailjs.init(EMAILJS_CONFIG.publicKey);
     const itemsList = order.items.map(i =>
       i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
     ).join("\n");
     const address = order.shipping.id === "collection"
       ? "🎒 School collection"
       : [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join(", ");
-    await window.emailjs.send(EMAILJS_CONFIG.serviceId, EMAILJS_CONFIG.templateId, {
-      to_email: EMAILJS_CONFIG.recipientEmail,
-      order_id: order.id,
-      customer_name: order.customer.name,
-      customer_email: order.customer.email,
-      customer_phone: order.customer.phone || "Not provided",
-      shipping_method: order.shipping.name,
-      items_list: itemsList,
-      subtotal: `£${order.subtotal.toFixed(2)}`,
-      shipping_cost: order.shippingCost === 0 ? "FREE" : `£${order.shippingCost.toFixed(2)}`,
-      total: `£${order.total.toFixed(2)}`,
-      address: address,
+    await fetch("/api/send-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "order",
+        templateParams: {
+          to_email: EMAILJS_CONFIG.recipientEmail,
+          order_id: order.id,
+          customer_name: order.customer.name,
+          customer_email: order.customer.email,
+          customer_phone: order.customer.phone || "Not provided",
+          shipping_method: order.shipping.name,
+          items_list: itemsList,
+          subtotal: `£${order.subtotal.toFixed(2)}`,
+          shipping_cost: order.shippingCost === 0 ? "FREE" : `£${order.shippingCost.toFixed(2)}`,
+          total: `£${order.total.toFixed(2)}`,
+          address: address,
+        },
+      }),
     });
     console.log("📧 Order email sent successfully");
   } catch (e) {
@@ -391,24 +379,28 @@ async function sendOrderEmail(order) {
   }
 }
 async function sendShippedEmail(order) {
-  if (!EMAILJS_CONFIG.enabled || !EMAILJS_CONFIG.shippedTemplateId) return;
+  if (!EMAILJS_CONFIG.enabled) return;
   try {
-    await loadEmailJS();
-    if (!window.emailjs) return;
-    window.emailjs.init(EMAILJS_CONFIG.publicKey);
     const itemsList = order.items.map(i =>
       i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
     ).join("\n");
     const isCollection = order.shipping?.id === "collection";
-    await window.emailjs.send(EMAILJS_CONFIG.serviceId, EMAILJS_CONFIG.shippedTemplateId, {
-      to_email: order.customer.email,
-      order_id: order.id,
-      customer_name: order.customer.name.split(" ")[0],
-      order_items: itemsList,
-      delivery_method: isCollection ? "handed over at school" : "shipped",
-      delivery_message: isCollection
-        ? "Elijah will bring it to school — keep an eye out!"
-        : "Your order is on its way via Royal Mail Tracked 48. It should arrive within 2-3 working days.",
+    await fetch("/api/send-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "shipped",
+        templateParams: {
+          to_email: order.customer.email,
+          order_id: order.id,
+          customer_name: order.customer.name.split(" ")[0],
+          order_items: itemsList,
+          delivery_method: isCollection ? "handed over at school" : "shipped",
+          delivery_message: isCollection
+            ? "Elijah will bring it to school — keep an eye out!"
+            : "Your order is on its way via Royal Mail Tracked 48. It should arrive within 2-3 working days.",
+        },
+      }),
     });
     console.log("📧 Shipped email sent to", order.customer.email);
   } catch (e) {
@@ -422,21 +414,25 @@ async function sendRequestEmail(request) {
     return;
   }
   try {
-    await loadEmailJS();
-    if (!window.emailjs) return;
-    window.emailjs.init(EMAILJS_CONFIG.publicKey);
-    await window.emailjs.send(EMAILJS_CONFIG.serviceId, EMAILJS_CONFIG.requestTemplateId, {
-      to_email: EMAILJS_CONFIG.recipientEmail,
-      request_id: request.id,
-      customer_name: request.name,
-      customer_email: request.email,
-      item_type: request.type,
-      description: request.description,
-      model_link: request.modelLink || "None provided",
-      size_pref: request.size,
-      colour_pref: request.colours || "No preference",
-      budget: request.budget,
-      extra_notes: request.notes || "None",
+    await fetch("/api/send-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "request",
+        templateParams: {
+          to_email: EMAILJS_CONFIG.recipientEmail,
+          request_id: request.id,
+          customer_name: request.name,
+          customer_email: request.email,
+          item_type: request.type,
+          description: request.description,
+          model_link: request.modelLink || "None provided",
+          size_pref: request.size,
+          colour_pref: request.colours || "No preference",
+          budget: request.budget,
+          extra_notes: request.notes || "None",
+        },
+      }),
     });
     console.log("📧 Request email sent successfully");
   } catch (e) {
