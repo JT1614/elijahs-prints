@@ -50,7 +50,10 @@ For MATCH mode (spool photo):
     { "name": "Existing Colour Name", "confidence": "high|medium|low", "reason": "why this matches" }
   ],
   "visibleInfo": "any text/labels visible on the spool",
-  "estimatedColour": "your best guess at the colour name if no match"
+  "estimatedColour": "your best guess at the colour name if no match",
+  "hexEstimate": "#hexcode best visual estimate of the filament colour",
+  "suggestedType": "estimated filament type e.g. PLA Silk+",
+  "suggestedPremium": false
 }
 
 For SCAN mode (box/packaging):
