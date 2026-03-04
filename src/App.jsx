@@ -408,6 +408,31 @@ async function sendShippedEmail(order) {
   }
 }
 
+async function sendMadeEmail(order) {
+  if (!EMAILJS_CONFIG.enabled) return;
+  try {
+    const itemsList = order.items.map(i =>
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
+    ).join("\n");
+    await fetch("/api/send-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "made",
+        templateParams: {
+          to_email: order.customer.email,
+          order_id: order.id,
+          customer_name: order.customer.name.split(" ")[0],
+          order_items: itemsList,
+        },
+      }),
+    });
+    console.log("📧 Made email sent to", order.customer.email);
+  } catch (e) {
+    console.error("📧 Made email failed:", e);
+  }
+}
+
 async function sendRequestEmail(request) {
   if (!EMAILJS_CONFIG.enabled) {
     console.log("📧 Special request email (demo mode):", request);
@@ -2777,10 +2802,13 @@ function ElijahsPrintsInner() {
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
     const order = orders.find(o => o.id === orderId);
     const wasDespatched = order?.status?.despatched;
+    const wasProduced = order?.status?.produced;
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     await updateOrderStatus(orderId, newStatus);
     if (newStatus.despatched && !wasDespatched && order) {
       sendShippedEmail(order);
+    } else if (newStatus.produced && !wasProduced && !newStatus.despatched && order) {
+      sendMadeEmail(order);
     }
   };
   const handleOrderPlaced = (order) => { setOrders(prev => [...prev, order]); };
