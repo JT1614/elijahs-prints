@@ -1962,6 +1962,7 @@ Important:
                         monthlyCost: parseFloat(clean[4]) || 0,
                         productsCovered: clean[5] || "",
                         actionRequired: clean[6] || "",
+                        photoRights: (clean[7] || "own_needed").toLowerCase().replace(/\s+/g, "_"),
                       };
                     }).filter(c => c.name);
                     setCreators(parsed);
@@ -2003,7 +2004,7 @@ Important:
               }} />
             </label>
             <button onClick={async () => {
-              const newC = { id: Date.now(), name: "", platform: "MakerWorld", profileUrl: "", licenceStatus: "unconfirmed", monthlyCost: 0, productsCovered: "", actionRequired: "" };
+              const newC = { id: Date.now(), name: "", platform: "MakerWorld", profileUrl: "", licenceStatus: "unconfirmed", monthlyCost: 0, productsCovered: "", actionRequired: "", photoRights: "own_needed" };
               const updated = [...creators, newC];
               setCreators(updated);
               await saveCreators(updated);
@@ -2045,6 +2046,7 @@ Important:
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <input value={c.profileUrl} onChange={e => { const u=[...creators]; u[idx]={...u[idx],profileUrl:e.target.value}; setCreators(u); }} placeholder="Profile URL" style={{ flex: 3, minWidth: 160, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
                         <input value={c.monthlyCost} onChange={e => { const u=[...creators]; u[idx]={...u[idx],monthlyCost:parseFloat(e.target.value)||0}; setCreators(u); }} placeholder="£/mo" type="number" step="0.01" style={{ flex: 1, minWidth: 70, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
+                        <button onClick={() => { const u=[...creators]; u[idx]={...u[idx], photoRights: c.photoRights === "included" ? "own_needed" : "included"}; setCreators(u); }} style={{ minWidth: 140, padding: "8px 12px", borderRadius: 8, border: `1px solid ${c.photoRights === "included" ? S.teal : "rgba(245,159,0,0.4)"}`, background: c.photoRights === "included" ? "rgba(0,201,167,0.12)" : "rgba(245,159,0,0.08)", color: c.photoRights === "included" ? S.teal : "#f59f00", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>{c.photoRights === "included" ? "📷 Photos included" : "📷 Own photos needed"}</button>
                       </div>
                       <input value={c.actionRequired} onChange={e => { const u=[...creators]; u[idx]={...u[idx],actionRequired:e.target.value}; setCreators(u); }} placeholder="Action required" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
                       <div style={{ display: "flex", gap: 8 }}>
@@ -2061,6 +2063,7 @@ Important:
                       </div>
                       <span style={{ fontSize: 11, fontWeight: 700, color: health.color, background: health.bg, padding: "3px 10px", borderRadius: 20, fontFamily: S.fontHead }}>{health.label}</span>
                       {c.monthlyCost > 0 && <span style={{ fontSize: 12, color: S.muted, fontFamily: S.fontMono }}>£{c.monthlyCost.toFixed(2)}/mo</span>}
+                      <span style={{ fontSize: 11, fontWeight: 600, color: c.photoRights === "included" ? S.teal : "#f59f00", background: c.photoRights === "included" ? "rgba(0,201,167,0.1)" : "rgba(245,159,0,0.08)", padding: "3px 8px", borderRadius: 12, fontFamily: S.fontHead }}>{c.photoRights === "included" ? "📷 Photos OK" : "📷 Own photos"}</span>
                       <span style={{ fontSize: 11, color: S.dimmer }}>{activeProds.length} active product{activeProds.length !== 1 ? "s" : ""}</span>
                       <button onClick={() => setEditing("creator_" + c.id)} style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 12, cursor: "pointer", fontFamily: S.fontHead }}>Edit</button>
                     </div>
