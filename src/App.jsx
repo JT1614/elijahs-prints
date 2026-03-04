@@ -2196,7 +2196,9 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                   if (invalid.length > 0) { alert("All items must include a 'name' field"); return; }
                   const badCats = items.filter(d => d.category && !categories.includes(d.category));
                   if (badCats.length > 0) { alert("Category mismatch: " + badCats.map(d => '"' + d.category + '"').join(", ") + ". Expected: " + categories.join(", ")); return; }
-                  let maxId = products.reduce((m, p) => Math.max(m, p.id), 0);
+                  setSaving(true);
+                  const freshProducts = await loadProducts() || products;
+                  let maxId = freshProducts.reduce((m, p) => Math.max(m, p.id), 0);
                   const newProducts = items.map(data => ({
                     id: ++maxId,
                     name: data.name || "",
@@ -2218,8 +2220,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     photoSource: data.photoSource || "own",
                     addedDate: new Date().toISOString(),
                   }));
-                  setSaving(true);
-                  await onSave([...products, ...newProducts]);
+                  await onSave([...freshProducts, ...newProducts]);
                   setSaving(false);
                   setImportingJSON(false);
                   setImportText("");
