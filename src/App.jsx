@@ -1381,67 +1381,20 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       ? `This image is a FILAMENT SPOOL. Use MATCH mode — identify the filament colour and match it against the existing library.`
       : `This image is FILAMENT PACKAGING/BOX. Use SCAN mode — read all details from the packaging.`;
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch("/api/scan-filament", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: mediaType, data: base64Data } },
-              { type: "text", text: `You are a filament colour identification assistant for a 3D printing shop called ET Print World.
-
-EXISTING COLOUR LIBRARY:
-${JSON.stringify(existingColours, null, 2)}
-
-${modeInstruction}
-
-Respond with ONLY valid JSON (no markdown, no backticks, no preamble):
-
-For MATCH mode (spool photo):
-{
-  "mode": "match",
-  "matches": [
-    { "name": "Existing Colour Name", "confidence": "high|medium|low", "reason": "why this matches" }
-  ],
-  "visibleInfo": "any text/labels visible on the spool",
-  "estimatedColour": "your best guess at the colour name if no match"
-}
-
-For SCAN mode (box/packaging):
-{
-  "mode": "scan",
-  "brand": "brand name from packaging",
-  "colourName": "colour name from packaging",
-  "material": "PLA/PETG/TPU etc",
-  "finish": "Basic/Matte/Silk/Gradient etc",
-  "hexEstimate": "#hexcode best estimate from the packaging",
-  "existingMatch": "name of existing colour if it matches one, or null",
-  "suggestedName": "suggested ET Print World colour name",
-  "suggestedType": "suggested filament type string e.g. PLA Matte",
-  "premium": false,
-  "allDetailsRead": "summary of everything readable on the packaging"
-}
-
-Important:
-- For suggestedType, use one of: PLA Basic, PLA Matte, PLA Silk+, PLA Gradient, ELEGOO Silk, Reprapper PLA, PETG, TPU
-- For premium, set true for Silk, Gradient, or special finishes
-- Match confidence: "high" = very likely the same, "medium" = close but not certain, "low" = possible but unlikely
-- Return up to 3 matches, ordered by confidence` }
-            ],
-          }],
-        }),
+        body: JSON.stringify({ base64Data, mediaType, existingColours, modeInstruction }),
       });
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Scan failed");
       const text = data.content.map(i => i.text || "").join("\n");
       const clean = text.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
       setScannerResult(parsed);
     } catch (err) {
       console.error("Filament scan error:", err);
-      setScannerResult({ error: "Analysis failed — this might be a network issue or the image was too large. Try again or use a different photo." });
+      setScannerResult({ error: "Analysis failed — try again or use a different photo." });
     }
     setScannerLoading(false);
   };
