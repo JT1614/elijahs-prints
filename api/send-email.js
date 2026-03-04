@@ -20,6 +20,7 @@ export default async function handler(req, res) {
     order: process.env.EMAILJS_ORDER_TEMPLATE_ID,
     shipped: process.env.EMAILJS_SHIPPED_TEMPLATE_ID,
     request: process.env.EMAILJS_REQUEST_TEMPLATE_ID,
+    made: process.env.EMAILJS_MADE_TEMPLATE_ID,
   };
 
   const templateId = TEMPLATES[type];
