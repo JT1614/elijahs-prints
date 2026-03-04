@@ -1368,6 +1368,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [scannerLoading, setScannerLoading] = useState(false);
   const [scannerResult, setScannerResult] = useState(null);
   const [scannerImage, setScannerImage] = useState(null);
+  const [scannerMode, setScannerMode] = useState("match");
 
   /* ── Filament Scanner ── */
   const analyseFilament = async (base64Data, mediaType) => {
@@ -1376,6 +1377,9 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
     const existingColours = Object.entries(FILAMENTS).map(([name, f]) => ({
       name, hex: f.hex, type: f.type, premium: !!f.premium,
     }));
+    const modeInstruction = scannerMode === "match"
+      ? `This image is a FILAMENT SPOOL. Use MATCH mode — identify the filament colour and match it against the existing library.`
+      : `This image is FILAMENT PACKAGING/BOX. Use SCAN mode — read all details from the packaging.`;
     try {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -1392,9 +1396,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 EXISTING COLOUR LIBRARY:
 ${JSON.stringify(existingColours, null, 2)}
 
-Analyse this image. Determine if it shows:
-A) A filament SPOOL (visible filament, possibly with a label) — MATCH mode
-B) Filament PACKAGING/BOX (retail box with printed details) — SCAN mode
+${modeInstruction}
 
 Respond with ONLY valid JSON (no markdown, no backticks, no preamble):
 
@@ -1471,7 +1473,7 @@ Important:
     reader.readAsDataURL(file);
   };
 
-  const scanGalleryRef = React.useRef(null);
+
 
   const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, maxColors: 1, addedDate: new Date().toISOString(), sourceRef: "", sourceUrl: "", creator: "", photoSource: "own" };
 
@@ -1601,33 +1603,46 @@ Important:
             Manage your filament library. Every colour here is automatically available on <strong style={{ color: S.text }}>all products</strong>.
           </p>
 
-          {/* Scan Filament button */}
-          <button onClick={() => { setScannerOpen(true); setScannerResult(null); setScannerImage(null); }} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 12, border: `1px solid rgba(132,94,247,0.3)`, background: "rgba(132,94,247,0.08)", color: S.purple, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, marginBottom: 20 }}>📷 Scan Filament</button>
+          {/* Filament Scanner — inline panel */}
+          <div style={{ marginBottom: 24, borderRadius: 16, border: `1px solid ${scannerOpen ? "rgba(132,94,247,0.3)" : S.border}`, background: scannerOpen ? "rgba(132,94,247,0.03)" : S.card, overflow: "hidden", transition: "all 0.3s" }}>
+            <button onClick={() => { setScannerOpen(!scannerOpen); if (!scannerOpen) { setScannerResult(null); setScannerImage(null); } }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "14px 20px", border: "none", background: "transparent", cursor: "pointer", textAlign: "left" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 20 }}>📷</span>
+                <span style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: scannerOpen ? S.purple : S.text }}>Filament Scanner</span>
+              </div>
+              <span style={{ fontSize: 18, color: S.muted, transform: scannerOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▾</span>
+            </button>
 
-          {/* Scanner Modal */}
-          {scannerOpen && (
-            <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={(e) => { if (e.target === e.currentTarget) { setScannerOpen(false); setScannerResult(null); setScannerImage(null); } }}>
-              <div style={{ background: S.dark, border: `1px solid ${S.border}`, borderRadius: 20, padding: 28, maxWidth: 520, width: "100%", maxHeight: "90vh", overflowY: "auto", position: "relative" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                  <h3 style={{ fontSize: 18, fontWeight: 800, fontFamily: S.fontHead, color: S.text, margin: 0 }}>📷 Filament Scanner</h3>
-                  <button onClick={() => { setScannerOpen(false); setScannerResult(null); setScannerImage(null); }} style={{ width: 32, height: 32, borderRadius: 8, border: "none", background: "rgba(255,255,255,0.05)", color: S.muted, fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+            {scannerOpen && (
+              <div style={{ padding: "0 20px 20px" }}>
+                {/* Mode toggle tabs */}
+                <div style={{ display: "flex", gap: 0, marginBottom: 16, borderRadius: 12, overflow: "hidden", border: `1px solid ${S.border}` }}>
+                  <button onClick={() => { setScannerMode("match"); setScannerResult(null); setScannerImage(null); }} style={{ flex: 1, padding: "10px 16px", border: "none", background: scannerMode === "match" ? "rgba(0,201,167,0.12)" : "transparent", color: scannerMode === "match" ? S.teal : S.muted, fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.2s" }}>
+                    <span>🎯</span> Match Spool
+                  </button>
+                  <button onClick={() => { setScannerMode("scan"); setScannerResult(null); setScannerImage(null); }} style={{ flex: 1, padding: "10px 16px", border: "none", borderLeft: `1px solid ${S.border}`, background: scannerMode === "scan" ? "rgba(132,94,247,0.12)" : "transparent", color: scannerMode === "scan" ? S.purple : S.muted, fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.2s" }}>
+                    <span>📦</span> Scan Box
+                  </button>
                 </div>
-                <p style={{ fontSize: 13, color: S.muted, marginBottom: 16, lineHeight: 1.6 }}>
-                  Upload a photo of a <strong style={{ color: S.teal }}>filament spool</strong> to match it to your library, or a <strong style={{ color: S.purple }}>filament box</strong> to scan its details. I'll figure out which one it is.
+
+                <p style={{ fontSize: 12, color: S.dimmer, marginBottom: 14, lineHeight: 1.5 }}>
+                  {scannerMode === "match"
+                    ? "Take a photo of a filament spool to identify it against your colour library."
+                    : "Photograph a filament box or packaging to read the colour, brand, and material details."}
                 </p>
 
                 {/* Upload area */}
                 {!scannerImage && !scannerLoading && (
                   <div style={{ display: "flex", gap: 10 }}>
-                    <label style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: "32px 16px", borderRadius: 16, border: `2px dashed ${S.border}`, background: "rgba(255,255,255,0.02)", cursor: "pointer", transition: "all 0.2s" }}>
-                      <div style={{ fontSize: 32, opacity: 0.6 }}>📷</div>
-                      <div style={{ fontSize: 13, color: S.teal, fontFamily: S.fontHead, fontWeight: 600 }}>Take Photo</div>
+                    <label style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "24px 12px", borderRadius: 14, border: `2px dashed ${S.border}`, background: "rgba(255,255,255,0.02)", cursor: "pointer", transition: "all 0.2s" }}>
+                      <div style={{ fontSize: 28, opacity: 0.6 }}>📷</div>
+                      <div style={{ fontSize: 12, color: scannerMode === "match" ? S.teal : S.purple, fontFamily: S.fontHead, fontWeight: 600 }}>Take Photo</div>
                       <div style={{ fontSize: 10, color: S.dimmer }}>Open camera</div>
                       <input type="file" accept="image/*" capture="environment" onChange={handleScanUpload} style={{ display: "none" }} />
                     </label>
-                    <label style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: "32px 16px", borderRadius: 16, border: `2px dashed ${S.border}`, background: "rgba(255,255,255,0.02)", cursor: "pointer", transition: "all 0.2s" }}>
-                      <div style={{ fontSize: 32, opacity: 0.6 }}>📁</div>
-                      <div style={{ fontSize: 13, color: S.purple, fontFamily: S.fontHead, fontWeight: 600 }}>Upload Photo</div>
+                    <label style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "24px 12px", borderRadius: 14, border: `2px dashed ${S.border}`, background: "rgba(255,255,255,0.02)", cursor: "pointer", transition: "all 0.2s" }}>
+                      <div style={{ fontSize: 28, opacity: 0.6 }}>📁</div>
+                      <div style={{ fontSize: 12, color: scannerMode === "match" ? S.teal : S.purple, fontFamily: S.fontHead, fontWeight: 600 }}>Upload Photo</div>
                       <div style={{ fontSize: 10, color: S.dimmer }}>From gallery or files</div>
                       <input type="file" accept="image/*" onChange={handleScanUpload} style={{ display: "none" }} />
                     </label>
@@ -1636,48 +1651,48 @@ Important:
 
                 {/* Loading state */}
                 {scannerLoading && (
-                  <div style={{ textAlign: "center", padding: "32px 0" }}>
-                    {scannerImage && <img src={scannerImage} alt="Uploaded" style={{ width: "100%", maxHeight: 200, objectFit: "contain", borderRadius: 12, marginBottom: 16, opacity: 0.6 }} />}
-                    <div style={{ display: "inline-block", width: 28, height: 28, border: `3px solid ${S.border}`, borderTopColor: S.teal, borderRadius: "50%", animation: "spin 0.8s linear infinite", marginBottom: 12 }} />
-                    <p style={{ fontSize: 14, color: S.teal, fontFamily: S.fontHead, fontWeight: 600 }}>Analysing filament...</p>
-                    <p style={{ fontSize: 12, color: S.dimmer }}>Reading colours, labels, and packaging</p>
+                  <div style={{ textAlign: "center", padding: "24px 0" }}>
+                    {scannerImage && <img src={scannerImage} alt="Uploaded" style={{ width: "100%", maxHeight: 180, objectFit: "contain", borderRadius: 12, marginBottom: 14, opacity: 0.6 }} />}
+                    <div style={{ display: "inline-block", width: 24, height: 24, border: `3px solid ${S.border}`, borderTopColor: scannerMode === "match" ? S.teal : S.purple, borderRadius: "50%", animation: "spin 0.8s linear infinite", marginBottom: 10 }} />
+                    <p style={{ fontSize: 13, color: scannerMode === "match" ? S.teal : S.purple, fontFamily: S.fontHead, fontWeight: 600 }}>{scannerMode === "match" ? "Matching filament..." : "Reading packaging..."}</p>
+                    <p style={{ fontSize: 11, color: S.dimmer }}>Analysing your photo</p>
                   </div>
                 )}
 
                 {/* Error result */}
                 {scannerResult?.error && (
                   <div>
-                    {scannerImage && <img src={scannerImage} alt="Uploaded" style={{ width: "100%", maxHeight: 200, objectFit: "contain", borderRadius: 12, marginBottom: 16 }} />}
-                    <div style={{ background: "rgba(255,107,107,0.08)", border: "1px solid rgba(255,107,107,0.2)", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-                      <p style={{ fontSize: 14, color: "#ff6b6b", fontWeight: 600 }}>{scannerResult.error}</p>
+                    {scannerImage && <img src={scannerImage} alt="Uploaded" style={{ width: "100%", maxHeight: 180, objectFit: "contain", borderRadius: 12, marginBottom: 14 }} />}
+                    <div style={{ background: "rgba(255,107,107,0.08)", border: "1px solid rgba(255,107,107,0.2)", borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                      <p style={{ fontSize: 13, color: "#ff6b6b", fontWeight: 600, margin: 0 }}>{scannerResult.error}</p>
                     </div>
-                    <button onClick={() => { setScannerResult(null); setScannerImage(null); }} style={{ width: "100%", padding: "12px 20px", borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Try Again</button>
+                    <button onClick={() => { setScannerResult(null); setScannerImage(null); }} style={{ width: "100%", padding: "10px 16px", borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Try Again</button>
                   </div>
                 )}
 
                 {/* MATCH result (spool identified) */}
                 {scannerResult?.mode === "match" && (
                   <div>
-                    {scannerImage && <img src={scannerImage} alt="Uploaded" style={{ width: "100%", maxHeight: 200, objectFit: "contain", borderRadius: 12, marginBottom: 16 }} />}
+                    {scannerImage && <img src={scannerImage} alt="Uploaded" style={{ width: "100%", maxHeight: 180, objectFit: "contain", borderRadius: 12, marginBottom: 14 }} />}
                     {scannerResult.visibleInfo && (
-                      <div style={{ fontSize: 12, color: S.dimmer, fontFamily: S.fontMono, marginBottom: 12, padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono, marginBottom: 10, padding: "6px 10px", background: "rgba(255,255,255,0.03)", borderRadius: 8 }}>
                         📝 Visible on spool: {scannerResult.visibleInfo}
                       </div>
                     )}
-                    <h4 style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: S.teal, marginBottom: 12 }}>
+                    <h4 style={{ fontSize: 14, fontWeight: 700, fontFamily: S.fontHead, color: S.teal, marginBottom: 10, marginTop: 0 }}>
                       {scannerResult.matches?.length > 0 ? "🎯 Matches Found" : "❌ No Match Found"}
                     </h4>
                     {scannerResult.matches?.map((m, i) => {
                       const fil = FILAMENTS[m.name];
                       return (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: i === 0 ? "rgba(0,201,167,0.06)" : S.card, border: `1px solid ${i === 0 ? "rgba(0,201,167,0.2)" : S.border}`, marginBottom: 8 }}>
-                          {fil && <div style={{ width: 36, height: 36, borderRadius: 10, background: fil.hex, border: "2px solid rgba(255,255,255,0.12)", flexShrink: 0 }} />}
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 12, background: i === 0 ? "rgba(0,201,167,0.06)" : "rgba(255,255,255,0.02)", border: `1px solid ${i === 0 ? "rgba(0,201,167,0.2)" : S.border}`, marginBottom: 6 }}>
+                          {fil && <div style={{ width: 32, height: 32, borderRadius: 8, background: fil.hex, border: "2px solid rgba(255,255,255,0.12)", flexShrink: 0 }} />}
                           <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{m.name}</div>
-                            <div style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>{fil?.type || "Unknown"}{fil?.premium ? " ✦" : ""}</div>
-                            <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{m.reason}</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{m.name}</div>
+                            <div style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono }}>{fil?.type || "Unknown"}{fil?.premium ? " ✦" : ""}</div>
+                            <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>{m.reason}</div>
                           </div>
-                          <span style={{ fontSize: 11, padding: "4px 10px", borderRadius: 8, fontWeight: 700, fontFamily: S.fontMono, textTransform: "uppercase",
+                          <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, fontWeight: 700, fontFamily: S.fontMono, textTransform: "uppercase",
                             background: m.confidence === "high" ? "rgba(0,201,167,0.12)" : m.confidence === "medium" ? "rgba(249,202,36,0.12)" : "rgba(255,107,107,0.08)",
                             color: m.confidence === "high" ? S.teal : m.confidence === "medium" ? "#f9ca24" : "#ff6b6b",
                           }}>{m.confidence}</span>
@@ -1685,35 +1700,32 @@ Important:
                       );
                     })}
                     {(!scannerResult.matches || scannerResult.matches.length === 0) && scannerResult.estimatedColour && (
-                      <p style={{ fontSize: 13, color: S.muted, marginTop: 8 }}>Best guess: <strong style={{ color: S.text }}>{scannerResult.estimatedColour}</strong> — not currently in your library.</p>
+                      <p style={{ fontSize: 12, color: S.muted, marginTop: 6 }}>Best guess: <strong style={{ color: S.text }}>{scannerResult.estimatedColour}</strong> — not currently in your library.</p>
                     )}
-                    <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-                      <button onClick={() => { setScannerResult(null); setScannerImage(null); }} style={{ flex: 1, padding: "12px 20px", borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Scan Another</button>
-                      <button onClick={() => { setScannerOpen(false); setScannerResult(null); setScannerImage(null); }} style={{ flex: 1, padding: "12px 20px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Done</button>
-                    </div>
+                    <button onClick={() => { setScannerResult(null); setScannerImage(null); }} style={{ width: "100%", marginTop: 12, padding: "10px 16px", borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Scan Another</button>
                   </div>
                 )}
 
                 {/* SCAN result (box/packaging identified) */}
                 {scannerResult?.mode === "scan" && (
                   <div>
-                    {scannerImage && <img src={scannerImage} alt="Uploaded" style={{ width: "100%", maxHeight: 200, objectFit: "contain", borderRadius: 12, marginBottom: 16 }} />}
+                    {scannerImage && <img src={scannerImage} alt="Uploaded" style={{ width: "100%", maxHeight: 180, objectFit: "contain", borderRadius: 12, marginBottom: 14 }} />}
 
                     {/* Details read from packaging */}
-                    <div style={{ fontSize: 12, color: S.dimmer, fontFamily: S.fontMono, marginBottom: 16, padding: "10px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 10, lineHeight: 1.6 }}>
+                    <div style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono, marginBottom: 14, padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 10, lineHeight: 1.6 }}>
                       📦 <strong style={{ color: S.muted }}>Scanned:</strong> {scannerResult.allDetailsRead || `${scannerResult.brand} — ${scannerResult.colourName} (${scannerResult.material} ${scannerResult.finish})`}
                     </div>
 
                     {/* Existing match found */}
                     {scannerResult.existingMatch && FILAMENTS[scannerResult.existingMatch] && (
-                      <div style={{ background: "rgba(0,201,167,0.06)", border: "1px solid rgba(0,201,167,0.2)", borderRadius: 14, padding: 16, marginBottom: 16, textAlign: "center" }}>
-                        <div style={{ fontSize: 24, marginBottom: 8 }}>✅</div>
-                        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: S.teal, marginBottom: 4 }}>Already in your library!</div>
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "8px 16px", borderRadius: 10, background: S.card, border: `1px solid ${S.border}`, marginTop: 8 }}>
-                          <div style={{ width: 28, height: 28, borderRadius: 8, background: FILAMENTS[scannerResult.existingMatch].hex, border: "2px solid rgba(255,255,255,0.12)" }} />
+                      <div style={{ background: "rgba(0,201,167,0.06)", border: "1px solid rgba(0,201,167,0.2)", borderRadius: 14, padding: 14, marginBottom: 14, textAlign: "center" }}>
+                        <div style={{ fontSize: 20, marginBottom: 6 }}>✅</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, fontFamily: S.fontHead, color: S.teal, marginBottom: 4 }}>Already in your library!</div>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 12px", borderRadius: 10, background: S.card, border: `1px solid ${S.border}`, marginTop: 6 }}>
+                          <div style={{ width: 24, height: 24, borderRadius: 6, background: FILAMENTS[scannerResult.existingMatch].hex, border: "2px solid rgba(255,255,255,0.12)" }} />
                           <div style={{ textAlign: "left" }}>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{scannerResult.existingMatch}</div>
-                            <div style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>{FILAMENTS[scannerResult.existingMatch].type}</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{scannerResult.existingMatch}</div>
+                            <div style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono }}>{FILAMENTS[scannerResult.existingMatch].type}</div>
                           </div>
                         </div>
                       </div>
@@ -1721,19 +1733,19 @@ Important:
 
                     {/* New colour — prefill form */}
                     {!scannerResult.existingMatch && (
-                      <div style={{ background: "rgba(132,94,247,0.06)", border: "1px solid rgba(132,94,247,0.2)", borderRadius: 14, padding: 16, marginBottom: 16 }}>
-                        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: S.purple, marginBottom: 12 }}>🆕 New colour detected!</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 13 }}>
-                          <div><span style={{ color: S.dimmer, fontFamily: S.fontMono, fontSize: 11 }}>SUGGESTED NAME</span><br /><strong style={{ color: S.text }}>{scannerResult.suggestedName}</strong></div>
-                          <div><span style={{ color: S.dimmer, fontFamily: S.fontMono, fontSize: 11 }}>TYPE</span><br /><strong style={{ color: S.text }}>{scannerResult.suggestedType}</strong></div>
-                          <div><span style={{ color: S.dimmer, fontFamily: S.fontMono, fontSize: 11 }}>HEX ESTIMATE</span><br /><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 20, height: 20, borderRadius: 6, background: scannerResult.hexEstimate, border: "1px solid rgba(255,255,255,0.15)" }} /><strong style={{ color: S.text, fontFamily: S.fontMono }}>{scannerResult.hexEstimate}</strong></div></div>
-                          <div><span style={{ color: S.dimmer, fontFamily: S.fontMono, fontSize: 11 }}>PREMIUM</span><br /><strong style={{ color: S.text }}>{scannerResult.premium ? "Yes ✦" : "No"}</strong></div>
+                      <div style={{ background: "rgba(132,94,247,0.06)", border: "1px solid rgba(132,94,247,0.2)", borderRadius: 14, padding: 14, marginBottom: 14 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, fontFamily: S.fontHead, color: S.purple, marginBottom: 10 }}>🆕 New colour detected!</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
+                          <div><span style={{ color: S.dimmer, fontFamily: S.fontMono, fontSize: 10 }}>SUGGESTED NAME</span><br /><strong style={{ color: S.text }}>{scannerResult.suggestedName}</strong></div>
+                          <div><span style={{ color: S.dimmer, fontFamily: S.fontMono, fontSize: 10 }}>TYPE</span><br /><strong style={{ color: S.text }}>{scannerResult.suggestedType}</strong></div>
+                          <div><span style={{ color: S.dimmer, fontFamily: S.fontMono, fontSize: 10 }}>HEX ESTIMATE</span><br /><div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 16, height: 16, borderRadius: 4, background: scannerResult.hexEstimate, border: "1px solid rgba(255,255,255,0.15)" }} /><strong style={{ color: S.text, fontFamily: S.fontMono }}>{scannerResult.hexEstimate}</strong></div></div>
+                          <div><span style={{ color: S.dimmer, fontFamily: S.fontMono, fontSize: 10 }}>PREMIUM</span><br /><strong style={{ color: S.text }}>{scannerResult.premium ? "Yes ✦" : "No"}</strong></div>
                         </div>
                       </div>
                     )}
 
-                    <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-                      <button onClick={() => { setScannerResult(null); setScannerImage(null); }} style={{ flex: 1, padding: "12px 20px", borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Scan Another</button>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => { setScannerResult(null); setScannerImage(null); }} style={{ flex: 1, padding: "10px 16px", borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Scan Another</button>
                       {!scannerResult.existingMatch ? (
                         <button onClick={() => {
                           setNewColourName(scannerResult.suggestedName || "");
@@ -1741,17 +1753,17 @@ Important:
                           setNewColourType(scannerResult.suggestedType || "PLA Basic");
                           setNewColourPremium(!!scannerResult.premium);
                           setEditingColour(null);
-                          setScannerOpen(false); setScannerResult(null); setScannerImage(null);
-                        }} style={{ flex: 1, padding: "12px 20px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.purple}, #6c5ce7)`, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Add to Library →</button>
+                          setScannerResult(null); setScannerImage(null); setScannerOpen(false);
+                        }} style={{ flex: 1, padding: "10px 16px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.purple}, #6c5ce7)`, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Add to Library →</button>
                       ) : (
-                        <button onClick={() => { setScannerOpen(false); setScannerResult(null); setScannerImage(null); }} style={{ flex: 1, padding: "12px 20px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Done</button>
+                        <button onClick={() => { setScannerResult(null); setScannerImage(null); }} style={{ flex: 1, padding: "10px 16px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Done</button>
                       )}
                     </div>
                   </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Add / Edit colour form */}
           <div style={{ background: S.card, border: `1px solid ${editingColour ? S.teal : S.border}`, borderRadius: 16, padding: 20, marginBottom: 24 }}>
