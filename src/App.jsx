@@ -1638,11 +1638,19 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     {scannerResult.matches?.map((m, i) => {
                       const fil = FILAMENTS[m.name];
                       return (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 12, background: i === 0 ? "rgba(0,201,167,0.06)" : "rgba(255,255,255,0.02)", border: `1px solid ${i === 0 ? "rgba(0,201,167,0.2)" : S.border}`, marginBottom: 6 }}>
+                        <div key={i} onClick={() => {
+                          setNewColourName(m.name);
+                          setNewColourHex(fil?.hex || scannerResult.hexEstimate || "#888888");
+                          setNewColourType(fil?.type || scannerResult.suggestedType || "PLA Basic");
+                          setNewColourPremium(fil?.premium || scannerResult.suggestedPremium || false);
+                          setEditingColour(null);
+                          setScannerResult(null); setScannerImage(null); setScannerOpen(false);
+                        }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 12, background: i === 0 ? "rgba(0,201,167,0.06)" : "rgba(255,255,255,0.02)", border: `1px solid ${i === 0 ? "rgba(0,201,167,0.2)" : S.border}`, marginBottom: 6, cursor: "pointer", transition: "all 0.15s" }}>
                           {fil && <div style={{ width: 32, height: 32, borderRadius: 8, background: fil.hex, border: "2px solid rgba(255,255,255,0.12)", flexShrink: 0 }} />}
+                          {!fil && scannerResult.hexEstimate && <div style={{ width: 32, height: 32, borderRadius: 8, background: scannerResult.hexEstimate, border: "2px solid rgba(255,255,255,0.12)", flexShrink: 0 }} />}
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{m.name}</div>
-                            <div style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono }}>{fil?.type || "Unknown"}{fil?.premium ? " ✦" : ""}</div>
+                            <div style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono }}>{fil?.type || scannerResult.suggestedType || "Unknown"}{(fil?.premium || scannerResult.suggestedPremium) ? " ✦" : ""}</div>
                             <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>{m.reason}</div>
                           </div>
                           <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, fontWeight: 700, fontFamily: S.fontMono, textTransform: "uppercase",
@@ -1653,9 +1661,20 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       );
                     })}
                     {(!scannerResult.matches || scannerResult.matches.length === 0) && scannerResult.estimatedColour && (
-                      <p style={{ fontSize: 12, color: S.muted, marginTop: 6 }}>Best guess: <strong style={{ color: S.text }}>{scannerResult.estimatedColour}</strong> — not currently in your library.</p>
+                      <div onClick={() => {
+                        setNewColourName(scannerResult.estimatedColour);
+                        setNewColourHex(scannerResult.hexEstimate || "#888888");
+                        setNewColourType(scannerResult.suggestedType || "PLA Basic");
+                        setNewColourPremium(scannerResult.suggestedPremium || false);
+                        setEditingColour(null);
+                        setScannerResult(null); setScannerImage(null); setScannerOpen(false);
+                      }} style={{ padding: "10px 14px", borderRadius: 12, background: "rgba(132,94,247,0.06)", border: "1px solid rgba(132,94,247,0.2)", cursor: "pointer", transition: "all 0.15s" }}>
+                        <p style={{ fontSize: 12, color: S.muted, margin: 0 }}>Best guess: <strong style={{ color: S.text }}>{scannerResult.estimatedColour}</strong> — tap to add to library</p>
+                        {scannerResult.hexEstimate && <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 6 }}><div style={{ width: 14, height: 14, borderRadius: 4, background: scannerResult.hexEstimate, border: "1px solid rgba(255,255,255,0.15)" }} /><span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>{scannerResult.hexEstimate}</span></div>}
+                      </div>
                     )}
-                    <button onClick={() => { setScannerResult(null); setScannerImage(null); }} style={{ width: "100%", marginTop: 12, padding: "10px 16px", borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Scan Another</button>
+                    <p style={{ fontSize: 10, color: S.dimmer, marginTop: 8, marginBottom: 0, textAlign: "center" }}>Tap a result to pre-fill the colour form</p>
+                    <button onClick={() => { setScannerResult(null); setScannerImage(null); }} style={{ width: "100%", marginTop: 10, padding: "10px 16px", borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Scan Another</button>
                   </div>
                 )}
 
