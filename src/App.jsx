@@ -341,6 +341,7 @@ const EMAILJS_CONFIG = {
   recipientEmail: "johnianthompson@outlook.com, etprintworld@outlook.com",
   enabled: true,
   // Credentials moved server-side to /api/send-email — no longer exposed in frontend
+  _tok: "ep_email_2026_s3cure",  // Must match EMAIL_API_TOKEN in Vercel env vars
 };
 
 async function sendOrderEmail(order) {
@@ -360,6 +361,7 @@ async function sendOrderEmail(order) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: "order",
+        _tok: EMAILJS_CONFIG._tok,
         templateParams: {
           to_email: EMAILJS_CONFIG.recipientEmail,
           order_id: order.id,
@@ -392,6 +394,7 @@ async function sendShippedEmail(order) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: "shipped",
+        _tok: EMAILJS_CONFIG._tok,
         templateParams: {
           to_email: order.customer.email,
           order_id: order.id,
@@ -421,6 +424,7 @@ async function sendMadeEmail(order) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: "made",
+        _tok: EMAILJS_CONFIG._tok,
         templateParams: {
           to_email: order.customer.email,
           order_id: order.id,
@@ -446,6 +450,7 @@ async function sendRequestEmail(request) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: "request",
+        _tok: EMAILJS_CONFIG._tok,
         templateParams: {
           to_email: EMAILJS_CONFIG.recipientEmail,
           request_id: request.id,
