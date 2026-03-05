@@ -6,10 +6,23 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { type, templateParams } = req.body;
+  const { type, templateParams, _tok } = req.body;
+
+  // Reject requests without valid auth token
+  const EXPECTED_TOKEN = process.env.EMAIL_API_TOKEN;
+  if (!EXPECTED_TOKEN || _tok !== EXPECTED_TOKEN) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
 
   if (!type || !templateParams) {
     return res.status(400).json({ error: "Missing type or templateParams" });
+  }
+
+  // Validate order emails have required fields (prevents blank spam)
+  if (type === "order") {
+    if (!templateParams.order_id || !templateParams.items_list) {
+      return res.status(400).json({ error: "Order email missing required fields" });
+    }
   }
 
   const SERVICE_ID = process.env.EMAILJS_SERVICE_ID;
