@@ -830,7 +830,7 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
         <div style={sectionStyle}>
           <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 6 }}>
             Product Status
-            <Tooltip position="right" text="Controls where this product is in its lifecycle:<br/><br/>📝 <strong>Draft</strong> — just imported, needs review<br/>✅ <strong>Approved</strong> — reviewed and approved<br/>🟢 <strong>Live</strong> — visible to customers<br/>⏸ <strong>Paused</strong> — hidden (seasonal etc.)<br/>🗑 <strong>Removed</strong> — delisted permanently<br/><br/>Only <strong>Live</strong> products appear in the shop.">
+            <Tooltip position="right" text="Controls where this product is in its lifecycle:<br/><br/>📝 <strong>Draft</strong> — just imported, needs review<br/>✅ <strong>Approved</strong> — reviewed and approved<br/>🟢 <strong>Live</strong> — visible to customers<br/>⏸ <strong>Paused</strong> — hidden (seasonal etc.)<br/><br/>Only <strong>Live</strong> products appear in the shop.">
               <span style={{ fontSize: 11, color: S.purple, fontFamily: S.fontHead, cursor: "help", border: `1px solid ${S.purple}`, borderRadius: "50%", width: 16, height: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700, opacity: 0.8 }}>?</span>
             </Tooltip>
           </label>
@@ -840,7 +840,6 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
               { value: "approved", label: "✅ Approved", desc: "Reviewed and approved", col: "#845ef7" },
               { value: "live", label: "🟢 Live", desc: "Visible in shop", col: "#51cf66" },
               { value: "paused", label: "⏸ Paused", desc: "Hidden — seasonal etc", col: "#868e96" },
-              { value: "removed", label: "🗑 Removed", desc: "Delisted", col: "#ff6b6b" },
             ].map(({ value, label, desc, col }) => {
               const active = (p.status || (p.available !== false ? "live" : "paused")) === value;
               return (
@@ -1531,10 +1530,10 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const pendingOrders = orders.filter(o => !o.status.despatched).length;
 
   const displayCategories = ["All", ...categories];
-  const STATUS_OPTIONS = ["All", "draft", "approved", "live", "paused", "removed"];
-  const STATUS_LABELS = { All: "All", draft: "📝 Draft", approved: "✅ Approved", live: "🟢 Live", paused: "⏸ Paused", removed: "🗑 Removed" };
-  const STATUS_COLORS = { All: S.muted, draft: "#f59f00", approved: "#845ef7", live: "#51cf66", paused: "#868e96", removed: "#ff6b6b" };
-  const getProductStatus = p => { const s = p.status || (p.available !== false ? "live" : "paused"); return s === "photo_needed" ? "approved" : s; };
+  const STATUS_OPTIONS = ["All", "draft", "approved", "live", "paused"];
+  const STATUS_LABELS = { All: "All", draft: "📝 Draft", approved: "✅ Approved", live: "🟢 Live", paused: "⏸ Paused" };
+  const STATUS_COLORS = { All: S.muted, draft: "#f59f00", approved: "#845ef7", live: "#51cf66", paused: "#868e96" };
+  const getProductStatus = p => { const s = p.status || (p.available !== false ? "live" : "paused"); return s === "photo_needed" ? "approved" : s === "removed" ? "paused" : s; };
   const draftCount = products.filter(p => getProductStatus(p) === "draft").length;
   const filteredByStatus = statusFilter === "All" ? products : products.filter(p => getProductStatus(p) === statusFilter);
   const filtered = filter === "All" ? filteredByStatus : filteredByStatus.filter(p => p.category === filter);
