@@ -830,15 +830,14 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
         <div style={sectionStyle}>
           <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 6 }}>
             Product Status
-            <Tooltip position="right" text="Controls where this product is in its lifecycle:<br/><br/>📝 <strong>Draft</strong> — just imported, needs review<br/>✅ <strong>Approved</strong> — reviewed, ready for photo<br/>📷 <strong>Needs Photo</strong> — photo outstanding<br/>🟢 <strong>Live</strong> — visible to customers<br/>⏸ <strong>Paused</strong> — hidden (seasonal etc.)<br/>🗑 <strong>Removed</strong> — delisted permanently<br/><br/>Only <strong>Live</strong> products appear in the shop.">
+            <Tooltip position="right" text="Controls where this product is in its lifecycle:<br/><br/>📝 <strong>Draft</strong> — just imported, needs review<br/>✅ <strong>Approved</strong> — reviewed and approved<br/>🟢 <strong>Live</strong> — visible to customers<br/>⏸ <strong>Paused</strong> — hidden (seasonal etc.)<br/>🗑 <strong>Removed</strong> — delisted permanently<br/><br/>Only <strong>Live</strong> products appear in the shop.">
               <span style={{ fontSize: 11, color: S.purple, fontFamily: S.fontHead, cursor: "help", border: `1px solid ${S.purple}`, borderRadius: "50%", width: 16, height: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700, opacity: 0.8 }}>?</span>
             </Tooltip>
           </label>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
             {[
               { value: "draft", label: "📝 Draft", desc: "Imported, not reviewed", col: "#f59f00" },
-              { value: "approved", label: "✅ Approved", desc: "Ready, awaiting photo", col: "#845ef7" },
-              { value: "photo_needed", label: "📷 Needs Photo", desc: "Photo outstanding", col: "#cc5de8" },
+              { value: "approved", label: "✅ Approved", desc: "Reviewed and approved", col: "#845ef7" },
               { value: "live", label: "🟢 Live", desc: "Visible in shop", col: "#51cf66" },
               { value: "paused", label: "⏸ Paused", desc: "Hidden — seasonal etc", col: "#868e96" },
               { value: "removed", label: "🗑 Removed", desc: "Delisted", col: "#ff6b6b" },
@@ -903,7 +902,7 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
 /* ═══════════════════════════════════════════════
    ORDER BOOK
    ═══════════════════════════════════════════════ */
-function OrderBook({ orders, onUpdateOrder, products }) {
+function OrderBook({ orders, onUpdateOrder, products, onEditProduct }) {
   const [elijahPhoto, setElijahPhoto] = useState(null);
 
   // Load Elijah's photo from Firebase on mount
@@ -1273,7 +1272,7 @@ function OrderBook({ orders, onUpdateOrder, products }) {
                         <span style={{ color: S.teal, fontWeight: 600 }}>🧡 Tip: £{item.price.toFixed(2)}</span>
                       ) : (<>
                         <span style={{ fontWeight: 600, color: S.text }}>{item.qty}×</span>
-                        <span>{item.name}</span>
+                        <span onClick={() => { const prod = products.find(p => p.id === item.id); if (prod && onEditProduct) onEditProduct(prod); }} style={{ cursor: "pointer", color: S.text, textDecoration: "underline", textDecorationColor: "rgba(255,255,255,0.15)", textUnderlineOffset: 2 }}>{item.name}</span>
                         <span style={{ fontSize: 10, color: S.dimmer }}>({item.selectedColors.join(" + ")})</span>
                         {(() => { const prod = products.find(p => p.id === item.id); if (!prod?.sourceRef) return null; return prod.sourceUrl ? <a href={prod.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2, textDecoration: "none" }} title={`Open: ${prod.sourceRef}`}>🔗 {prod.sourceRef}</a> : <span style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2 }} title={prod.sourceRef}>🔒 {prod.sourceRef}</span>; })()}
                       </>)}
@@ -1532,10 +1531,10 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const pendingOrders = orders.filter(o => !o.status.despatched).length;
 
   const displayCategories = ["All", ...categories];
-  const STATUS_OPTIONS = ["All", "draft", "approved", "photo_needed", "live", "paused", "removed"];
-  const STATUS_LABELS = { All: "All", draft: "📝 Draft", approved: "✅ Approved", photo_needed: "📷 Needs Photo", live: "🟢 Live", paused: "⏸ Paused", removed: "🗑 Removed" };
-  const STATUS_COLORS = { All: S.muted, draft: "#f59f00", approved: "#845ef7", photo_needed: "#cc5de8", live: "#51cf66", paused: "#868e96", removed: "#ff6b6b" };
-  const getProductStatus = p => p.status || (p.available !== false ? "live" : "paused");
+  const STATUS_OPTIONS = ["All", "draft", "approved", "live", "paused", "removed"];
+  const STATUS_LABELS = { All: "All", draft: "📝 Draft", approved: "✅ Approved", live: "🟢 Live", paused: "⏸ Paused", removed: "🗑 Removed" };
+  const STATUS_COLORS = { All: S.muted, draft: "#f59f00", approved: "#845ef7", live: "#51cf66", paused: "#868e96", removed: "#ff6b6b" };
+  const getProductStatus = p => { const s = p.status || (p.available !== false ? "live" : "paused"); return s === "photo_needed" ? "approved" : s; };
   const draftCount = products.filter(p => getProductStatus(p) === "draft").length;
   const filteredByStatus = statusFilter === "All" ? products : products.filter(p => getProductStatus(p) === statusFilter);
   const filtered = filter === "All" ? filteredByStatus : filteredByStatus.filter(p => p.category === filter);
@@ -1637,7 +1636,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
       {/* Orders tab */}
       {adminTab === "orders" && (
-        <OrderBook orders={orders} onUpdateOrder={onUpdateOrders} products={products} />
+        <OrderBook orders={orders} onUpdateOrder={onUpdateOrders} products={products} onEditProduct={(product) => setEditing(product)} />
       )}
 
       {/* Products tab */}
