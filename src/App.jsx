@@ -197,7 +197,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household", "Clickers", "Coasters"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v84 · 2026-03-06";
+const APP_VERSION = "v85 · 2026-03-06";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1371,6 +1371,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [savedMsg, setSavedMsg] = useState("");
   const [adminTab, setAdminTab] = useState("orders");
   const [creators, setCreators] = useState([]);
+  const [creatorFilter, setCreatorFilter] = useState("all");
   const [creatorsDebug, setCreatorsDebug] = useState("⏳ Loading creators...");
   const [exporting, setExporting] = useState(false);
 
@@ -2146,34 +2147,31 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
        
       {adminTab === "creators" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Health summary */}
+          {/* RAG status mapping */}
           {(() => {
+            const ragMap = {
+              no_licence: "red", unconfirmed: "red",
+              dm_sent: "amber", pending_subscribe: "amber", known_risk: "amber",
+              free: "green", subscribed: "green",
+              deleted: "grey"
+            };
             const activeProds = products.filter(p => p.available);
-            const red = creators.filter(c => {
-              if (c.licenceStatus === "deleted") return false;
-              const hasProds = activeProds.some(p => p.creator === c.name);
-              return hasProds && c.licenceStatus === "no_licence";
-            }).length;
-            const amber = creators.filter(c => {
-              if (c.licenceStatus === "deleted") return false;
-              const hasProds = activeProds.some(p => p.creator === c.name);
-              return hasProds && (c.licenceStatus === "unconfirmed" || c.licenceStatus === "dm_sent");
-            }).length;
-            const green = creators.filter(c => {
-              if (c.licenceStatus === "deleted") return false;
-              const hasProds = activeProds.some(p => p.creator === c.name);
-              return !hasProds || c.licenceStatus === "subscribed" || c.licenceStatus === "free";
-            }).length;
+            const getRag = (c) => ragMap[c.licenceStatus] || "red";
+            const counts = { red: 0, amber: 0, green: 0, grey: 0 };
+            creators.forEach(c => { counts[getRag(c)]++; });
             const totalCost = creators.reduce((sum, c) => sum + (parseFloat(c.monthlyCost) || 0), 0);
+            const filterBtns = [
+              { id: "all", label: "All", val: creators.length, bg: "rgba(255,255,255,0.03)", border: S.border, color: S.text },
+              { id: "red", label: "🔴 Action needed", val: counts.red, bg: "rgba(220,53,69,0.1)", border: "rgba(220,53,69,0.3)", color: "#dc3545" },
+              { id: "amber", label: "🟡 In progress", val: counts.amber, bg: "rgba(245,159,0,0.1)", border: "rgba(245,159,0,0.3)", color: "#f59f00" },
+              { id: "green", label: "✅ Covered", val: counts.green, bg: "rgba(0,201,167,0.1)", border: "rgba(0,201,167,0.3)", color: S.teal },
+              { id: "grey", label: "🗑 Archived", val: counts.grey, bg: "rgba(255,255,255,0.03)", border: S.border, color: S.dimmer },
+              { id: "cost", label: "💷 Monthly spend", val: "£" + totalCost.toFixed(2), bg: "rgba(255,255,255,0.03)", border: S.border, color: S.text, noFilter: true },
+            ];
             return (
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {[
-                  { label: "🔴 Action needed", val: red, bg: "rgba(220,53,69,0.1)", border: "rgba(220,53,69,0.3)", color: "#dc3545" },
-                  { label: "🟡 Unconfirmed", val: amber, bg: "rgba(245,159,0,0.1)", border: "rgba(245,159,0,0.3)", color: "#f59f00" },
-                  { label: "✅ Covered", val: green, bg: "rgba(0,201,167,0.1)", border: "rgba(0,201,167,0.3)", color: S.teal },
-                  { label: "💷 Monthly spend", val: "£" + totalCost.toFixed(2), bg: "rgba(255,255,255,0.03)", border: S.border, color: S.text },
-                ].map(s => (
-                  <div key={s.label} style={{ flex: 1, minWidth: 120, background: s.bg, border: `1px solid ${s.border}`, borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
+                {filterBtns.map(s => (
+                  <div key={s.id} onClick={s.noFilter ? undefined : () => setCreatorFilter(s.id)} style={{ flex: 1, minWidth: 100, background: s.bg, border: `2px solid ${creatorFilter === s.id ? s.color : s.border}`, borderRadius: 12, padding: "12px 16px", textAlign: "center", cursor: s.noFilter ? "default" : "pointer", opacity: creatorFilter !== "all" && creatorFilter !== s.id && !s.noFilter ? 0.5 : 1, transition: "all 0.15s" }}>
                     <div style={{ fontSize: 22, fontWeight: 800, color: s.color, fontFamily: S.fontHead }}>{s.val}</div>
                     <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{s.label}</div>
                   </div>
@@ -2264,16 +2262,20 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           <div style={{ background: S.card, borderRadius: 16, border: `1px solid ${S.border}`, overflow: "hidden" }}>
             {creators.length === 0 && <p style={{ textAlign: "center", color: S.dimmer, fontSize: 13, padding: 32 }}>No creators yet — import the Creator Register CSV to get started.</p>}
             {creators.map((c, idx) => {
+              const ragMap = { no_licence: "red", unconfirmed: "red", dm_sent: "amber", pending_subscribe: "amber", known_risk: "amber", free: "green", subscribed: "green", deleted: "grey" };
+              const rag = ragMap[c.licenceStatus] || "red";
+              if (creatorFilter !== "all" && rag !== creatorFilter) return null;
               const activeProds = products.filter(p => p.available && p.creator === c.name);
               const hasProds = activeProds.length > 0;
               const health = (() => {
-                if (!hasProds) return { color: S.teal, label: "✅ No exposure", bg: "rgba(0,201,167,0.1)" };
                 if (c.licenceStatus === "subscribed") return { color: S.teal, label: "✅ Subscribed", bg: "rgba(0,201,167,0.1)" };
                 if (c.licenceStatus === "free") return { color: S.teal, label: "✅ Free commercial", bg: "rgba(0,201,167,0.1)" };
+                if (c.licenceStatus === "known_risk") return { color: "#f59f00", label: "🟡 Known risk", bg: "rgba(245,159,0,0.1)" };
+                if (c.licenceStatus === "pending_subscribe") return { color: "#f59f00", label: "🟡 Pending subscribe", bg: "rgba(245,159,0,0.1)" };
+                if (c.licenceStatus === "dm_sent") return { color: "#f59f00", label: "🟡 DM sent", bg: "rgba(245,159,0,0.1)" };
                 if (c.licenceStatus === "deleted") return { color: S.dimmer, label: "🗑 Deleted", bg: "rgba(255,255,255,0.04)" };
                 if (c.licenceStatus === "no_licence") return { color: "#dc3545", label: "🔴 No licence", bg: "rgba(220,53,69,0.1)" };
-                if (c.licenceStatus === "dm_sent") return { color: "#f59f00", label: "🟡 DM sent", bg: "rgba(245,159,0,0.1)" };
-                return { color: "#f59f00", label: "🟡 Unconfirmed", bg: "rgba(245,159,0,0.1)" };
+                return { color: "#dc3545", label: "🔴 Unconfirmed", bg: "rgba(220,53,69,0.1)" };
               })();
               const isEditing = editing === "creator_" + c.id;
               return (
@@ -2283,13 +2285,15 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <input value={c.name} onChange={e => { const u=[...creators]; u[idx]={...u[idx],name:e.target.value}; setCreators(u); }} placeholder="Creator name" style={{ flex: 2, minWidth: 120, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
                         <input value={c.platform} onChange={e => { const u=[...creators]; u[idx]={...u[idx],platform:e.target.value}; setCreators(u); }} placeholder="Platform" style={{ flex: 1, minWidth: 100, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
-                        <select value={c.licenceStatus} onChange={e => { const u=[...creators]; u[idx]={...u[idx],licenceStatus:e.target.value}; setCreators(u); }} style={{ flex: 1, minWidth: 130, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "#1a1a2e", color: S.text, fontSize: 13, fontFamily: S.fontHead }}>
-                          <option value="unconfirmed">Unconfirmed</option>
-                          <option value="subscribed">Subscribed</option>
-                          <option value="free">Free commercial</option>
-                          <option value="dm_sent">DM sent</option>
-                          <option value="no_licence">No licence</option>
-                          <option value="deleted">Deleted</option>
+                        <select value={c.licenceStatus} onChange={e => { const u=[...creators]; u[idx]={...u[idx],licenceStatus:e.target.value}; setCreators(u); }} style={{ flex: 1, minWidth: 150, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "#1a1a2e", color: S.text, fontSize: 13, fontFamily: S.fontHead }}>
+                          <option value="no_licence">🔴 No licence</option>
+                          <option value="unconfirmed">🔴 Unconfirmed</option>
+                          <option value="dm_sent">🟡 DM sent</option>
+                          <option value="pending_subscribe">🟡 Pending subscribe</option>
+                          <option value="known_risk">🟡 Known risk</option>
+                          <option value="free">🟢 Free commercial</option>
+                          <option value="subscribed">🟢 Subscribed</option>
+                          <option value="deleted">⚫ Deleted</option>
                         </select>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
