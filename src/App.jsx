@@ -138,6 +138,23 @@ async function loadCategories() {
 async function saveCategories(cats) {
   try { await storageSet("categories-v1", JSON.stringify(cats)); } catch (e) { console.error("Save categories failed:", e); }
 }
+async function loadCategoryMeta() {
+  try {
+    const r = await storageGet("category-meta-v1");
+    return r ? JSON.parse(r) : null;
+  } catch { return null; }
+}
+async function saveCategoryMeta(meta) {
+  try { await storageSet("category-meta-v1", JSON.stringify(meta)); } catch (e) { console.error("Save category meta failed:", e); }
+}
+const DEFAULT_CATEGORY_META = {
+  "Key Rings": { audience: "kids", hasDimensions: false },
+  "Fidgets & Toys": { audience: "kids", hasDimensions: false },
+  "Clickers": { audience: "kids", hasDimensions: false },
+  "Planters": { audience: "adult", hasDimensions: true },
+  "Bird Feeders": { audience: "adult", hasDimensions: false },
+  "Household": { audience: "adult", hasDimensions: false },
+};
 async function loadCreators() {
   try {
     console.log("loadCreators: step 1 — calling storageGet");
@@ -347,6 +364,12 @@ const EMAILJS_CONFIG = {
 async function sendOrderEmail(order) {
   if (!EMAILJS_CONFIG.enabled) {
     console.log("📧 Email notification (demo mode — configure EmailJS to enable):", order);
+    return;
+  }
+  // Guard: don't send email for blank/bot orders
+  const realItems = (order.items || []).filter(i => !i.isTip && i.name && i.id);
+  if (realItems.length === 0 && !(order.items || []).some(i => i.isTip)) {
+    console.warn("📧 Email blocked — order has no real items (likely bot)");
     return;
   }
   try {
@@ -650,7 +673,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
           <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{selectedColors.some(c => FILAMENTS[c]?.premium) ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getPremiumPrice(product.price, selectedColors).toFixed(2)}</> : `£${product.price.toFixed(2)}`}</span>
         </div>
-        <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.description}</p>
+        <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.description}{product.widthMm && product.heightMm ? ` ${product.widthMm}mm wide × ${product.heightMm}mm tall.` : ""}</p>
         {maxC > 1 && <div style={{ fontSize: 11, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 6, background: "rgba(132,94,247,0.08)", padding: "4px 8px", borderRadius: 6, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
         {maxC > 1 && (
           <button onClick={handleSameToggle} style={{
@@ -691,7 +714,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
 /* ═══════════════════════════════════════════════
    ADMIN: Product Editor Modal
    ═══════════════════════════════════════════════ */
-function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = [] }) {
+function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = [], categoryMeta = {} }) {
   const [p, setP] = useState({ ...product });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const set = (key, val) => setP(prev => ({ ...prev, [key]: val }));
@@ -771,6 +794,14 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
           <label style={labelStyle}>Description</label>
           <textarea style={{ ...inputStyle, height: 64, resize: "vertical" }} value={p.description} onChange={e => set("description", e.target.value)} />
         </div>
+
+        {/* Dimensions — only shown when category has hasDimensions enabled */}
+        {(categoryMeta[p.category] || {}).hasDimensions && (
+          <div className="ep-editor-2col" style={{ ...sectionStyle, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div><label style={labelStyle}>Width (mm)</label><input style={inputStyle} type="number" min="0" value={p.widthMm || ""} onChange={e => set("widthMm", parseInt(e.target.value) || 0)} placeholder="e.g. 95" /></div>
+            <div><label style={labelStyle}>Height (mm)</label><input style={inputStyle} type="number" min="0" value={p.heightMm || ""} onChange={e => set("heightMm", parseInt(e.target.value) || 0)} placeholder="e.g. 110" /></div>
+          </div>
+        )}
 
         {/* Row: price, grams, print time, badge */}
         <div className="ep-editor-2col" style={{ ...sectionStyle, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
@@ -901,7 +932,7 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
 /* ═══════════════════════════════════════════════
    ORDER BOOK
    ═══════════════════════════════════════════════ */
-function OrderBook({ orders, onUpdateOrder, products, onEditProduct }) {
+function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMeta }) {
   const [elijahPhoto, setElijahPhoto] = useState(null);
 
   // Load Elijah's photo from Firebase on mount
@@ -975,8 +1006,22 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct }) {
   const printLabels = (order, isTest = false) => {
     const availProducts = (products || []).filter(p => p.available !== false);
     const orderItemIds = order.items.filter(i => !i.isTip).map(i => i.id);
-    const orderCategories = order.items.filter(i => !i.isTip).map(i => i.category).filter(Boolean);
+    
+    // Look up categories from products list (order items don't carry category)
+    const orderCategories = order.items.filter(i => !i.isTip).map(i => {
+      const prod = (products || []).find(p => p.id === i.id);
+      return prod ? prod.category : (i.category || "");
+    }).filter(Boolean);
     const mainCategory = orderCategories[0] || "";
+    
+    // Determine audience from order categories using categoryMeta
+    const orderAudiences = orderCategories.map(c => (categoryMeta[c] || {}).audience).filter(Boolean);
+    const orderAudience = orderAudiences[0] || null; // kids or adult
+    
+    // Filter available products by same audience for recommendations
+    const audienceProducts = orderAudience
+      ? availProducts.filter(p => (categoryMeta[p.category] || {}).audience === orderAudience)
+      : availProducts;
 
     // Build deduplicated recommendation list
     const used = new Set(orderItemIds);
@@ -988,13 +1033,13 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct }) {
       return pick;
     };
 
-    // Label 4: Same category
-    const rangeProduct = pickProduct(availProducts.filter(p => p.category === mainCategory));
-    // Label 5: Most popular (badged first, then any)
-    const badged = availProducts.filter(p => p.badge === "Best Seller" || p.badge === "Popular");
-    const popularProduct = pickProduct(badged.length > 0 ? badged : availProducts);
-    // Label 6: Newest (highest ID)
-    const newestSorted = [...availProducts].sort((a, b) => b.id - a.id);
+    // Label 4: Same category (within audience)
+    const rangeProduct = pickProduct(audienceProducts.filter(p => p.category === mainCategory));
+    // Label 5: Most popular (within audience, badged first, then any)
+    const badged = audienceProducts.filter(p => p.badge === "Best Seller" || p.badge === "Popular");
+    const popularProduct = pickProduct(badged.length > 0 ? badged : audienceProducts);
+    // Label 6: Newest (within audience, highest ID)
+    const newestSorted = [...audienceProducts].sort((a, b) => b.id - a.id);
     const newProduct1 = pickProduct(newestSorted);
     // Label 7: Second newest
     const newProduct2 = pickProduct(newestSorted);
@@ -1150,7 +1195,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct }) {
 
     // Mark as label printed (skip for test prints)
     if (!isTest && !order.status.labelPrinted) {
-      const newStatus = { ...order.status, labelPrinted: true, produced: true };
+      const newStatus = { ...order.status, labelPrinted: true };
       onUpdateOrder(order.id, newStatus);
     }
   };
@@ -1313,7 +1358,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct }) {
 /* ═══════════════════════════════════════════════
    ADMIN PANEL
    ═══════════════════════════════════════════════ */
-function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories, autoBadges }) {
+function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories, categoryMeta, onSaveCategoryMeta, autoBadges }) {
   const [filter, setFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [editing, setEditing] = useState(null);
@@ -1635,7 +1680,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
       {/* Orders tab */}
       {adminTab === "orders" && (
-        <OrderBook orders={orders} onUpdateOrder={onUpdateOrders} products={products} onEditProduct={(product) => setEditing(product)} />
+        <OrderBook orders={orders} onUpdateOrder={onUpdateOrders} products={products} onEditProduct={(product) => setEditing(product)} categoryMeta={categoryMeta} />
       )}
 
       {/* Products tab */}
@@ -2030,7 +2075,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 {adminTab === "categories" && (
         <div style={{ background: S.card, borderRadius: 16, padding: 24, border: `1px solid ${S.border}` }}>
           <p style={{ fontSize: 13, color: S.muted, marginBottom: 20 }}>
-            Manage your product categories. Add new ones, rename existing ones, or remove categories you no longer need.
+            Manage your product categories. Each category can be tagged as Kids or Adult (used for label printing) and optionally require product dimensions.
           </p>
           {/* Add new category */}
           <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
@@ -2042,20 +2087,25 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             {categories.map((cat, idx) => {
               const count = products ? products.filter(p => p.category === cat).length : 0;
               const isEditing = editingCat === idx;
+              const meta = categoryMeta[cat] || { audience: "kids", hasDimensions: false };
               return (
-                <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 12, background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}` }}>
+                <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 12, background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}`, flexWrap: "wrap" }}>
                   {isEditing ? (
                     <>
-                      <input value={editCatName} onChange={e => setEditCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && editCatName.trim()) { const n = editCatName.trim(); const updated = [...categories]; const oldName = updated[idx]; updated[idx] = n; onSaveCategories(updated); if (products) { const renamedProducts = products.map(p => p.category === oldName ? { ...p, category: n } : p); onSave(renamedProducts); } setEditingCat(null); } if (e.key === "Escape") setEditingCat(null); }} autoFocus style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: `1px solid ${S.teal}`, background: "rgba(0,201,167,0.05)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none" }} />
-                      <button onClick={() => { const n = editCatName.trim(); if (n) { const updated = [...categories]; const oldName = updated[idx]; updated[idx] = n; onSaveCategories(updated); if (products) { const renamedProducts = products.map(p => p.category === oldName ? { ...p, category: n } : p); onSave(renamedProducts); } setEditingCat(null); } }} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: S.teal, color: "#1a1a2e", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Save</button>
+                      <input value={editCatName} onChange={e => setEditCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && editCatName.trim()) { const n = editCatName.trim(); const updated = [...categories]; const oldName = updated[idx]; updated[idx] = n; onSaveCategories(updated); if (products) { const renamedProducts = products.map(p => p.category === oldName ? { ...p, category: n } : p); onSave(renamedProducts); } /* migrate meta key */ const newMeta = {...categoryMeta}; if (newMeta[oldName]) { newMeta[n] = newMeta[oldName]; delete newMeta[oldName]; onSaveCategoryMeta(newMeta); } setEditingCat(null); } if (e.key === "Escape") setEditingCat(null); }} autoFocus style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: `1px solid ${S.teal}`, background: "rgba(0,201,167,0.05)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none" }} />
+                      <button onClick={() => { const n = editCatName.trim(); if (n) { const updated = [...categories]; const oldName = updated[idx]; updated[idx] = n; onSaveCategories(updated); if (products) { const renamedProducts = products.map(p => p.category === oldName ? { ...p, category: n } : p); onSave(renamedProducts); } const newMeta = {...categoryMeta}; if (newMeta[oldName]) { newMeta[n] = newMeta[oldName]; delete newMeta[oldName]; onSaveCategoryMeta(newMeta); } setEditingCat(null); } }} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: S.teal, color: "#1a1a2e", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Save</button>
                       <button onClick={() => setEditingCat(null)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 12, cursor: "pointer" }}>Cancel</button>
                     </>
                   ) : (
                     <>
-                      <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: S.text, fontFamily: S.fontHead }}>{cat}</span>
+                      <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: S.text, fontFamily: S.fontHead, minWidth: 120 }}>{cat}</span>
                       <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>{count} product{count !== 1 ? "s" : ""}</span>
+                      {/* Audience toggle */}
+                      <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, audience: meta.audience === "kids" ? "adult" : "kids" }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.audience === "kids" ? "rgba(255,193,7,0.4)" : "rgba(132,94,247,0.4)"}`, background: meta.audience === "kids" ? "rgba(255,193,7,0.1)" : "rgba(132,94,247,0.1)", color: meta.audience === "kids" ? "#ffc107" : S.purple, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.audience === "kids" ? "👶 Kids" : "🧑 Adult"}</button>
+                      {/* Dimensions toggle */}
+                      <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, hasDimensions: !meta.hasDimensions }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.hasDimensions ? "rgba(0,201,167,0.4)" : S.border}`, background: meta.hasDimensions ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.02)", color: meta.hasDimensions ? S.teal : S.dimmer, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.hasDimensions ? "📐 Dims ON" : "📐 Dims"}</button>
                       <button onClick={() => { setEditingCat(idx); setEditCatName(cat); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 11, cursor: "pointer", fontFamily: S.fontHead }}>✏️ Rename</button>
-                      <button onClick={() => { if (count > 0) { if (!window.confirm(`"${cat}" has ${count} product${count !== 1 ? "s" : ""}. They'll keep their category label but it won't appear in filters. Delete anyway?`)) return; } onSaveCategories(categories.filter((_, i) => i !== idx)); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid rgba(255,107,107,0.3)`, background: "transparent", color: "#ff6b6b", fontSize: 11, cursor: "pointer", fontFamily: S.fontHead }}>🗑️ Delete</button>
+                      <button onClick={() => { if (count > 0) { if (!window.confirm(`"${cat}" has ${count} product${count !== 1 ? "s" : ""}. They'll keep their category label but it won't appear in filters. Delete anyway?`)) return; } const newMeta = {...categoryMeta}; delete newMeta[cat]; onSaveCategoryMeta(newMeta); onSaveCategories(categories.filter((_, i) => i !== idx)); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid rgba(255,107,107,0.3)`, background: "transparent", color: "#ff6b6b", fontSize: 11, cursor: "pointer", fontFamily: S.fontHead }}>🗑️ Delete</button>
                     </>
                   )}
                 </div>
@@ -2321,6 +2371,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           onDelete={handleDelete}
           onCancel={() => { setEditing(null); setAddingNew(false); }}
           creators={creators}
+          categoryMeta={categoryMeta}
         />
       )}
     </div>
@@ -2844,6 +2895,7 @@ function ElijahsPrintsInner() {
   const [orders, setOrders] = useState([]);
   const [filamentVer, setFilamentVer] = useState(0);
   const [catVer, setCatVer] = useState(0);
+  const [categoryMeta, setCategoryMeta] = useState({...DEFAULT_CATEGORY_META});
   const [authChecked, setAuthChecked] = useState(!USE_FIREBASE); // skip auth check if no Firebase
   const [stripeSuccess, setStripeSuccess] = useState(null); // holds completed order after Stripe redirect
 
@@ -2886,6 +2938,10 @@ function ElijahsPrintsInner() {
     loadCategories().then(cats => {
       if (cats) { categories = cats; setCatVer(v => v + 1); }
     });
+    loadCategoryMeta().then(meta => {
+      if (meta) setCategoryMeta(meta);
+      else saveCategoryMeta({...DEFAULT_CATEGORY_META}); // seed defaults on first run
+    });
     // Firebase auth state: auto-login if session persists (e.g. browser refresh)
     if (USE_FIREBASE) {
       firebaseOnAuth(user => {
@@ -2905,6 +2961,14 @@ function ElijahsPrintsInner() {
       if (pending) {
         try {
           const orderData = JSON.parse(pending);
+          // Validate order has real items (prevents bot/blank orders)
+          const realItems = (orderData.items || []).filter(i => !i.isTip && i.name && i.id);
+          if (realItems.length === 0 && !(orderData.items || []).some(i => i.isTip)) {
+            console.warn("⚠️ Blank order blocked — no items or payment data");
+            localStorage.removeItem("ep_pending_order");
+            window.history.replaceState({}, "", window.location.pathname);
+            return;
+          }
           const isTipOnly = orderData.items && orderData.items.length > 0 && orderData.items.every(i => i.isTip);
           const order = {
             id: "EP-" + Date.now().toString(36).toUpperCase(),
@@ -2973,6 +3037,7 @@ function ElijahsPrintsInner() {
   const handleOrderPlaced = (order) => { setOrders(prev => [...prev, order]); };
   const handleSaveFilaments = async (f) => { FILAMENTS = f; ALL_COLORS = Object.keys(f); setFilamentVer(v => v + 1); await saveFilaments(f); };
 const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v => v + 1); await saveCategories(cats); };
+const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); await saveCategoryMeta(meta); };
 
    
  const displayCategories = useMemo(() => ["All", ...categories], [catVer]);
@@ -3046,7 +3111,7 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
       </nav>
 
       {page === "admin-login" && !adminLoggedIn && <AdminLogin onLogin={() => { setAdminLoggedIn(true); setPage("admin"); }} />}
-      {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} autoBadges={autoBadges} />}
+      {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} categoryMeta={categoryMeta} onSaveCategoryMeta={handleSaveCategoryMeta} autoBadges={autoBadges} />}
       {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} onAddTip={addTip} onRemoveTip={removeTip} />}
       {page === "request" && <SpecialRequestPage onBack={() => setPage("shop")} />}
 
