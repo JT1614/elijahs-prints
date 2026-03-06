@@ -197,7 +197,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household", "Clickers", "Coasters"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v81 · 2026-03-06";
+const APP_VERSION = "v82 · 2026-03-06";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -889,7 +889,10 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
           <label style={labelStyle}>🔒 Source Reference (admin only — not shown to customers)</label>
           <input style={{ ...inputStyle, marginBottom: 8 }} value={p.sourceRef || ""} onChange={e => set("sourceRef", e.target.value)} placeholder="e.g. Kumiko Planter Large by Foxwood" />
           <label style={labelStyle}>🔗 Source URL (MakerWorld link — clickable in Order Book)</label>
-          <input style={inputStyle} value={p.sourceUrl || ""} onChange={e => set("sourceUrl", e.target.value)} placeholder="e.g. https://makerworld.com/en/models/569100" />
+          <div style={{ display: "flex", gap: 8 }}>
+            <input style={{ ...inputStyle, flex: 1 }} value={p.sourceUrl || ""} onChange={e => set("sourceUrl", e.target.value)} placeholder="e.g. https://makerworld.com/en/models/569100" />
+            {p.sourceUrl && <button onClick={() => window.open(p.sourceUrl, "_blank")} style={{ padding: "8px 14px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, whiteSpace: "nowrap" }}>🔗 Open</button>}
+          </div>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, color: S.muted, marginBottom: 4, fontFamily: S.fontHead, fontWeight: 600 }}>CREATOR</div>
