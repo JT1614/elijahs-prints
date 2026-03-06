@@ -29,12 +29,12 @@ let ALL_COLORS = Object.keys(FILAMENTS);
    Leave as empty strings to use Claude artifact storage
    ═══════════════════════════════════════════════ */
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAP6zVnDQ9RSvWfmgjKWWHKV-8SA_B4e2k",
-  authDomain: "elijahs-prints.firebaseapp.com",
-  projectId: "elijahs-prints",
-  storageBucket: "elijahs-prints.firebasestorage.app",
-  messagingSenderId: "66107920349",
-  appId: "1:66107920349:web:cdbfbeabd079d32ed07034",
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: "",
 };
 const USE_FIREBASE = FIREBASE_CONFIG.apiKey !== "";
 
@@ -197,7 +197,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household", "Clickers", "Coasters"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v83 · 2026-03-06";
+const APP_VERSION = "v84 · 2026-03-06";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1417,26 +1417,23 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         "Print Time": p.printTime,
         "Description": p.description,
         "Available": p.available ? "Yes" : "No",
+        "Status": p.status || "live",
         "Max Colours": p.maxColors,
         "Colours": (p.colors || []).join(", "),
         "Badge": p.badge || "",
+        "Creator": p.creator || "",
+        "Photo Source": p.photoSource || "",
+        "Creator Licence": p.creatorLicence || "",
         "Source Ref": p.sourceRef || "",
         "Source URL": p.sourceUrl || "",
         "Added Date": p.addedDate || "",
-        "── LICENCE AUDIT ──": "",
-        "Creator": p.creator || "",
-        "Licence Type": "",
-        "Commercial Available?": "",
-        "Monthly Cost": "",
-        "Action Required": "",
-        "Notes": "",
       }));
       const wsProd = XLSX.utils.json_to_sheet(prodRows);
       wsProd["!cols"] = [
         { wch: 8 }, { wch: 28 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 12 },
-        { wch: 50 }, { wch: 10 }, { wch: 12 }, { wch: 60 }, { wch: 12 },
-        { wch: 30 }, { wch: 50 }, { wch: 20 }, { wch: 20 },
-        { wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 20 }, { wch: 30 },
+        { wch: 50 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 60 }, { wch: 12 },
+        { wch: 20 }, { wch: 14 }, { wch: 40 },
+        { wch: 30 }, { wch: 50 }, { wch: 20 },
       ];
       XLSX.utils.book_append_sheet(wb, wsProd, "Products");
 
@@ -1479,14 +1476,40 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       XLSX.utils.book_append_sheet(wb, wsCol, "Colours");
 
       /* Categories tab */
-      const catRows = categories.map(cat => ({
-        "Category": cat,
-        "Product Count": products.filter(p => p.category === cat).length,
-        "Products": products.filter(p => p.category === cat).map(p => p.name).join(", "),
-      }));
+      const catRows = categories.map(cat => {
+        const meta = categoryMeta[cat] || {};
+        return {
+          "Category": cat,
+          "Audience": meta.audience || "",
+          "Has Dimensions": meta.hasDimensions ? "Yes" : "No",
+          "Product Count": products.filter(p => p.category === cat).length,
+          "Products": products.filter(p => p.category === cat).map(p => p.name).join(", "),
+        };
+      });
       const wsCat = XLSX.utils.json_to_sheet(catRows);
-      wsCat["!cols"] = [{ wch: 20 }, { wch: 14 }, { wch: 80 }];
+      wsCat["!cols"] = [{ wch: 20 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 80 }];
       XLSX.utils.book_append_sheet(wb, wsCat, "Categories");
+
+      /* Creators tab */
+      const creatorRows = creators.map(c => {
+        const activeProds = products.filter(p => p.available && p.creator === c.name);
+        const allProds = products.filter(p => p.creator === c.name);
+        return {
+          "Name": c.name || "",
+          "Platform": c.platform || "",
+          "Profile URL": c.profileUrl || "",
+          "Licence Status": c.licenceStatus || "",
+          "Monthly Cost (£)": c.monthlyCost || 0,
+          "Photo Rights": c.photoRights === "included" ? "Included" : "Own needed",
+          "Action Required": c.actionRequired || "",
+          "Active Products": activeProds.length,
+          "Total Products": allProds.length,
+          "Product Names": allProds.map(p => p.name).join(", "),
+        };
+      });
+      const wsCre = XLSX.utils.json_to_sheet(creatorRows);
+      wsCre["!cols"] = [{ wch: 22 }, { wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 30 }, { wch: 14 }, { wch: 14 }, { wch: 50 }];
+      XLSX.utils.book_append_sheet(wb, wsCre, "Creators");
 
       /* Download */
       const date = new Date().toISOString().slice(0, 10);
@@ -1645,7 +1668,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {savedMsg && <span style={{ color: S.teal, fontWeight: 700, fontFamily: S.fontHead, fontSize: 14 }}>✓ {savedMsg}</span>}
-          <Tooltip position="bottom" text="Downloads a full Excel spreadsheet (.xlsx) with four tabs: Products, Orders, Colours, and Categories.<br/><br/>Useful for records, the licence audit tracker, or sharing data with Claude for analysis.">
+          <Tooltip position="bottom" text="Downloads a full Excel spreadsheet (.xlsx) with five tabs: Products, Orders, Colours, Categories, and Creators.<br/><br/>Useful for records, the licence audit tracker, or sharing data with Claude for analysis.">
             <button onClick={exportData} disabled={exporting} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 14, fontWeight: 700, cursor: exporting ? "wait" : "pointer", fontFamily: S.fontHead, opacity: exporting ? 0.5 : 1 }}>{exporting ? "⏳ Exporting…" : "📊 Export Data"}</button>
           </Tooltip>
           <span style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono, opacity: 0.6 }}>{APP_VERSION}</span>
