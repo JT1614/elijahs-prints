@@ -197,7 +197,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household", "Clickers", "Coasters"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v82 · 2026-03-06";
+const APP_VERSION = "v83 · 2026-03-06";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -674,7 +674,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
           <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{selectedColors.some(c => FILAMENTS[c]?.premium) ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getPremiumPrice(product.price, selectedColors).toFixed(2)}</> : `£${product.price.toFixed(2)}`}</span>
         </div>
-        <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.description}{product.widthMm && product.heightMm ? ` ${product.widthMm}mm wide × ${product.heightMm}mm tall.` : ""}</p>
+        <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.widthMm && product.heightMm ? `${product.widthMm}mm wide × ${product.heightMm}mm tall. ` : ""}{product.description}</p>
         {maxC > 1 && <div style={{ fontSize: 11, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 6, background: "rgba(132,94,247,0.08)", padding: "4px 8px", borderRadius: 6, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
         {maxC > 1 && (
           <button onClick={handleSameToggle} style={{
