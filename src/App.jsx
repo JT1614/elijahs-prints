@@ -29,12 +29,12 @@ let ALL_COLORS = Object.keys(FILAMENTS);
    Leave as empty strings to use Claude artifact storage
    ═══════════════════════════════════════════════ */
 const FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: "",
+  apiKey: "AIzaSyAP6zVnDQ9RSvWfmgjKWWHKV-8SA_B4e2k",
+  authDomain: "elijahs-prints.firebaseapp.com",
+  projectId: "elijahs-prints",
+  storageBucket: "elijahs-prints.firebasestorage.app",
+  messagingSenderId: "66107920349",
+  appId: "1:66107920349:web:cdbfbeabd079d32ed07034",
 };
 const USE_FIREBASE = FIREBASE_CONFIG.apiKey !== "";
 
