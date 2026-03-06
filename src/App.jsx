@@ -197,7 +197,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household", "Clickers", "Coasters"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v85 · 2026-03-06";
+const APP_VERSION = "v86 · 2026-03-06";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1365,6 +1365,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories, categoryMeta, onSaveCategoryMeta, autoBadges }) {
   const [filter, setFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [productCreatorFilter, setProductCreatorFilter] = useState("");
   const [editing, setEditing] = useState(null);
   const [addingNew, setAddingNew] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1609,7 +1610,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const getProductStatus = p => { const s = p.status || (p.available !== false ? "live" : "paused"); return s === "photo_needed" ? "approved" : s === "removed" ? "paused" : s; };
   const draftCount = products.filter(p => getProductStatus(p) === "draft").length;
   const filteredByStatus = statusFilter === "All" ? products : products.filter(p => getProductStatus(p) === statusFilter);
-  const filtered = filter === "All" ? filteredByStatus : filteredByStatus.filter(p => p.category === filter);
+  const filteredByCategory = filter === "All" ? filteredByStatus : filteredByStatus.filter(p => p.category === filter);
+  const filtered = !productCreatorFilter ? filteredByCategory : productCreatorFilter === "__none__" ? filteredByCategory.filter(p => !p.creator) : filteredByCategory.filter(p => p.creator === productCreatorFilter);
 
   const migrateImages = async () => {
     const base64Products = products.filter(p => p.img && p.img.startsWith("data:"));
@@ -1688,7 +1690,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         ].map(tab => (
 
            
-          <button key={tab.id} onClick={() => setAdminTab(tab.id)} style={{
+          <button key={tab.id} onClick={() => { setAdminTab(tab.id); setProductCreatorFilter(""); }} style={{
             flex: 1, padding: "12px 16px", borderRadius: 10, border: "none", cursor: "pointer",
             background: adminTab === tab.id ? "rgba(0,201,167,0.1)" : "transparent",
             color: adminTab === tab.id ? S.teal : S.muted,
@@ -1714,6 +1716,13 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
       {/* Products tab */}
       {adminTab === "products" && (<>
+        {productCreatorFilter && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderRadius: 12, background: "rgba(132,94,247,0.08)", border: "1px solid rgba(132,94,247,0.25)", marginBottom: 12 }}>
+            <span style={{ fontSize: 13, color: S.purple, fontWeight: 600, fontFamily: S.fontHead }}>{productCreatorFilter === "__none__" ? "⚠️ Showing products with no creator assigned" : `👤 Showing products by ${productCreatorFilter}`}</span>
+            <span style={{ fontSize: 12, color: S.muted, fontFamily: S.fontMono }}>{filtered.length} product{filtered.length !== 1 ? "s" : ""}</span>
+            <button onClick={() => setProductCreatorFilter("")} style={{ marginLeft: "auto", padding: "4px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 12, cursor: "pointer", fontFamily: S.fontHead }}>✕ Clear filter</button>
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16, gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           {migrationMsg && <span style={{ fontSize: 12, fontFamily: S.fontHead, color: migrationMsg.startsWith("✅") ? "#51cf66" : S.teal, fontWeight: 600 }}>{migrationMsg}</span>}
           {products.some(p => p.img && p.img.startsWith("data:")) && (
@@ -2181,6 +2190,19 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           })()}
 
           {/* Import buttons */}
+          {(() => {
+            const unassigned = products.filter(p => p.available && !p.creator);
+            if (unassigned.length === 0) return null;
+            return (
+              <div onClick={() => { setProductCreatorFilter("__none__"); setStatusFilter("All"); setFilter("All"); setAdminTab("products"); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 12, background: "rgba(220,53,69,0.08)", border: "1px solid rgba(220,53,69,0.25)", cursor: "pointer" }}>
+                <span style={{ fontSize: 20 }}>⚠️</span>
+                <span style={{ fontSize: 13, color: "#dc3545", fontWeight: 700, fontFamily: S.fontHead }}>{unassigned.length} live product{unassigned.length !== 1 ? "s have" : " has"} no creator assigned</span>
+                <span style={{ marginLeft: "auto", fontSize: 12, color: S.muted, fontFamily: S.fontHead }}>Tap to view →</span>
+              </div>
+            );
+          })()}
+
+          {/* Import/add buttons */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Tooltip position="bottom" text="Upload the Creator Register CSV exported from the licence audit spreadsheet. This populates the creator list with licence status, monthly cost, and subscription details.">
             <label style={{ padding: "10px 18px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>
@@ -2319,7 +2341,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       <span style={{ fontSize: 11, fontWeight: 700, color: health.color, background: health.bg, padding: "3px 10px", borderRadius: 20, fontFamily: S.fontHead }}>{health.label}</span>
                       {c.monthlyCost > 0 && <span style={{ fontSize: 12, color: S.muted, fontFamily: S.fontMono }}>£{c.monthlyCost.toFixed(2)}/mo</span>}
                       <span style={{ fontSize: 11, fontWeight: 600, color: c.photoRights === "included" ? S.teal : "#f59f00", background: c.photoRights === "included" ? "rgba(0,201,167,0.1)" : "rgba(245,159,0,0.08)", padding: "3px 8px", borderRadius: 12, fontFamily: S.fontHead }}>{c.photoRights === "included" ? "📷 Photos OK" : "📷 Own photos"}</span>
-                      <span style={{ fontSize: 11, color: S.dimmer }}>{activeProds.length} active product{activeProds.length !== 1 ? "s" : ""}</span>
+                      <span onClick={activeProds.length > 0 ? (e) => { e.stopPropagation(); setProductCreatorFilter(c.name); setStatusFilter("All"); setFilter("All"); setAdminTab("products"); } : undefined} style={{ fontSize: 11, color: activeProds.length > 0 ? S.teal : S.dimmer, fontWeight: activeProds.length > 0 ? 700 : 400, cursor: activeProds.length > 0 ? "pointer" : "default", textDecoration: activeProds.length > 0 ? "underline" : "none", fontFamily: S.fontHead }}>{activeProds.length} active product{activeProds.length !== 1 ? "s" : ""}</span>
                       <button onClick={() => setEditing("creator_" + c.id)} style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 12, cursor: "pointer", fontFamily: S.fontHead }}>Edit</button>
                     </div>
                   )}
