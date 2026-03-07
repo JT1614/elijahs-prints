@@ -197,7 +197,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household", "Clickers", "Coasters"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v87 · 2026-03-07";
+const APP_VERSION = "v87.1 · 2026-03-07";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1429,13 +1429,16 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         "Source Ref": p.sourceRef || "",
         "Source URL": p.sourceUrl || "",
         "Added Date": p.addedDate || "",
+        "Width (mm)": p.widthMm || "",
+        "Height (mm)": p.heightMm || "",
+        "Volume (W×H)": (p.widthMm && p.heightMm) ? p.widthMm * p.heightMm : "",
       }));
       const wsProd = XLSX.utils.json_to_sheet(prodRows);
       wsProd["!cols"] = [
         { wch: 8 }, { wch: 28 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 12 },
         { wch: 50 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 60 }, { wch: 12 },
         { wch: 20 }, { wch: 14 }, { wch: 40 },
-        { wch: 30 }, { wch: 50 }, { wch: 20 },
+        { wch: 30 }, { wch: 50 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
       ];
       XLSX.utils.book_append_sheet(wb, wsProd, "Products");
 
