@@ -211,7 +211,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v89 · 2026-03-07";
+const APP_VERSION = "v90 · 2026-03-07";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -617,11 +617,20 @@ function getPlanterSize(product) {
   if (vol <= 15000) return "Medium";
   return "Large";
 }
+function getDragonSize(product) {
+  if (product.category !== "Dragons") return "";
+  const p = product.price;
+  if (p <= 2.50) return "Small";
+  if (p <= 5.00) return "Medium";
+  if (p <= 7.50) return "Large";
+  return "Premium";
+}
 function SizeBadge({ product }) {
-  const label = getPlanterSize(product);
+  const label = getPlanterSize(product) || getDragonSize(product);
   if (!label) return null;
-  const colours = { Small: "#6c9cfc", Medium: "#4ecdc4", Large: "#ff8a65", Wall: "#ba68c8" };
-  return <span style={{ background: colours[label] || "#666", color: "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", position: "absolute", top: 12, left: 12, zIndex: 2 }}>{label}</span>;
+  const colours = { Small: "#6c9cfc", Medium: "#4ecdc4", Large: "#ff8a65", Wall: "#ba68c8", Premium: "#ffd43b" };
+  const fg = { Premium: "#1a1a2e" };
+  return <span style={{ background: colours[label] || "#666", color: fg[label] || "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", position: "absolute", top: 12, left: 12, zIndex: 2 }}>{label}</span>;
 }
 
 function Tooltip({ text, children, position = "bottom" }) {
@@ -663,7 +672,7 @@ function ProductImage({ product, hovered }) {
           <span style={{ fontSize: 42, opacity: 0.3 }}>📷</span>
           <span style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontHead }}>No photo yet</span>
         </div>}
-      <div style={{ position: "absolute", bottom: 8, left: 12, fontSize: 10, color: S.dimmer, fontFamily: S.fontMono }}>⏱ {product.printTime} · {product.grams}g</div>
+
     </div>
   );
 }
@@ -695,7 +704,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
       transition: "all 0.4s cubic-bezier(0.16,1,0.3,1)", transform: hovered ? "translateY(-6px)" : "translateY(0)",
       boxShadow: hovered ? "0 20px 60px rgba(0,201,167,0.15), 0 0 0 1px rgba(0,201,167,0.2)" : "0 4px 20px rgba(0,0,0,0.2)",
     }}>
-      {product.badge && <Badge text={product.badge} />}
+      {product.badge && product.category !== "Dragons" && <Badge text={product.badge} />}
       <SizeBadge product={product} />
       <ProductImage product={product} hovered={hovered} />
       <div style={{ padding: "14px 16px 16px" }}>
@@ -737,6 +746,81 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
           fontFamily: S.fontHead, letterSpacing: "0.5px", textTransform: "uppercase",
         }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? `Select ${maxC} colours` : "Add to Cart"}</button>
       </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   CROSS-SELL CARD (checkout page — mini colour picker)
+   ═══════════════════════════════════════════════ */
+function CrossSellCard({ product, onAddToCart }) {
+  const maxC = product.maxColors || 1;
+  const [selectedColors, setSelectedColors] = useState([product.colors[0]]);
+  const [sameColour, setSameColour] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [added, setAdded] = useState(false);
+  const toggleColor = (color) => {
+    if (maxC === 1) { setSelectedColors([color]); return; }
+    if (sameColour) { setSelectedColors(Array(maxC).fill(color)); return; }
+    if (selectedColors.includes(color)) { if (selectedColors.length > 1) setSelectedColors(selectedColors.filter(c => c !== color)); }
+    else { if (selectedColors.length < maxC) setSelectedColors([...selectedColors, color]); else setSelectedColors([...selectedColors.slice(1), color]); }
+  };
+  const handleSameToggle = () => {
+    const next = !sameColour;
+    setSameColour(next);
+    if (next) setSelectedColors(Array(maxC).fill(selectedColors[0]));
+    else setSelectedColors([selectedColors[0]]);
+  };
+  const canAdd = selectedColors.length >= Math.min(maxC, product.colors.length);
+  const hasPremium = selectedColors.some(c => FILAMENTS[c]?.premium);
+  const displayPrice = hasPremium ? getPremiumPrice(product.price, selectedColors) : product.price;
+  const handleAdd = () => {
+    if (!canAdd) return;
+    onAddToCart(product, selectedColors);
+    setAdded(true);
+    setTimeout(() => setAdded(false), 1200);
+  };
+  return (
+    <div style={{ borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.02)", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px" }}>
+        <div style={{ width: 36, height: 36, borderRadius: 8, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {product.img ? <img src={product.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 16, opacity: 0.3 }}>📷</span>}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{product.name}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>
+            {hasPremium ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 9 }}>£{product.price.toFixed(2)}</span> £{displayPrice.toFixed(2)}</> : `£${displayPrice.toFixed(2)}`}
+          </div>
+        </div>
+        <button onClick={() => setExpanded(!expanded)} style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "rgba(0,201,167,0.1)", color: S.teal, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, flexShrink: 0 }}>
+          {expanded ? "▾ Pick" : "▸ Pick"}
+        </button>
+      </div>
+      {expanded && (
+        <div style={{ padding: "6px 10px 10px", borderTop: `1px solid ${S.border}` }}>
+          {maxC > 1 && <div style={{ fontSize: 10, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 4, background: "rgba(132,94,247,0.08)", padding: "3px 6px", borderRadius: 4, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
+          {maxC > 1 && (
+            <button onClick={handleSameToggle} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4, padding: "2px 0", background: "none", border: "none", cursor: "pointer", fontSize: 10, color: sameColour ? S.teal : S.dimmer, fontFamily: S.fontHead, fontWeight: 600 }}>
+              <div style={{ width: 22, height: 12, borderRadius: 6, position: "relative", background: sameColour ? S.teal : "rgba(255,255,255,0.1)" }}>
+                <div style={{ width: 8, height: 8, borderRadius: 4, background: "#fff", position: "absolute", top: 2, left: sameColour ? 12 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+              </div>
+              Same colour
+            </button>
+          )}
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 4 }}>
+            {[...product.colors].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={selectedColors.includes(c)} onClick={() => toggleColor(c)} size={16} />)}
+          </div>
+          <div style={{ fontSize: 9, color: S.dimmer, marginBottom: 6 }}>
+            {sameColour && maxC > 1
+              ? <span><span style={{ fontWeight: 600, color: S.muted }}>{selectedColors[0]}</span> × {maxC}</span>
+              : selectedColors.map((c, i) => <span key={i}>{i > 0 && " + "}<span style={{ fontWeight: 600, color: S.muted }}>{c}</span></span>)
+            }
+          </div>
+          <button onClick={handleAdd} disabled={!canAdd} style={{ width: "100%", padding: "6px 0", borderRadius: 8, border: "none", background: added ? S.teal : canAdd ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.03)", color: added ? "#1a1a2e" : canAdd ? S.teal : "rgba(255,255,255,0.2)", fontSize: 10, fontWeight: 700, cursor: canAdd ? "pointer" : "default", fontFamily: S.fontHead, textTransform: "uppercase" }}>
+            {added ? "✓ Added!" : !canAdd ? `Select ${maxC} colours` : "+ Add to Cart"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2648,16 +2732,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
         <h4 style={{ fontSize: 12, fontWeight: 700, fontFamily: S.fontHead, color: S.muted, marginBottom: 10, textTransform: "uppercase" }}>You might also like</h4>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
           {suggestions.map(p => (
-            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.02)" }}>
-              <div style={{ width: 36, height: 36, borderRadius: 8, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {p.img ? <img src={p.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 16, opacity: 0.3 }}>📷</span>}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{p.price.toFixed(2)}</div>
-              </div>
-              <button onClick={() => onAddToCart(p, [p.colors[0]])} style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "rgba(0,201,167,0.1)", color: S.teal, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, flexShrink: 0 }}>+ Add</button>
-            </div>
+            <CrossSellCard key={p.id} product={p} onAddToCart={onAddToCart} />
           ))}
         </div>
       </div>
