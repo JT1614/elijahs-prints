@@ -2722,7 +2722,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
         </div>
       </div>
       {/* Cross-sell: You might also like */}
-      {products && step === 1 && (() => {
+      {products && (() => {
         const cartIds = new Set(cart.filter(i => !i.isTip).map(i => i.id));
         const cartCats = [...new Set(cart.filter(i => !i.isTip).map(i => i.category).filter(Boolean))];
         const suggestions = (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && cartCats.includes(p.category)).slice(0, 4);
@@ -3060,7 +3060,14 @@ function ElijahsPrintsInner() {
     });
     loadOrders().then(o => setOrders(o || []));
     loadFilaments().then(f => {
-      if (f) { FILAMENTS = f; ALL_COLORS = sortedFilamentKeys(f); setFilamentVer(v => v + 1); }
+      if (f) {
+        // Merge sortOrder from defaults into Firebase-loaded filaments
+        const merged = {};
+        for (const [name, data] of Object.entries(f)) {
+          merged[name] = { ...data, sortOrder: data.sortOrder || (DEFAULT_FILAMENTS[name]?.sortOrder) || 999 };
+        }
+        FILAMENTS = merged; ALL_COLORS = sortedFilamentKeys(merged); setFilamentVer(v => v + 1);
+      }
     });
     loadCategories().then(cats => {
       if (cats) {
