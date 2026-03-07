@@ -211,7 +211,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v90 · 2026-03-07";
+const APP_VERSION = "v91 · 2026-03-07";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -552,8 +552,11 @@ async function uploadProductImage(productId, dataURL) {
   try {
     const { storage, ref, uploadBytes, getDownloadURL } = await getFirebase();
     const blob = dataURLtoBlob(dataURL);
-    const imageRef = ref(storage, `product-images/${productId}.jpg`);
-    await uploadBytes(imageRef, blob, { contentType: "image/jpeg" });
+    const isGif = blob.type === "image/gif";
+    const ext = isGif ? "gif" : "jpg";
+    const contentType = isGif ? "image/gif" : "image/jpeg";
+    const imageRef = ref(storage, `product-images/${productId}.${ext}`);
+    await uploadBytes(imageRef, blob, { contentType });
     return await getDownloadURL(imageRef);
   } catch (e) {
     console.error("Image upload failed:", e);
@@ -565,8 +568,10 @@ async function deleteProductImage(productId) {
   if (!USE_FIREBASE) return;
   try {
     const { storage, ref, deleteObject } = await getFirebase();
-    const imageRef = ref(storage, `product-images/${productId}.jpg`);
-    await deleteObject(imageRef);
+    // Try both extensions — one will exist, one will fail silently
+    for (const ext of ["jpg", "gif"]) {
+      try { await deleteObject(ref(storage, `product-images/${productId}.${ext}`)); } catch (_) {}
+    }
   } catch (e) {
     console.error("Image delete failed (may not exist):", e);
   }
@@ -869,14 +874,20 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
                   <span style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontHead, textAlign: "center" }}>Click to upload</span>
                 </>
               )}
-              <input type="file" accept="image/*" style={{ display: "none" }} onChange={async (e) => {
+              <input type="file" accept="image/*,.gif" style={{ display: "none" }} onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
                 try {
-                  const compressed = await compressImage(file);
-                  set("img", compressed); // show preview immediately
-                  const url = await uploadProductImage(p.id || Date.now(), compressed);
-                  if (url !== compressed) set("img", url); // replace base64 with URL
+                  const isGif = file.type === "image/gif";
+                  let imageData;
+                  if (isGif) {
+                    imageData = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+                  } else {
+                    imageData = await compressImage(file);
+                  }
+                  set("img", imageData); // show preview immediately
+                  const url = await uploadProductImage(p.id || Date.now(), imageData);
+                  if (url !== imageData) set("img", url); // replace base64 with URL
                 } catch(err) { console.error("Image upload failed:", err); }
                 e.target.value = "";
               }} />
@@ -886,7 +897,7 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
                 <button onClick={() => { deleteProductImage(p.id); set("img", ""); }} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, marginBottom: 8 }}>✕ Remove photo</button>
               )}
               <p style={{ fontSize: 11, color: S.dimmer, lineHeight: 1.5, margin: 0 }}>
-                {p.img ? "Photo uploaded and compressed. Click the image to replace it." : "Upload a photo of the printed product. JPG or PNG, any size — it'll be compressed automatically."}
+                {p.img ? "Photo uploaded. Click the image to replace it." : "Upload a product photo (JPG, PNG, or GIF). GIFs will animate!"}
               </p>
             </div>
           </div>
