@@ -2168,22 +2168,22 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
               return hasLiveProds ? "red" : "amber";
             };
             const counts = { red: 0, amber: 0, green: 0, grey: 0 };
-            creators.forEach(c => { counts[getRag(c)]++; });
-            const totalCost = creators.filter(c => c.licenceStatus !== "deleted").reduce((sum, c) => sum + (parseFloat(c.monthlyCost) || 0), 0);
+            const costs = { red: 0, amber: 0, green: 0, grey: 0, all: 0 };
+            creators.forEach(c => { const r = getRag(c); counts[r]++; const cost = parseFloat(c.monthlyCost) || 0; costs[r] += cost; if (c.licenceStatus !== "deleted") costs.all += cost; });
             const filterBtns = [
-              { id: "all", label: "All", val: creators.length, bg: "rgba(255,255,255,0.03)", border: S.border, color: S.text },
-              { id: "red", label: "🔴 Action needed", val: counts.red, bg: "rgba(220,53,69,0.1)", border: "rgba(220,53,69,0.3)", color: "#dc3545" },
-              { id: "amber", label: "🟡 In progress", val: counts.amber, bg: "rgba(245,159,0,0.1)", border: "rgba(245,159,0,0.3)", color: "#f59f00" },
-              { id: "green", label: "✅ Covered", val: counts.green, bg: "rgba(0,201,167,0.1)", border: "rgba(0,201,167,0.3)", color: S.teal },
-              { id: "grey", label: "🗑 Archived", val: counts.grey, bg: "rgba(255,255,255,0.03)", border: S.border, color: S.dimmer },
-              { id: "cost", label: "💷 Monthly spend", val: "£" + totalCost.toFixed(2), bg: "rgba(255,255,255,0.03)", border: S.border, color: S.text, noFilter: true },
+              { id: "all", label: "All", val: creators.length, cost: costs.all, bg: "rgba(255,255,255,0.03)", border: S.border, color: S.text },
+              { id: "red", label: "🔴 Action needed", val: counts.red, cost: costs.red, bg: "rgba(220,53,69,0.1)", border: "rgba(220,53,69,0.3)", color: "#dc3545" },
+              { id: "amber", label: "🟡 In progress", val: counts.amber, cost: costs.amber, bg: "rgba(245,159,0,0.1)", border: "rgba(245,159,0,0.3)", color: "#f59f00" },
+              { id: "green", label: "✅ Covered", val: counts.green, cost: costs.green, bg: "rgba(0,201,167,0.1)", border: "rgba(0,201,167,0.3)", color: S.teal },
+              { id: "grey", label: "🗑 Archived", val: counts.grey, cost: costs.grey, bg: "rgba(255,255,255,0.03)", border: S.border, color: S.dimmer },
             ];
             return (
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 {filterBtns.map(s => (
-                  <div key={s.id} onClick={s.noFilter ? undefined : () => setCreatorFilter(s.id)} style={{ flex: 1, minWidth: 100, background: s.bg, border: `2px solid ${creatorFilter === s.id ? s.color : s.border}`, borderRadius: 12, padding: "12px 16px", textAlign: "center", cursor: s.noFilter ? "default" : "pointer", opacity: creatorFilter !== "all" && creatorFilter !== s.id && !s.noFilter ? 0.5 : 1, transition: "all 0.15s" }}>
+                  <div key={s.id} onClick={() => setCreatorFilter(s.id)} style={{ flex: 1, minWidth: 100, background: s.bg, border: `2px solid ${creatorFilter === s.id ? s.color : s.border}`, borderRadius: 12, padding: "12px 16px", textAlign: "center", cursor: "pointer", opacity: creatorFilter !== "all" && creatorFilter !== s.id ? 0.5 : 1, transition: "all 0.15s" }}>
                     <div style={{ fontSize: 22, fontWeight: 800, color: s.color, fontFamily: S.fontHead }}>{s.val}</div>
                     <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{s.label}</div>
+                    {s.cost > 0 && <div style={{ fontSize: 11, color: S.muted, marginTop: 4, fontFamily: S.fontMono }}>£{s.cost.toFixed(2)}/mo</div>}
                   </div>
                 ))}
               </div>
