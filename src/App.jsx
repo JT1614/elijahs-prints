@@ -162,12 +162,12 @@ async function saveCategoryMeta(meta) {
   try { await storageSet("category-meta-v1", JSON.stringify(meta)); } catch (e) { console.error("Save category meta failed:", e); }
 }
 const DEFAULT_CATEGORY_META = {
-  "Key Rings": { audience: "kids", hasDimensions: false },
-  "Fidgets & Toys": { audience: "kids", hasDimensions: false },
-  "Clickers": { audience: "kids", hasDimensions: false },
-  "Planters": { audience: "adult", hasDimensions: true },
-  "Bird Feeders": { audience: "adult", hasDimensions: false },
-  "Household": { audience: "adult", hasDimensions: false },
+  "Key Rings": { audience: "kids", hasDimensions: false, sortOrder: 0 },
+  "Fidgets & Toys": { audience: "kids", hasDimensions: false, sortOrder: 1 },
+  "Clickers": { audience: "kids", hasDimensions: false, sortOrder: 2 },
+  "Planters": { audience: "adult", hasDimensions: true, sortOrder: 3 },
+  "Bird Feeders": { audience: "adult", hasDimensions: false, sortOrder: 4 },
+  "Household": { audience: "adult", hasDimensions: false, sortOrder: 5 },
 };
 async function loadCreators() {
   try {
@@ -211,7 +211,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v88.3 · 2026-03-07";
+const APP_VERSION = "v89 · 2026-03-07";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -921,10 +921,8 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
           </div>
         </div>
 
-        {/* Source Reference (admin only) */}
+        {/* Source URL & Creator */}
         <div style={sectionStyle}>
-          <label style={labelStyle}>🔒 Source Reference (admin only — not shown to customers)</label>
-          <input style={{ ...inputStyle, marginBottom: 8 }} value={p.sourceRef || ""} onChange={e => set("sourceRef", e.target.value)} placeholder="e.g. Kumiko Planter Large by Foxwood" />
           <label style={labelStyle}>🔗 Source URL (MakerWorld link — clickable in Order Book)</label>
           <div style={{ display: "flex", gap: 8 }}>
             <input style={{ ...inputStyle, flex: 1 }} value={p.sourceUrl || ""} onChange={e => set("sourceUrl", e.target.value)} placeholder="e.g. https://makerworld.com/en/models/569100" />
@@ -1359,7 +1357,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                         <span style={{ fontWeight: 600, color: S.text }}>{item.qty}×</span>
                         <span onClick={() => { const prod = products.find(p => p.id === item.id); if (prod && onEditProduct) onEditProduct(prod); }} style={{ cursor: "pointer", color: S.text, textDecoration: "underline", textDecorationColor: "rgba(255,255,255,0.15)", textUnderlineOffset: 2 }}>{item.name}</span>
                         <span style={{ fontSize: 10, color: S.dimmer }}>({item.selectedColors.join(" + ")})</span>
-                        {(() => { const prod = products.find(p => p.id === item.id); if (!prod?.sourceRef) return null; return prod.sourceUrl ? <a href={prod.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2, textDecoration: "none" }} title={`Open: ${prod.sourceRef}`}>🔗 {prod.sourceRef}</a> : <span style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2 }} title={prod.sourceRef}>🔒 {prod.sourceRef}</span>; })()}
+                        {(() => { const prod = products.find(p => p.id === item.id); if (!prod?.sourceUrl) return null; return <a href={prod.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2, textDecoration: "none" }} title={`Open: ${prod.sourceUrl}`}>🔗 {prod.creator || "Source"}</a>; })()}
                       </>)}
                     </div>
                   ))}
@@ -1463,7 +1461,6 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         "Creator": p.creator || "",
         "Photo Source": p.photoSource || "",
         "Creator Licence": p.creatorLicence || "",
-        "Source Ref": p.sourceRef || "",
         "Source URL": p.sourceUrl || "",
         "Added Date": p.addedDate || "",
         "Width (mm)": p.widthMm || "",
@@ -1640,7 +1637,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
 
 
-  const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, status: "live", maxColors: 1, addedDate: new Date().toISOString(), sourceRef: "", sourceUrl: "", creator: "", photoSource: "own" };
+  const newProduct = { id: 0, name: "", price: 0, category: categories[0] || "Key Rings", description: "", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "1 hr", grams: 10, available: true, status: "live", maxColors: 1, addedDate: new Date().toISOString(), sourceUrl: "", creator: "", photoSource: "own" };
 
   const pendingOrders = orders.filter(o => !o.status.despatched).length;
 
@@ -2154,19 +2151,21 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 {adminTab === "categories" && (
         <div style={{ background: S.card, borderRadius: 16, padding: 24, border: `1px solid ${S.border}` }}>
           <p style={{ fontSize: 13, color: S.muted, marginBottom: 20 }}>
-            Manage your product categories. Each category can be tagged as Kids or Adult (used for label printing) and optionally require product dimensions.
+            Manage your product categories. Use ▲▼ to reorder — the shop page updates to match. Each category can be tagged as Kids or Adult (used for label printing) and optionally require product dimensions.
           </p>
           {/* Add new category */}
           <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-            <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder="New category name" onKeyDown={e => { if (e.key === "Enter" && newCatName.trim()) { const n = newCatName.trim(); if (!categories.includes(n)) { onSaveCategories([...categories, n]); setNewCatName(""); } }}} style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.03)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none" }} />
-            <button onClick={() => { const n = newCatName.trim(); if (n && !categories.includes(n)) { onSaveCategories([...categories, n]); setNewCatName(""); } }} disabled={!newCatName.trim() || categories.includes(newCatName.trim())} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: newCatName.trim() && !categories.includes(newCatName.trim()) ? `linear-gradient(135deg, ${S.teal}, #00b894)` : "rgba(255,255,255,0.05)", color: newCatName.trim() && !categories.includes(newCatName.trim()) ? "#1a1a2e" : S.dimmer, fontSize: 14, fontWeight: 700, cursor: newCatName.trim() ? "pointer" : "default", fontFamily: S.fontHead }}>+ Add</button>
+            <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder="New category name" onKeyDown={e => { if (e.key === "Enter" && newCatName.trim()) { const n = newCatName.trim(); if (!categories.includes(n)) { onSaveCategories([...categories, n]); const newMeta = {...categoryMeta}; newMeta[n] = { audience: "kids", hasDimensions: false, sortOrder: categories.length }; onSaveCategoryMeta(newMeta); setNewCatName(""); } }}} style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.03)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none" }} />
+            <button onClick={() => { const n = newCatName.trim(); if (n && !categories.includes(n)) { onSaveCategories([...categories, n]); const newMeta = {...categoryMeta}; newMeta[n] = { audience: "kids", hasDimensions: false, sortOrder: categories.length }; onSaveCategoryMeta(newMeta); setNewCatName(""); } }} disabled={!newCatName.trim() || categories.includes(newCatName.trim())} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: newCatName.trim() && !categories.includes(newCatName.trim()) ? `linear-gradient(135deg, ${S.teal}, #00b894)` : "rgba(255,255,255,0.05)", color: newCatName.trim() && !categories.includes(newCatName.trim()) ? "#1a1a2e" : S.dimmer, fontSize: 14, fontWeight: 700, cursor: newCatName.trim() ? "pointer" : "default", fontFamily: S.fontHead }}>+ Add</button>
           </div>
           {/* Category list */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {categories.map((cat, idx) => {
+            {[...categories].sort((a, b) => ((categoryMeta[a] || {}).sortOrder ?? 99) - ((categoryMeta[b] || {}).sortOrder ?? 99)).map((cat, sortIdx, sortedCats) => {
+              const idx = categories.indexOf(cat);
               const count = products ? products.filter(p => p.category === cat).length : 0;
               const isEditing = editingCat === idx;
-              const meta = categoryMeta[cat] || { audience: "kids", hasDimensions: false };
+              const meta = categoryMeta[cat] || { audience: "kids", hasDimensions: false, sortOrder: sortIdx };
+              const moveCategory = (dir) => { const swapCat = sortedCats[sortIdx + dir]; if (!swapCat) return; const newMeta = {...categoryMeta}; const curOrder = meta.sortOrder ?? sortIdx; const swapMeta = newMeta[swapCat] || { audience: "kids", hasDimensions: false, sortOrder: sortIdx + dir }; const swapOrder = swapMeta.sortOrder ?? (sortIdx + dir); newMeta[cat] = { ...meta, sortOrder: swapOrder }; newMeta[swapCat] = { ...swapMeta, sortOrder: curOrder }; onSaveCategoryMeta(newMeta); };
               return (
                 <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 12, background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}`, flexWrap: "wrap" }}>
                   {isEditing ? (
@@ -2177,6 +2176,10 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     </>
                   ) : (
                     <>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <button onClick={() => moveCategory(-1)} disabled={sortIdx === 0} style={{ padding: "1px 6px", borderRadius: 4, border: "none", background: sortIdx === 0 ? "transparent" : "rgba(255,255,255,0.06)", color: sortIdx === 0 ? S.dimmer : S.muted, fontSize: 10, cursor: sortIdx === 0 ? "default" : "pointer", lineHeight: 1 }}>▲</button>
+                        <button onClick={() => moveCategory(1)} disabled={sortIdx === sortedCats.length - 1} style={{ padding: "1px 6px", borderRadius: 4, border: "none", background: sortIdx === sortedCats.length - 1 ? "transparent" : "rgba(255,255,255,0.06)", color: sortIdx === sortedCats.length - 1 ? S.dimmer : S.muted, fontSize: 10, cursor: sortIdx === sortedCats.length - 1 ? "default" : "pointer", lineHeight: 1 }}>▼</button>
+                      </div>
                       <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: S.text, fontFamily: S.fontHead, minWidth: 120 }}>{cat}</span>
                       <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>{count} product{count !== 1 ? "s" : ""}</span>
                       {/* Audience toggle */}
@@ -2443,7 +2446,6 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     badge: null,
                     emoji: data.emoji || "",
                     img: "",
-                    sourceRef: data.sourceRef || "",
                     sourceUrl: data.sourceUrl || "",
                     creator: data.creator || "",
                     photoSource: data.photoSource || "own",
@@ -3090,7 +3092,14 @@ function ElijahsPrintsInner() {
       }
     });
     loadCategoryMeta().then(meta => {
-      if (meta) setCategoryMeta(meta);
+      if (meta) {
+        // Migrate: add sortOrder to any entries missing it
+        let needsSave = false;
+        const sorted = Object.keys(meta).sort((a, b) => (meta[a].sortOrder ?? 99) - (meta[b].sortOrder ?? 99));
+        sorted.forEach((key, i) => { if (meta[key].sortOrder === undefined) { meta[key] = { ...meta[key], sortOrder: i }; needsSave = true; } });
+        setCategoryMeta(meta);
+        if (needsSave) saveCategoryMeta(meta);
+      }
       else saveCategoryMeta({...DEFAULT_CATEGORY_META}); // seed defaults on first run
     });
     // Firebase auth state: auto-login if session persists (e.g. browser refresh)
@@ -3214,11 +3223,10 @@ function ElijahsPrintsInner() {
   const handleOrderPlaced = (order) => { setOrders(prev => [...prev, order]); };
   const handleSaveFilaments = async (f) => { FILAMENTS = f; ALL_COLORS = sortedFilamentKeys(f); setFilamentVer(v => v + 1); await saveFilaments(f); };
 const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v => v + 1); await saveCategories(cats); };
-const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); await saveCategoryMeta(meta); };
+const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVer(v => v + 1); await saveCategoryMeta(meta); };
 
    
- const CATEGORY_ORDER = { "Planters": 1, "Household": 2, "Bird Feeders": 3, "Fidgets & Toys": 4, "Clickers": 5, "Key Rings": 6 };
- const displayCategories = useMemo(() => ["All", ...[...categories].sort((a, b) => (CATEGORY_ORDER[a] || 99) - (CATEGORY_ORDER[b] || 99))], [catVer]);
+ const displayCategories = useMemo(() => ["All", ...[...categories].sort((a, b) => ((categoryMeta[a] || {}).sortOrder ?? 99) - ((categoryMeta[b] || {}).sortOrder ?? 99))], [catVer, categoryMeta]);
 
   const catCounts = useMemo(() => {
     if (!products) return {};
