@@ -21,8 +21,19 @@ const DEFAULT_FILAMENTS = {
   "Ocean to Meadow":   { hex: "linear-gradient(135deg, #0984e3, #00b894)", type: "PLA Gradient", premium: true, sortOrder: 15 },
   "Rainbow":           { hex: "linear-gradient(135deg, #e74c3c, #f39c12, #2ecc71, #3498db, #9b59b6)", type: "Reprapper PLA", premium: true, sortOrder: 16 },
 };
+const COLOUR_SORT_MAP = {
+  "White": 1, "Matte White": 1, "Bone White": 2, "Beige": 3, "Desert Tan": 4, "Matte Desert Tan": 4,
+  "Latte Brown": 5, "Caramel Brown": 6, "Brown": 7, "Dark Brown": 7, "Black": 8, "Matte Charcoal": 8,
+  "Red": 9, "Mandarin Orange": 10, "Matte Orange": 10, "Sunflower Yellow": 11,
+  "Bright Green": 12, "Sage Green": 13, "Olive Green": 14, "Turquoise": 15,
+  "Marine Blue": 16, "Matte Marine Blue": 16, "Silk Blue": 17,
+  "Silk Green": 18, "Silk Copper": 19, "Silk Rose Gold": 20, "Rose Gold Silk": 20,
+  "Silk Black-Green (2 colour tone)": 21, "Blue-Green (2 colour tone)": 22, "Ocean to Meadow": 22,
+  "Rainbow - Red-Gold-Blue": 23, "Rainbow - Red-Blue-Green": 24, "Rainbow": 23,
+};
+function colourSort(a, b) { return (COLOUR_SORT_MAP[a] || 999) - (COLOUR_SORT_MAP[b] || 999); }
 function sortedFilamentKeys(fil) {
-  return Object.keys(fil).sort((a, b) => (fil[a].sortOrder || 999) - (fil[b].sortOrder || 999));
+  return Object.keys(fil).sort((a, b) => (fil[a].sortOrder || COLOUR_SORT_MAP[a] || 999) - (fil[b].sortOrder || COLOUR_SORT_MAP[b] || 999));
 }
 let FILAMENTS = { ...DEFAULT_FILAMENTS };
 let ALL_COLORS = sortedFilamentKeys(FILAMENTS);
@@ -200,7 +211,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v88.1 · 2026-03-07";
+const APP_VERSION = "v88.2 · 2026-03-07";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -710,7 +721,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
           </button>
         )}
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
-          {[...product.colors].sort((a, b) => (FILAMENTS[a]?.sortOrder || 999) - (FILAMENTS[b]?.sortOrder || 999)).map((c, i) => <ColorSwatch key={i} name={c} selected={selectedColors.includes(c)} onClick={() => toggleColor(c)} size={20} />)}
+          {[...product.colors].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={selectedColors.includes(c)} onClick={() => toggleColor(c)} size={20} />)}
         </div>
         <div style={{ fontSize: 10, color: S.dimmer, marginTop: 4, marginBottom: 4 }}>
           {sameColour && maxC > 1
@@ -2701,6 +2712,32 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
             </div>
             <button onClick={handlePayment} disabled={processing} style={{ width: "100%", padding: "16px 0", borderRadius: 12, border: "none", background: processing ? "rgba(0,201,167,0.3)" : `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 16, fontWeight: 800, cursor: processing ? "wait" : "pointer", fontFamily: S.fontHead, textTransform: "uppercase" }}>{processing ? "Redirecting to payment..." : `🔒 Pay £${total.toFixed(2)}`}</button>
           </div>)}
+          {/* Cross-sell: You might also like */}
+          {products && (() => {
+            const cartIds = new Set(cart.filter(i => !i.isTip).map(i => i.id));
+            const cartCats = [...new Set(cart.filter(i => !i.isTip).map(i => i.category).filter(Boolean))];
+            const suggestions = (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && cartCats.includes(p.category)).slice(0, 4);
+            if (suggestions.length === 0) return null;
+            return (
+              <div style={{ marginTop: 16, background: "rgba(255,255,255,0.02)", border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 16, padding: "16px 20px" }}>
+                <h4 style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, color: S.muted, marginBottom: 12, textTransform: "uppercase" }}>You might also like</h4>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
+                  {suggestions.map(p => (
+                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.02)" }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 8, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {p.img ? <img src={p.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 16, opacity: 0.3 }}>📷</span>}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{p.price.toFixed(2)}</div>
+                      </div>
+                      <button onClick={() => onAddToCart(p, [p.colors[0]])} style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "rgba(0,201,167,0.1)", color: S.teal, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, flexShrink: 0 }}>+ Add</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
         <div className="ep-checkout-summary" style={{ background: "rgba(255,255,255,0.02)", border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 16, padding: 20, position: "sticky", top: 84 }}>
           <h4 style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 12, textTransform: "uppercase" }}>Order</h4>
@@ -2721,34 +2758,6 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
           </div>
         </div>
       </div>
-      {/* Cross-sell: You might also like */}
-      {products && (() => {
-        const cartIds = new Set(cart.filter(i => !i.isTip).map(i => i.id));
-        const cartCats = [...new Set(cart.filter(i => !i.isTip).map(i => i.category).filter(Boolean))];
-        const suggestions = (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && cartCats.includes(p.category)).slice(0, 4);
-        if (suggestions.length === 0) return null;
-        return (
-          <div style={{ marginTop: 32 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 16 }}>You might also like</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
-              {suggestions.map(p => (
-                <div key={p.id} style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 8, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {p.img ? <img src={p.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 18, opacity: 0.3 }}>📷</span>}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{p.price.toFixed(2)}</div>
-                    </div>
-                  </div>
-                  <button onClick={() => onAddToCart(p, [p.colors[0]])} style={{ width: "100%", padding: "6px 0", borderRadius: 8, border: "none", background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, textTransform: "uppercase" }}>+ Add</button>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }
