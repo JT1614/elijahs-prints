@@ -211,7 +211,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v88.2 · 2026-03-07";
+const APP_VERSION = "v88.3 · 2026-03-07";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -2635,6 +2635,32 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
       <button onClick={onBack} style={{ padding: "13px 32px", borderRadius: 12, border: "none", background: "rgba(255,255,255,0.05)", color: S.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Back to Shop</button>
     </div>
   );
+  const crossSellSection = (() => {
+    if (!products) return null;
+    const cartIds = new Set(cart.filter(i => !i.isTip).map(i => i.id));
+    const cartCats = [...new Set(cart.filter(i => !i.isTip).map(i => i.category).filter(Boolean))];
+    const suggestions = (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && cartCats.includes(p.category)).slice(0, 4);
+    if (suggestions.length === 0) return null;
+    return (
+      <div style={{ marginTop: 16, background: "rgba(255,255,255,0.02)", border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 12, padding: "14px 16px" }}>
+        <h4 style={{ fontSize: 12, fontWeight: 700, fontFamily: S.fontHead, color: S.muted, marginBottom: 10, textTransform: "uppercase" }}>You might also like</h4>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
+          {suggestions.map(p => (
+            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.02)" }}>
+              <div style={{ width: 36, height: 36, borderRadius: 8, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {p.img ? <img src={p.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 16, opacity: 0.3 }}>📷</span>}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{p.price.toFixed(2)}</div>
+              </div>
+              <button onClick={() => onAddToCart(p, [p.colors[0]])} style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "rgba(0,201,167,0.1)", color: S.teal, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, flexShrink: 0 }}>+ Add</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  })();
   return (
     <div className="ep-checkout-page" style={{ maxWidth: 900, margin: "0 auto", padding: "40px 24px 80px" }}>
       <button onClick={step === 1 ? onBack : () => setStep(step - 1)} style={{ background: "none", border: "none", color: S.teal, cursor: "pointer", fontSize: 14, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 24 }}>← {step === 1 ? "Back to Shop" : "Back"}</button>
@@ -2661,6 +2687,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
                 </button>
               ); })}
             </div>
+            {crossSellSection}
             <button onClick={nextStep} style={{ marginTop: 20, width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, textTransform: "uppercase" }}>Continue →</button>
           </div>)}
           {step === 2 && (<div style={secBox}>
@@ -2683,6 +2710,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
                 <div><label style={labS}>Phone</label><input style={inpS("phone")} value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="In case Royal Mail needs to contact you" /></div>
               </>)}
             </div>
+            {crossSellSection}
             <button onClick={nextStep} style={{ marginTop: 20, width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, textTransform: "uppercase" }}>Continue to Payment →</button>
           </div>)}
           {step === 3 && (<div style={secBox}>
@@ -2710,34 +2738,9 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
             <div style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
               <p style={{ fontSize: 11, color: S.dimmer, textAlign: "center" }}>{USE_STRIPE ? "🔒 Secure payment via Stripe" : "Demo mode — connect Stripe for real payments"}</p>
             </div>
+            {crossSellSection}
             <button onClick={handlePayment} disabled={processing} style={{ width: "100%", padding: "16px 0", borderRadius: 12, border: "none", background: processing ? "rgba(0,201,167,0.3)" : `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 16, fontWeight: 800, cursor: processing ? "wait" : "pointer", fontFamily: S.fontHead, textTransform: "uppercase" }}>{processing ? "Redirecting to payment..." : `🔒 Pay £${total.toFixed(2)}`}</button>
           </div>)}
-          {/* Cross-sell: You might also like */}
-          {products && (() => {
-            const cartIds = new Set(cart.filter(i => !i.isTip).map(i => i.id));
-            const cartCats = [...new Set(cart.filter(i => !i.isTip).map(i => i.category).filter(Boolean))];
-            const suggestions = (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && cartCats.includes(p.category)).slice(0, 4);
-            if (suggestions.length === 0) return null;
-            return (
-              <div style={{ marginTop: 16, background: "rgba(255,255,255,0.02)", border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 16, padding: "16px 20px" }}>
-                <h4 style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, color: S.muted, marginBottom: 12, textTransform: "uppercase" }}>You might also like</h4>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
-                  {suggestions.map(p => (
-                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.02)" }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 8, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        {p.img ? <img src={p.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 16, opacity: 0.3 }}>📷</span>}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{p.price.toFixed(2)}</div>
-                      </div>
-                      <button onClick={() => onAddToCart(p, [p.colors[0]])} style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "rgba(0,201,167,0.1)", color: S.teal, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, flexShrink: 0 }}>+ Add</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
         </div>
         <div className="ep-checkout-summary" style={{ background: "rgba(255,255,255,0.02)", border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 16, padding: 20, position: "sticky", top: 84 }}>
           <h4 style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 12, textTransform: "uppercase" }}>Order</h4>
