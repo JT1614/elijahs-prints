@@ -197,7 +197,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household", "Clickers", "Coasters"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v86 · 2026-03-06";
+const APP_VERSION = "v87 · 2026-03-07";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -2156,19 +2156,20 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
        
       {adminTab === "creators" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* RAG status mapping */}
+          {/* RAG status mapping — exposure-aware */}
           {(() => {
-            const ragMap = {
-              no_licence: "red", unconfirmed: "red",
-              dm_sent: "amber", pending_subscribe: "amber", known_risk: "amber",
-              free: "green", subscribed: "green",
-              deleted: "grey"
-            };
             const activeProds = products.filter(p => p.available);
-            const getRag = (c) => ragMap[c.licenceStatus] || "red";
+            const getRag = (c) => {
+              if (c.licenceStatus === "deleted") return "grey";
+              if (c.licenceStatus === "subscribed" || c.licenceStatus === "free") return "green";
+              if (c.licenceStatus === "known_risk" || c.licenceStatus === "pending_subscribe" || c.licenceStatus === "dm_sent") return "amber";
+              // no_licence: red only if live products exist, amber otherwise
+              const hasLiveProds = activeProds.some(p => p.creator === c.name);
+              return hasLiveProds ? "red" : "amber";
+            };
             const counts = { red: 0, amber: 0, green: 0, grey: 0 };
             creators.forEach(c => { counts[getRag(c)]++; });
-            const totalCost = creators.reduce((sum, c) => sum + (parseFloat(c.monthlyCost) || 0), 0);
+            const totalCost = creators.filter(c => c.licenceStatus !== "deleted").reduce((sum, c) => sum + (parseFloat(c.monthlyCost) || 0), 0);
             const filterBtns = [
               { id: "all", label: "All", val: creators.length, bg: "rgba(255,255,255,0.03)", border: S.border, color: S.text },
               { id: "red", label: "🔴 Action needed", val: counts.red, bg: "rgba(220,53,69,0.1)", border: "rgba(220,53,69,0.3)", color: "#dc3545" },
@@ -2222,7 +2223,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                         name: clean[0] || "",
                         platform: clean[1] || "",
                         profileUrl: clean[2] || "",
-                        licenceStatus: (clean[3] || "unconfirmed").toLowerCase().replace(/\s+/g, "_").replace("-","_"),
+                        licenceStatus: (clean[3] || "no_licence").toLowerCase().replace(/\s+/g, "_").replace("-","_"),
                         monthlyCost: parseFloat(clean[4]) || 0,
                         productsCovered: clean[5] || "",
                         actionRequired: clean[6] || "",
@@ -2272,7 +2273,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             </Tooltip>
             <Tooltip position="bottom" text="Manually add a new creator entry. Fill in their name, platform, Patreon URL, licence status, and monthly cost. Use the CSV import above if you're adding many at once.">
             <button onClick={async () => {
-              const newC = { id: Date.now(), name: "", platform: "MakerWorld", profileUrl: "", licenceStatus: "unconfirmed", monthlyCost: 0, productsCovered: "", actionRequired: "", photoRights: "own_needed" };
+              const newC = { id: Date.now(), name: "", platform: "MakerWorld", profileUrl: "", licenceStatus: "no_licence", monthlyCost: 0, productsCovered: "", actionRequired: "", photoRights: "own_needed" };
               const updated = [...creators, newC];
               setCreators(updated);
               await saveCreators(updated);
@@ -2284,11 +2285,15 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           <div style={{ background: S.card, borderRadius: 16, border: `1px solid ${S.border}`, overflow: "hidden" }}>
             {creators.length === 0 && <p style={{ textAlign: "center", color: S.dimmer, fontSize: 13, padding: 32 }}>No creators yet — import the Creator Register CSV to get started.</p>}
             {creators.map((c, idx) => {
-              const ragMap = { no_licence: "red", unconfirmed: "red", dm_sent: "amber", pending_subscribe: "amber", known_risk: "amber", free: "green", subscribed: "green", deleted: "grey" };
-              const rag = ragMap[c.licenceStatus] || "red";
-              if (creatorFilter !== "all" && rag !== creatorFilter) return null;
               const activeProds = products.filter(p => p.available && p.creator === c.name);
               const hasProds = activeProds.length > 0;
+              const rag = (() => {
+                if (c.licenceStatus === "deleted") return "grey";
+                if (c.licenceStatus === "subscribed" || c.licenceStatus === "free") return "green";
+                if (c.licenceStatus === "known_risk" || c.licenceStatus === "pending_subscribe" || c.licenceStatus === "dm_sent") return "amber";
+                return hasProds ? "red" : "amber";
+              })();
+              if (creatorFilter !== "all" && rag !== creatorFilter) return null;
               const health = (() => {
                 if (c.licenceStatus === "subscribed") return { color: S.teal, label: "✅ Subscribed", bg: "rgba(0,201,167,0.1)" };
                 if (c.licenceStatus === "free") return { color: S.teal, label: "✅ Free commercial", bg: "rgba(0,201,167,0.1)" };
@@ -2296,8 +2301,9 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 if (c.licenceStatus === "pending_subscribe") return { color: "#f59f00", label: "🟡 Pending subscribe", bg: "rgba(245,159,0,0.1)" };
                 if (c.licenceStatus === "dm_sent") return { color: "#f59f00", label: "🟡 DM sent", bg: "rgba(245,159,0,0.1)" };
                 if (c.licenceStatus === "deleted") return { color: S.dimmer, label: "🗑 Deleted", bg: "rgba(255,255,255,0.04)" };
-                if (c.licenceStatus === "no_licence") return { color: "#dc3545", label: "🔴 No licence", bg: "rgba(220,53,69,0.1)" };
-                return { color: "#dc3545", label: "🔴 Unconfirmed", bg: "rgba(220,53,69,0.1)" };
+                // no_licence — red if live products, amber if no exposure
+                if (hasProds) return { color: "#dc3545", label: "🔴 No licence", bg: "rgba(220,53,69,0.1)" };
+                return { color: "#f59f00", label: "🟡 No licence (no exposure)", bg: "rgba(245,159,0,0.1)" };
               })();
               const isEditing = editing === "creator_" + c.id;
               return (
@@ -2309,7 +2315,6 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                         <input value={c.platform} onChange={e => { const u=[...creators]; u[idx]={...u[idx],platform:e.target.value}; setCreators(u); }} placeholder="Platform" style={{ flex: 1, minWidth: 100, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
                         <select value={c.licenceStatus} onChange={e => { const u=[...creators]; u[idx]={...u[idx],licenceStatus:e.target.value}; setCreators(u); }} style={{ flex: 1, minWidth: 150, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "#1a1a2e", color: S.text, fontSize: 13, fontFamily: S.fontHead }}>
                           <option value="no_licence">🔴 No licence</option>
-                          <option value="unconfirmed">🔴 Unconfirmed</option>
                           <option value="dm_sent">🟡 DM sent</option>
                           <option value="pending_subscribe">🟡 Pending subscribe</option>
                           <option value="known_risk">🟡 Known risk</option>
