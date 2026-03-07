@@ -4,25 +4,28 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
    CONSTANTS
    ═══════════════════════════════════════════════ */
 const DEFAULT_FILAMENTS = {
-  "Bright Green":      { hex: "#b5cc18", type: "PLA Basic" },
-  "Red":               { hex: "#d63031", type: "PLA Basic" },
-  "Matte Orange":      { hex: "#e67e22", type: "PLA Matte" },
-  "Matte Charcoal":    { hex: "#2d3436", type: "PLA Matte" },
-  "Rose Gold Silk":    { hex: "#b76e79", type: "PLA Silk+", premium: true },
-  "Matte Marine Blue": { hex: "#2e86de", type: "PLA Matte" },
-  "Turquoise":         { hex: "#00cec9", type: "PLA Basic" },
-  "Ocean to Meadow":   { hex: "linear-gradient(135deg, #0984e3, #00b894)", type: "PLA Gradient", premium: true },
-  "Matte Ash Gray":    { hex: "#a4b0be", type: "PLA Matte" },
-  "Matte Desert Tan":  { hex: "#c8b88a", type: "PLA Matte" },
-  "Sunflower Yellow":  { hex: "#f9ca24", type: "PLA Basic" },
-  "Silk Green":        { hex: "#1fab89", type: "ELEGOO Silk", premium: true },
-  "Silk Copper":       { hex: "#b45a30", type: "ELEGOO Silk", premium: true },
-  "Rainbow":           { hex: "linear-gradient(135deg, #e74c3c, #f39c12, #2ecc71, #3498db, #9b59b6)", type: "Reprapper PLA", premium: true },
-  "Matte White":       { hex: "#f0f0f0", type: "PLA Matte" },
-  "Dark Brown":        { hex: "#4a2c12", type: "PLA Basic" },
+  "Matte White":       { hex: "#f0f0f0", type: "PLA Matte", sortOrder: 1 },
+  "Matte Ash Gray":    { hex: "#a4b0be", type: "PLA Matte", sortOrder: 2 },
+  "Matte Desert Tan":  { hex: "#c8b88a", type: "PLA Matte", sortOrder: 3 },
+  "Dark Brown":        { hex: "#4a2c12", type: "PLA Basic", sortOrder: 4 },
+  "Matte Charcoal":    { hex: "#2d3436", type: "PLA Matte", sortOrder: 5 },
+  "Red":               { hex: "#d63031", type: "PLA Basic", sortOrder: 6 },
+  "Matte Orange":      { hex: "#e67e22", type: "PLA Matte", sortOrder: 7 },
+  "Sunflower Yellow":  { hex: "#f9ca24", type: "PLA Basic", sortOrder: 8 },
+  "Bright Green":      { hex: "#b5cc18", type: "PLA Basic", sortOrder: 9 },
+  "Turquoise":         { hex: "#00cec9", type: "PLA Basic", sortOrder: 10 },
+  "Matte Marine Blue": { hex: "#2e86de", type: "PLA Matte", sortOrder: 11 },
+  "Rose Gold Silk":    { hex: "#b76e79", type: "PLA Silk+", premium: true, sortOrder: 12 },
+  "Silk Green":        { hex: "#1fab89", type: "ELEGOO Silk", premium: true, sortOrder: 13 },
+  "Silk Copper":       { hex: "#b45a30", type: "ELEGOO Silk", premium: true, sortOrder: 14 },
+  "Ocean to Meadow":   { hex: "linear-gradient(135deg, #0984e3, #00b894)", type: "PLA Gradient", premium: true, sortOrder: 15 },
+  "Rainbow":           { hex: "linear-gradient(135deg, #e74c3c, #f39c12, #2ecc71, #3498db, #9b59b6)", type: "Reprapper PLA", premium: true, sortOrder: 16 },
 };
+function sortedFilamentKeys(fil) {
+  return Object.keys(fil).sort((a, b) => (fil[a].sortOrder || 999) - (fil[b].sortOrder || 999));
+}
 let FILAMENTS = { ...DEFAULT_FILAMENTS };
-let ALL_COLORS = Object.keys(FILAMENTS);
+let ALL_COLORS = sortedFilamentKeys(FILAMENTS);
 
 /* ═══════════════════════════════════════════════
    FIREBASE CONFIG — Fill these in to use Firestore
@@ -194,10 +197,10 @@ const STRIPE_CONFIG = {
   publishableKey: "pk_test_51T3XclAA5p18B2vj1TyBnVblUN2qsJjnbkI7ogffH71Owx2Fr5CBPkhcoODaIWWIhluD7GPrUtQiaDNEIoFC8iVA00wENZaAwi",
 };
 const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
-const DEFAULT_CATEGORIES = ["Key Rings", "Fidgets & Toys", "Planters", "Bird Feeders", "Household", "Clickers", "Coasters"];
+const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v87.1 · 2026-03-07";
+const APP_VERSION = "v88 · 2026-03-07";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -595,6 +598,20 @@ function Badge({ text }) {
   const fg = { Premium: "#1a1a2e" };
   return <span style={{ background: bg[text] || "#666", color: fg[text] || "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", position: "absolute", top: 12, right: 12, zIndex: 2 }}>{text}</span>;
 }
+function getPlanterSize(product) {
+  if (product.category !== "Planters" || !product.widthMm || !product.heightMm) return "";
+  if ((product.name || "").toLowerCase().includes("wall")) return "Wall";
+  const vol = product.widthMm * product.heightMm;
+  if (vol <= 10000 || product.heightMm <= 70) return "Small";
+  if (vol <= 15000) return "Medium";
+  return "Large";
+}
+function SizeBadge({ product }) {
+  const label = getPlanterSize(product);
+  if (!label) return null;
+  const colours = { Small: "#6c9cfc", Medium: "#4ecdc4", Large: "#ff8a65", Wall: "#ba68c8" };
+  return <span style={{ background: colours[label] || "#666", color: "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", position: "absolute", top: 12, left: 12, zIndex: 2 }}>{label}</span>;
+}
 
 function Tooltip({ text, children, position = "bottom" }) {
   const [show, setShow] = useState(false);
@@ -668,6 +685,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
       boxShadow: hovered ? "0 20px 60px rgba(0,201,167,0.15), 0 0 0 1px rgba(0,201,167,0.2)" : "0 4px 20px rgba(0,0,0,0.2)",
     }}>
       {product.badge && <Badge text={product.badge} />}
+      <SizeBadge product={product} />
       <ProductImage product={product} hovered={hovered} />
       <div style={{ padding: "14px 16px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
@@ -692,7 +710,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
           </button>
         )}
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
-          {product.colors.map((c, i) => <ColorSwatch key={i} name={c} selected={selectedColors.includes(c)} onClick={() => toggleColor(c)} size={20} />)}
+          {[...product.colors].sort((a, b) => (FILAMENTS[a]?.sortOrder || 999) - (FILAMENTS[b]?.sortOrder || 999)).map((c, i) => <ColorSwatch key={i} name={c} selected={selectedColors.includes(c)} onClick={() => toggleColor(c)} size={20} />)}
         </div>
         <div style={{ fontSize: 10, color: S.dimmer, marginTop: 4, marginBottom: 4 }}>
           {sameColour && maxC > 1
@@ -798,9 +816,17 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
 
         {/* Dimensions — only shown when category has hasDimensions enabled */}
         {(categoryMeta[p.category] || {}).hasDimensions && (
-          <div className="ep-editor-2col" style={{ ...sectionStyle, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div><label style={labelStyle}>Width (mm)</label><input style={inputStyle} type="number" min="0" value={p.widthMm || ""} onChange={e => set("widthMm", parseInt(e.target.value) || 0)} placeholder="e.g. 95" /></div>
-            <div><label style={labelStyle}>Height (mm)</label><input style={inputStyle} type="number" min="0" value={p.heightMm || ""} onChange={e => set("heightMm", parseInt(e.target.value) || 0)} placeholder="e.g. 110" /></div>
+          <div style={sectionStyle}>
+            <div className="ep-editor-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div><label style={labelStyle}>Width (mm)</label><input style={inputStyle} type="number" min="0" value={p.widthMm || ""} onChange={e => set("widthMm", parseInt(e.target.value) || 0)} placeholder="e.g. 95" /></div>
+              <div><label style={labelStyle}>Height (mm)</label><input style={inputStyle} type="number" min="0" value={p.heightMm || ""} onChange={e => set("heightMm", parseInt(e.target.value) || 0)} placeholder="e.g. 110" /></div>
+            </div>
+            {p.widthMm > 0 && p.heightMm > 0 && (
+              <div style={{ display: "flex", gap: 16, marginTop: 8, padding: "8px 12px", background: "rgba(255,255,255,0.02)", borderRadius: 8, border: `1px solid ${S.border}` }}>
+                <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>Volume: <span style={{ color: S.muted, fontWeight: 600 }}>{(p.widthMm * p.heightMm).toLocaleString()}</span></span>
+                <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>Size: <span style={{ color: S.teal, fontWeight: 600 }}>{getPlanterSize(p) || "—"}</span></span>
+              </div>
+            )}
           </div>
         )}
 
@@ -1432,13 +1458,14 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         "Width (mm)": p.widthMm || "",
         "Height (mm)": p.heightMm || "",
         "Volume (W×H)": (p.widthMm && p.heightMm) ? p.widthMm * p.heightMm : "",
+        "Size": getPlanterSize(p),
       }));
       const wsProd = XLSX.utils.json_to_sheet(prodRows);
       wsProd["!cols"] = [
         { wch: 8 }, { wch: 28 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 12 },
         { wch: 50 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 60 }, { wch: 12 },
         { wch: 20 }, { wch: 14 }, { wch: 40 },
-        { wch: 30 }, { wch: 50 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
+        { wch: 30 }, { wch: 50 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 10 },
       ];
       XLSX.utils.book_append_sheet(wb, wsProd, "Products");
 
@@ -2494,7 +2521,7 @@ function AdminLogin({ onLogin }) {
 /* ═══════════════════════════════════════════════
    CHECKOUT + CART (simplified)
    ═══════════════════════════════════════════════ */
-function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAddTip, onRemoveTip }) {
+function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAddTip, onRemoveTip, products, onAddToCart }) {
   const [form, setForm] = useState({ email: "", name: "", address1: "", address2: "", city: "", county: "", postcode: "", phone: "" });
   const [step, setStep] = useState(1);
   const [processing, setProcessing] = useState(false);
@@ -2516,15 +2543,22 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
   const nextStep = () => { if (validate(step)) setStep(step + 1); };
   const handlePayment = async () => {
     if (!validate(3)) return;
+    // Guard: refuse to proceed with empty cart
+    const realCartItems = cart.filter(i => !i.isTip);
+    if (realCartItems.length === 0) { alert("Your cart is empty — please add something before checking out!"); return; }
     setProcessing(true);
     
     if (USE_STRIPE) {
+      // Generate a unique nonce to prevent replay attacks
+      const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
       // Save pending order to localStorage so we can complete it after Stripe redirect
       const pendingOrder = {
         customer: { ...form },
         shipping: { id: shipping.id, name: shipping.name },
         items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}) })),
         subtotal, shippingCost, stripeFee, total,
+        _nonce: nonce,
+        _created: Date.now(),
       };
       localStorage.setItem("ep_pending_order", JSON.stringify(pendingOrder));
       
@@ -2687,6 +2721,34 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
           </div>
         </div>
       </div>
+      {/* Cross-sell: You might also like */}
+      {products && step === 1 && (() => {
+        const cartIds = new Set(cart.filter(i => !i.isTip).map(i => i.id));
+        const cartCats = [...new Set(cart.filter(i => !i.isTip).map(i => i.category).filter(Boolean))];
+        const suggestions = (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && cartCats.includes(p.category)).slice(0, 4);
+        if (suggestions.length === 0) return null;
+        return (
+          <div style={{ marginTop: 32 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 16 }}>You might also like</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+              {suggestions.map(p => (
+                <div key={p.id} style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 8, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {p.img ? <img src={p.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 18, opacity: 0.3 }}>📷</span>}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{p.price.toFixed(2)}</div>
+                    </div>
+                  </div>
+                  <button onClick={() => onAddToCart(p, [p.colors[0]])} style={{ width: "100%", padding: "6px 0", borderRadius: 8, border: "none", background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, textTransform: "uppercase" }}>+ Add</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -2987,18 +3049,26 @@ function ElijahsPrintsInner() {
       const today = new Date().toISOString();
       let needsSave = false;
       const enriched = p.map(prod => {
-        if (!prod.addedDate) { needsSave = true; return { ...prod, addedDate: today }; }
-        return prod;
+        let updated = prod;
+        if (!updated.addedDate) { needsSave = true; updated = { ...updated, addedDate: today }; }
+        // Merge "Keyrings" category into "Key Rings"
+        if (updated.category === "Keyrings") { needsSave = true; updated = { ...updated, category: "Key Rings" }; }
+        return updated;
       });
       setProducts(enriched);
       if (needsSave) saveProducts(enriched);
     });
     loadOrders().then(o => setOrders(o || []));
     loadFilaments().then(f => {
-      if (f) { FILAMENTS = f; ALL_COLORS = Object.keys(f); setFilamentVer(v => v + 1); }
+      if (f) { FILAMENTS = f; ALL_COLORS = sortedFilamentKeys(f); setFilamentVer(v => v + 1); }
     });
     loadCategories().then(cats => {
-      if (cats) { categories = cats; setCatVer(v => v + 1); }
+      if (cats) {
+        // Remove "Keyrings" (merged into "Key Rings")
+        const cleaned = cats.filter(c => c !== "Keyrings");
+        if (cleaned.length !== cats.length) saveCategories(cleaned);
+        categories = cleaned; setCatVer(v => v + 1);
+      }
     });
     loadCategoryMeta().then(meta => {
       if (meta) setCategoryMeta(meta);
@@ -3023,6 +3093,20 @@ function ElijahsPrintsInner() {
       if (pending) {
         try {
           const orderData = JSON.parse(pending);
+          // Guard: reject orders older than 30 minutes (stale/replayed)
+          if (orderData._created && (Date.now() - orderData._created) > 30 * 60 * 1000) {
+            console.warn("⚠️ Stale pending order (>30min) — discarding");
+            localStorage.removeItem("ep_pending_order");
+            window.history.replaceState({}, "", window.location.pathname);
+            return;
+          }
+          // Guard: reject if no nonce (not created by handlePayment)
+          if (!orderData._nonce) {
+            console.warn("⚠️ Pending order missing nonce — likely not from a real checkout");
+            localStorage.removeItem("ep_pending_order");
+            window.history.replaceState({}, "", window.location.pathname);
+            return;
+          }
           // Validate order has real items (prevents bot/blank orders)
           const realItems = (orderData.items || []).filter(i => !i.isTip && i.name && i.id);
           if (realItems.length === 0 && !(orderData.items || []).some(i => i.isTip)) {
@@ -3031,11 +3115,13 @@ function ElijahsPrintsInner() {
             window.history.replaceState({}, "", window.location.pathname);
             return;
           }
-          const isTipOnly = orderData.items && orderData.items.length > 0 && orderData.items.every(i => i.isTip);
+          // Clean internal fields before saving
+          const { _nonce, _created, ...cleanData } = orderData;
+          const isTipOnly = cleanData.items && cleanData.items.length > 0 && cleanData.items.every(i => i.isTip);
           const order = {
             id: "EP-" + Date.now().toString(36).toUpperCase(),
             date: new Date().toISOString(),
-            ...orderData,
+            ...cleanData,
             status: isTipOnly
               ? { paid: true, produced: true, labelPrinted: true, despatched: true }
               : { paid: true, produced: false, labelPrinted: false, despatched: false },
@@ -3059,8 +3145,17 @@ function ElijahsPrintsInner() {
     let p = products.filter(x => x.available !== false);
     if (activeCat !== "All") p = p.filter(x => x.category === activeCat);
     if (search.trim()) { const q = search.toLowerCase(); p = p.filter(x => x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)); }
+    const badgePriority = { "New": 1, "Popular": 2, "Premium": 3, "Best Seller": 4 };
+    p.sort((a, b) => {
+      const ab = autoBadges[a.id]; const bb = autoBadges[b.id];
+      const ap = ab ? (badgePriority[ab] || 5) : 6;
+      const bp = bb ? (badgePriority[bb] || 5) : 6;
+      if (ap !== bp) return ap - bp;
+      if (b.price !== a.price) return b.price - a.price;
+      return a.name.localeCompare(b.name);
+    });
     return p;
-  }, [activeCat, search, products]);
+  }, [activeCat, search, products, autoBadges]);
 
   const addToCart = (product, selectedColors) => {
     const adjustedPrice = getPremiumPrice(product.price, selectedColors);
@@ -3097,12 +3192,13 @@ function ElijahsPrintsInner() {
     }
   };
   const handleOrderPlaced = (order) => { setOrders(prev => [...prev, order]); };
-  const handleSaveFilaments = async (f) => { FILAMENTS = f; ALL_COLORS = Object.keys(f); setFilamentVer(v => v + 1); await saveFilaments(f); };
+  const handleSaveFilaments = async (f) => { FILAMENTS = f; ALL_COLORS = sortedFilamentKeys(f); setFilamentVer(v => v + 1); await saveFilaments(f); };
 const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v => v + 1); await saveCategories(cats); };
 const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); await saveCategoryMeta(meta); };
 
    
- const displayCategories = useMemo(() => ["All", ...categories], [catVer]);
+ const CATEGORY_ORDER = { "Planters": 1, "Household": 2, "Bird Feeders": 3, "Fidgets & Toys": 4, "Clickers": 5, "Key Rings": 6 };
+ const displayCategories = useMemo(() => ["All", ...[...categories].sort((a, b) => (CATEGORY_ORDER[a] || 99) - (CATEGORY_ORDER[b] || 99))], [catVer]);
 
   const catCounts = useMemo(() => {
     if (!products) return {};
@@ -3174,7 +3270,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); await sa
 
       {page === "admin-login" && !adminLoggedIn && <AdminLogin onLogin={() => { setAdminLoggedIn(true); setPage("admin"); }} />}
       {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} categoryMeta={categoryMeta} onSaveCategoryMeta={handleSaveCategoryMeta} autoBadges={autoBadges} />}
-      {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} onAddTip={addTip} onRemoveTip={removeTip} />}
+      {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} onAddTip={addTip} onRemoveTip={removeTip} products={products} onAddToCart={addToCart} />}
       {page === "request" && <SpecialRequestPage onBack={() => setPage("shop")} />}
 
       {/* Stripe payment success — shown after redirect back from Stripe */}
