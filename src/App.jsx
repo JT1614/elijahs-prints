@@ -3140,6 +3140,9 @@ function ElijahsPrintsInner() {
     }
   }, []);
 
+  // Auto-compute badges based on sales data and product attributes
+  const autoBadges = useMemo(() => computeAutoBadges(products || [], orders), [products, orders]);
+
   const shopProducts = useMemo(() => {
     if (!products) return [];
     let p = products.filter(x => x.available !== false);
@@ -3177,8 +3180,6 @@ function ElijahsPrintsInner() {
   const currentTip = cart.find(i => i.isTip);
   const handleSaveProducts = async (p) => { setProducts(p); await saveProducts(p); };
 
-  // Auto-compute badges based on sales data and product attributes
-  const autoBadges = useMemo(() => computeAutoBadges(products || [], orders), [products, orders]);
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
     const order = orders.find(o => o.id === orderId);
     const wasDespatched = order?.status?.despatched;
