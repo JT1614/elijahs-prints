@@ -1547,6 +1547,20 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
     })();
   }, []);
 
+  /* ── One-time cleanup: strip orphaned colours no longer in filament library ── */
+  useEffect(() => {
+    const validSet = new Set(ALL_COLORS);
+    const needsCleaning = products.some(p => (p.colors || []).some(c => !validSet.has(c)));
+    if (!needsCleaning) return;
+    const cleaned = products.map(p => {
+      const filtered = (p.colors || []).filter(c => validSet.has(c));
+      if (filtered.length === (p.colors || []).length) return p;
+      return { ...p, colors: filtered.length > 0 ? filtered : ["Matte Charcoal"] };
+    });
+    onSave(cleaned);
+    console.log("🧹 Cleaned orphaned filament colours from products");
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   /* ── Export Data to Excel ── */
   const exportData = async () => {
     setExporting(true);
@@ -2251,10 +2265,17 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                   >✏️</button>
                   <button
                     onClick={() => {
-                      if (!confirm(`Remove "${name}" from the filament library?`)) return;
+                      if (!confirm(`Remove "${name}" from the filament library? It will also be removed from any products that use it.`)) return;
                       const updated = { ...FILAMENTS };
                       delete updated[name];
                       onSaveFilaments(updated);
+                      // Strip deleted colour from all products
+                      const cleaned = products.map(p => {
+                        const filtered = (p.colors || []).filter(c => c !== name);
+                        if (filtered.length === (p.colors || []).length) return p;
+                        return { ...p, colors: filtered.length > 0 ? filtered : ["Matte Charcoal"] };
+                      });
+                      if (cleaned.some((p, i) => p !== products[i])) onSave(cleaned);
                       if (editingColour === name) { setEditingColour(null); setNewColourName(""); setNewColourHex("#888888"); setNewColourType("PLA Basic"); setNewColourPremium(false); }
                       setSavedMsg("Colour removed!"); setTimeout(() => setSavedMsg(""), 2000);
                     }}
