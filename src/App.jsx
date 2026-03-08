@@ -259,7 +259,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v93 · 2026-03-08";
+const APP_VERSION = "v94 · 2026-03-08";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1564,13 +1564,18 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 /* ═══════════════════════════════════════════════
    STOCK TAB — Production stock targets & batch generator
    ═══════════════════════════════════════════════ */
-function StockTab({ products, stockTargets, onSave, loading }) {
+function StockTab({ products, stockTargets, onSave, loading, onEditProduct }) {
   const [eventFilter, setEventFilter] = useState("all");
   const [editModal, setEditModal] = useState(null); // null | { ...target } for add/edit
-  const [adjustModal, setAdjustModal] = useState(null); // null | { target, delta, reason }
   const [batchMode, setBatchMode] = useState(null); // null | "hours" | "items"
   const [batchValue, setBatchValue] = useState(4);
   const [batchResults, setBatchResults] = useState(null);
+
+  // Migrate old colour (string) → colours (array)
+  useEffect(() => {
+    const needs = stockTargets.some(t => t.colour && !t.colours);
+    if (needs) onSave(stockTargets.map(t => t.colour && !t.colours ? { ...t, colours: [t.colour], colour: undefined } : t));
+  }, [stockTargets]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derive available events
   const events = [...new Set(stockTargets.map(t => t.event).filter(Boolean))];
@@ -1579,13 +1584,17 @@ function StockTab({ products, stockTargets, onSave, loading }) {
   // Filter targets
   const filtered = eventFilter === "all" ? stockTargets : stockTargets.filter(t => t.event === eventFilter);
 
+  // Product lookup
+  const prodMap = {};
+  products.forEach(p => { prodMap[p.id] = p; });
+
   // Summary stats
   const totalTargets = filtered.reduce((s, t) => s + (t.targetQty || 0), 0);
   const totalOnHand = filtered.reduce((s, t) => s + (t.onHand || 0), 0);
   const totalRemaining = filtered.reduce((s, t) => s + Math.max(0, (t.targetQty || 0) - (t.onHand || 0)), 0);
   const totalPrintHrs = filtered.reduce((s, t) => {
     const rem = Math.max(0, (t.targetQty || 0) - (t.onHand || 0));
-    const prod = products.find(p => p.id === t.productId);
+    const prod = prodMap[t.productId];
     const hrs = prod ? parseTimeToHrs(prod.printTime) : 0;
     const plateCap = getPlateCapacity(prod?.category, prod?.widthMm, prod?.heightMm);
     const plates = Math.ceil(rem / plateCap);
@@ -1593,39 +1602,26 @@ function StockTab({ products, stockTargets, onSave, loading }) {
   }, 0);
   const totalRevenue = filtered.reduce((s, t) => s + (t.targetQty || 0) * (t.carBootPrice || 0), 0);
 
-  // Product lookup
-  const prodMap = {};
-  products.forEach(p => { prodMap[p.id] = p; });
-
   // Save a single target (add or update)
   const saveTarget = (target) => {
-    const existing = stockTargets.findIndex(t => t.id === target.id);
-    let updated;
-    if (existing >= 0) {
-      updated = stockTargets.map(t => t.id === target.id ? target : t);
-    } else {
-      updated = [...stockTargets, target];
-    }
-    onSave(updated);
+    const idx = stockTargets.findIndex(t => t.id === target.id);
+    onSave(idx >= 0 ? stockTargets.map(t => t.id === target.id ? target : t) : [...stockTargets, target]);
     setEditModal(null);
+  };
+
+  // Inline field adjust
+  const adjustField = (id, field, delta, min = 0, step = 1) => {
+    onSave(stockTargets.map(t => {
+      if (t.id !== id) return t;
+      const val = Math.max(min, Math.round(((t[field] || 0) + delta * step) * 100) / 100);
+      return { ...t, [field]: val };
+    }));
   };
 
   // Delete target
   const deleteTarget = (id) => {
     if (!confirm("Delete this stock target?")) return;
     onSave(stockTargets.filter(t => t.id !== id));
-  };
-
-  // Adjust on-hand
-  const applyAdjustment = () => {
-    if (!adjustModal || !adjustModal.delta || !adjustModal.reason.trim()) return;
-    const t = stockTargets.find(st => st.id === adjustModal.target.id);
-    if (!t) return;
-    const newOnHand = Math.max(0, (t.onHand || 0) + adjustModal.delta);
-    const logEntry = { date: new Date().toISOString(), change: adjustModal.delta, reason: adjustModal.reason.trim(), newTotal: newOnHand };
-    const updated = { ...t, onHand: newOnHand, adjustmentLog: [...(t.adjustmentLog || []), logEntry] };
-    onSave(stockTargets.map(st => st.id === t.id ? updated : st));
-    setAdjustModal(null);
   };
 
   // Batch generator
@@ -1648,7 +1644,6 @@ function StockTab({ products, stockTargets, onSave, loading }) {
 
     for (const t of remaining) {
       if (budget <= 0 || itemBudget <= 0) break;
-      const canPrint = Math.min(t.remaining, t.plateCap);
       const plateHrs = t.hrs;
       if (batchMode === "hours" && plateHrs > budget) continue;
       const plates = batchMode === "hours"
@@ -1656,27 +1651,30 @@ function StockTab({ products, stockTargets, onSave, loading }) {
         : Math.min(Math.ceil(Math.min(t.remaining, itemBudget) / t.plateCap), Math.ceil(t.remaining / t.plateCap));
       if (plates <= 0) continue;
       const items = Math.min(plates * t.plateCap, t.remaining);
-      batches.push({ targetId: t.id, name: t.prodName, colour: t.colour, plates, items, hrs: plates * plateHrs, plateCap: t.plateCap });
+      const colLabel = (t.colours || []).join(" + ") || t.colour || "—";
+      batches.push({ targetId: t.id, name: t.prodName, colour: colLabel, plates, items, hrs: plates * plateHrs, plateCap: t.plateCap });
       budget -= plates * plateHrs;
       itemBudget -= items;
     }
     setBatchResults(batches);
   };
 
+  const selectStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "#1a1a2e", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none", boxSizing: "border-box", colorScheme: "dark" };
   const inputStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none", boxSizing: "border-box" };
   const labelStyle = { fontSize: 12, fontWeight: 700, color: S.muted, fontFamily: S.fontHead, marginBottom: 4, display: "block" };
+  const inlineBtnStyle = { width: 28, height: 28, borderRadius: 7, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 15, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 };
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: S.muted }}>Loading stock targets...</div>;
 
   return (
     <div>
-      {/* Header row: event filter + add button */}
+      {/* Header row */}
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
-        <select value={eventFilter} onChange={e => setEventFilter(e.target.value)} style={{ ...inputStyle, width: "auto", minWidth: 160 }}>
+        <select value={eventFilter} onChange={e => setEventFilter(e.target.value)} style={{ ...selectStyle, width: "auto", minWidth: 160 }}>
           <option value="all">All Events</option>
           {events.map(ev => <option key={ev} value={ev}>{ev}</option>)}
         </select>
-        <button onClick={() => setEditModal({ id: "st-" + Date.now(), productId: "", colour: "", event: events[0] || "car-boot-1", targetQty: 1, onHand: 0, carBootPrice: 0, adjustmentLog: [], notes: "" })} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead }}>+ Add Target</button>
+        <button onClick={() => setEditModal({ id: "st-" + Date.now(), productId: "", colours: [], event: events[0] || "car-boot-1", targetQty: 1, onHand: 0, carBootPrice: 0, notes: "" })} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead }}>+ Add Target</button>
         {stockTargets.length > 0 && (
           <button onClick={() => { setBatchMode(batchMode ? null : "hours"); setBatchResults(null); }} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.teal}`, background: batchMode ? "rgba(0,201,167,0.15)" : "transparent", color: S.teal, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>
             {batchMode ? "✕ Close Batch Generator" : "🖨️ Batch Generator"}
@@ -1705,7 +1703,7 @@ function StockTab({ products, stockTargets, onSave, loading }) {
         <div style={{ padding: 20, borderRadius: 16, background: "rgba(0,201,167,0.05)", border: `1px solid rgba(0,201,167,0.2)`, marginBottom: 20 }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: S.teal, fontFamily: S.fontHead, marginBottom: 12 }}>🖨️ Batch Generator</div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
-            <select value={batchMode} onChange={e => { setBatchMode(e.target.value); setBatchResults(null); }} style={{ ...inputStyle, width: "auto" }}>
+            <select value={batchMode} onChange={e => { setBatchMode(e.target.value); setBatchResults(null); }} style={{ ...selectStyle, width: "auto" }}>
               <option value="hours">By hours available</option>
               <option value="items">By items needed</option>
             </select>
@@ -1713,56 +1711,47 @@ function StockTab({ products, stockTargets, onSave, loading }) {
             <span style={{ fontSize: 13, color: S.muted }}>{batchMode === "hours" ? "hours" : "items"}</span>
             <button onClick={generateBatch} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: S.teal, color: "#1a1a2e", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead }}>Generate</button>
           </div>
-          <p style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Batches use plate rules: Key Rings ×6, Clickers ×3, Dragons ×1, Planters calculated. Same product + same colour per plate only.</p>
+          <p style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Plate rules: Key Rings ×6, Clickers ×3, Dragons ×1, Planters calculated. Same product + same colour per plate only.</p>
           {batchResults && (
-            <div>
-              {batchResults.length === 0 ? (
-                <p style={{ color: S.muted, fontSize: 13 }}>Nothing to print — all targets met!</p>
-              ) : (
-                <div style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${S.border}` }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ background: "rgba(0,201,167,0.1)" }}>
-                        <th style={{ padding: "8px 12px", textAlign: "left", color: S.teal, fontFamily: S.fontHead, fontWeight: 700 }}>Product</th>
-                        <th style={{ padding: "8px 12px", textAlign: "left", color: S.teal, fontFamily: S.fontHead, fontWeight: 700 }}>Colour</th>
-                        <th style={{ padding: "8px 12px", textAlign: "center", color: S.teal, fontFamily: S.fontHead, fontWeight: 700 }}>Plates</th>
-                        <th style={{ padding: "8px 12px", textAlign: "center", color: S.teal, fontFamily: S.fontHead, fontWeight: 700 }}>Items</th>
-                        <th style={{ padding: "8px 12px", textAlign: "center", color: S.teal, fontFamily: S.fontHead, fontWeight: 700 }}>Hours</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {batchResults.map((b, i) => (
-                        <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)" }}>
-                          <td style={{ padding: "8px 12px", color: S.text }}>{b.name}</td>
-                          <td style={{ padding: "8px 12px", color: S.text }}>
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                              {(() => { const fil = FILAMENTS[b.colour]; const hex = fil?.hex || "#888"; const isGrad = hex.includes("linear"); return <span style={{ width: 14, height: 14, borderRadius: 4, border: "1px solid rgba(255,255,255,0.15)", flexShrink: 0, ...(isGrad ? { background: hex } : { backgroundColor: hex }) }} />; })()}
-                              <span style={{ fontSize: 12 }}>{b.colour}</span>
-                            </span>
-                          </td>
-                          <td style={{ padding: "8px 12px", textAlign: "center", color: S.muted, fontFamily: S.fontMono }}>{b.plates}</td>
-                          <td style={{ padding: "8px 12px", textAlign: "center", color: S.text, fontWeight: 700, fontFamily: S.fontMono }}>{b.items}</td>
-                          <td style={{ padding: "8px 12px", textAlign: "center", color: S.muted, fontFamily: S.fontMono }}>{b.hrs.toFixed(1)}h</td>
-                        </tr>
+            batchResults.length === 0 ? (
+              <p style={{ color: S.muted, fontSize: 13 }}>Nothing to print — all targets met!</p>
+            ) : (
+              <div style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${S.border}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "rgba(0,201,167,0.1)" }}>
+                      {["Product", "Colour", "Plates", "Items", "Hours"].map(h => (
+                        <th key={h} style={{ padding: "8px 12px", textAlign: h === "Product" || h === "Colour" ? "left" : "center", color: S.teal, fontFamily: S.fontHead, fontWeight: 700 }}>{h}</th>
                       ))}
-                    </tbody>
-                    <tfoot>
-                      <tr style={{ background: "rgba(0,201,167,0.08)", fontWeight: 700 }}>
-                        <td colSpan={2} style={{ padding: "8px 12px", color: S.teal, fontFamily: S.fontHead }}>Total</td>
-                        <td style={{ padding: "8px 12px", textAlign: "center", color: S.teal, fontFamily: S.fontMono }}>{batchResults.reduce((s, b) => s + b.plates, 0)}</td>
-                        <td style={{ padding: "8px 12px", textAlign: "center", color: S.teal, fontFamily: S.fontMono }}>{batchResults.reduce((s, b) => s + b.items, 0)}</td>
-                        <td style={{ padding: "8px 12px", textAlign: "center", color: S.teal, fontFamily: S.fontMono }}>{batchResults.reduce((s, b) => s + b.hrs, 0).toFixed(1)}h</td>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batchResults.map((b, i) => (
+                      <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)" }}>
+                        <td style={{ padding: "8px 12px", color: S.text }}>{b.name}</td>
+                        <td style={{ padding: "8px 12px", color: S.text, fontSize: 12 }}>{b.colour}</td>
+                        <td style={{ padding: "8px 12px", textAlign: "center", color: S.muted, fontFamily: S.fontMono }}>{b.plates}</td>
+                        <td style={{ padding: "8px 12px", textAlign: "center", color: S.text, fontWeight: 700, fontFamily: S.fontMono }}>{b.items}</td>
+                        <td style={{ padding: "8px 12px", textAlign: "center", color: S.muted, fontFamily: S.fontMono }}>{b.hrs.toFixed(1)}h</td>
                       </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              )}
-            </div>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: "rgba(0,201,167,0.08)", fontWeight: 700 }}>
+                      <td colSpan={2} style={{ padding: "8px 12px", color: S.teal, fontFamily: S.fontHead }}>Total</td>
+                      <td style={{ padding: "8px 12px", textAlign: "center", color: S.teal, fontFamily: S.fontMono }}>{batchResults.reduce((s, b) => s + b.plates, 0)}</td>
+                      <td style={{ padding: "8px 12px", textAlign: "center", color: S.teal, fontFamily: S.fontMono }}>{batchResults.reduce((s, b) => s + b.items, 0)}</td>
+                      <td style={{ padding: "8px 12px", textAlign: "center", color: S.teal, fontFamily: S.fontMono }}>{batchResults.reduce((s, b) => s + b.hrs, 0).toFixed(1)}h</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )
           )}
         </div>
       )}
 
-      {/* Stock targets table */}
+      {/* Stock targets list */}
       {filtered.length === 0 ? (
         <div style={{ padding: 40, textAlign: "center", color: S.muted, fontSize: 14 }}>
           No stock targets yet. Tap "+ Add Target" to start building your print plan.
@@ -1775,46 +1764,66 @@ function StockTab({ products, stockTargets, onSave, loading }) {
             const pct = t.targetQty > 0 ? Math.round(((t.onHand || 0) / t.targetQty) * 100) : 0;
             const hrs = prod ? parseTimeToHrs(prod.printTime) : 0;
             const plateCap = getPlateCapacity(prod?.category, prod?.widthMm, prod?.heightMm);
-            const fil = FILAMENTS[t.colour];
-            const hex = fil?.hex || "#888";
-            const isGrad = hex.includes("linear");
-            const done = remaining === 0;
+            const colArr = t.colours || (t.colour ? [t.colour] : []);
+            const done = remaining === 0 && (t.targetQty || 0) > 0;
             return (
-              <div key={t.id} style={{ padding: "14px 16px", borderRadius: 14, background: done ? "rgba(0,201,167,0.04)" : "rgba(255,255,255,0.03)", border: `1px solid ${done ? "rgba(0,201,167,0.2)" : S.border}`, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                {/* Colour chip + product name */}
-                <div style={{ flex: "1 1 200px", minWidth: 150 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span style={{ width: 18, height: 18, borderRadius: 5, border: "1px solid rgba(255,255,255,0.15)", flexShrink: 0, ...(isGrad ? { background: hex } : { backgroundColor: hex }) }} />
-                    <span style={{ fontSize: 14, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{prod?.name || t.productName || "Unknown"}</span>
-                    {done && <span style={{ fontSize: 10, fontWeight: 800, color: S.teal, background: "rgba(0,201,167,0.15)", padding: "2px 8px", borderRadius: 6, fontFamily: S.fontHead }}>DONE</span>}
+              <div key={t.id} style={{ padding: "14px 16px", borderRadius: 14, background: done ? "rgba(0,201,167,0.04)" : "rgba(255,255,255,0.03)", border: `1px solid ${done ? "rgba(0,201,167,0.2)" : S.border}` }}>
+                {/* Row 1: Colour chips + product name + edit/delete */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
+                    {colArr.map(c => {
+                      const fil = FILAMENTS[c];
+                      const hex = fil?.hex || "#888";
+                      const isGrad = hex.includes("linear");
+                      return <span key={c} style={{ width: 16, height: 16, borderRadius: 4, border: "1px solid rgba(255,255,255,0.15)", ...(isGrad ? { background: hex } : { backgroundColor: hex }) }} />;
+                    })}
                   </div>
-                  <div style={{ fontSize: 11, color: S.muted }}>{t.colour} · {t.event}{hrs > 0 ? ` · ${hrs.toFixed(1)}h/print · ×${plateCap}/plate` : ""}</div>
+                  <span onClick={() => prod && onEditProduct(prod)} style={{ fontSize: 14, fontWeight: 700, color: S.text, fontFamily: S.fontHead, cursor: prod ? "pointer" : "default", textDecoration: prod ? "underline" : "none", textDecorationColor: "rgba(255,255,255,0.2)", flex: 1 }}>
+                    {prod?.name || t.productName || "Unknown"}
+                  </span>
+                  {done && <span style={{ fontSize: 10, fontWeight: 800, color: S.teal, background: "rgba(0,201,167,0.15)", padding: "2px 8px", borderRadius: 6, fontFamily: S.fontHead, flexShrink: 0 }}>DONE</span>}
+                  <button onClick={() => setEditModal({ ...t, colours: colArr })} title="Edit" style={{ ...inlineBtnStyle, width: 30, height: 30, fontSize: 13 }}>✏️</button>
+                  <button onClick={() => deleteTarget(t.id)} title="Delete" style={{ ...inlineBtnStyle, width: 30, height: 30, fontSize: 13, borderColor: "rgba(220,53,69,0.3)", color: "#dc3545" }}>🗑️</button>
                 </div>
 
-                {/* Progress bar + counts */}
-                <div style={{ flex: "0 0 160px", minWidth: 120 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: S.muted, marginBottom: 4, fontFamily: S.fontMono }}>
-                    <span>{t.onHand || 0} / {t.targetQty}</span>
-                    <span>{pct}%</span>
-                  </div>
-                  <div style={{ height: 8, borderRadius: 4, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                    <div style={{ height: "100%", borderRadius: 4, width: Math.min(100, pct) + "%", background: pct >= 100 ? S.teal : pct >= 50 ? "#f59f00" : "#ff6b6b", transition: "width 0.3s" }} />
-                  </div>
+                {/* Row 2: Metadata */}
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, paddingLeft: colArr.length > 0 ? colArr.length * 19 + 5 : 0 }}>
+                  {colArr.join(" + ")} · {t.event}{hrs > 0 ? ` · ${hrs.toFixed(1)}h/print · ×${plateCap}/plate` : ""}
                 </div>
 
-                {/* Car boot price */}
-                <div style={{ flex: "0 0 70px", textAlign: "center" }}>
-                  <div style={{ fontSize: 10, color: S.muted, fontFamily: S.fontHead }}>CB Price</div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: t.carBootPrice ? S.teal : S.dimmer, fontFamily: S.fontMono }}>
-                    {t.carBootPrice ? "£" + t.carBootPrice.toFixed(2) : "—"}
+                {/* Row 3: Progress bar + on-hand +/- | CB price +/- | Target qty +/- */}
+                <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                  {/* Progress bar + on-hand */}
+                  <div style={{ flex: "1 1 200px", display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 80 }}>
+                      <div style={{ height: 8, borderRadius: 4, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                        <div style={{ height: "100%", borderRadius: 4, width: Math.min(100, pct) + "%", background: pct >= 100 ? S.teal : pct >= 50 ? "#f59f00" : "#ff6b6b", transition: "width 0.3s" }} />
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                      <button onClick={() => adjustField(t.id, "onHand", -1)} style={{ ...inlineBtnStyle, color: "#dc3545", borderColor: "rgba(220,53,69,0.3)" }}>−</button>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: S.text, fontFamily: S.fontMono, minWidth: 40, textAlign: "center" }}>{t.onHand || 0}<span style={{ color: S.dimmer, fontWeight: 400 }}>/{t.targetQty}</span></span>
+                      <button onClick={() => adjustField(t.id, "onHand", 1)} style={{ ...inlineBtnStyle, color: S.teal, borderColor: "rgba(0,201,167,0.3)" }}>+</button>
+                    </div>
                   </div>
-                </div>
 
-                {/* Actions */}
-                <div style={{ display: "flex", gap: 6, flex: "0 0 auto" }}>
-                  <button onClick={() => setAdjustModal({ target: t, delta: 0, reason: "" })} title="Adjust on-hand" style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.teal, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>±</button>
-                  <button onClick={() => setEditModal({ ...t })} title="Edit target" style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>
-                  <button onClick={() => deleteTarget(t.id)} title="Delete target" style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid rgba(220,53,69,0.3)`, background: "transparent", color: "#dc3545", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>🗑️</button>
+                  {/* CB Price */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                    <span style={{ fontSize: 10, color: S.muted, fontFamily: S.fontHead, marginRight: 2 }}>CB</span>
+                    <button onClick={() => adjustField(t.id, "carBootPrice", -1, 0, 0.5)} style={inlineBtnStyle}>−</button>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: t.carBootPrice ? S.teal : S.dimmer, fontFamily: S.fontMono, minWidth: 48, textAlign: "center" }}>
+                      {t.carBootPrice ? "£" + t.carBootPrice.toFixed(2) : "—"}
+                    </span>
+                    <button onClick={() => adjustField(t.id, "carBootPrice", 1, 0, 0.5)} style={inlineBtnStyle}>+</button>
+                  </div>
+
+                  {/* Target qty */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                    <span style={{ fontSize: 10, color: S.muted, fontFamily: S.fontHead, marginRight: 2 }}>Qty</span>
+                    <button onClick={() => adjustField(t.id, "targetQty", -1)} style={inlineBtnStyle}>−</button>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: S.text, fontFamily: S.fontMono, minWidth: 28, textAlign: "center" }}>{t.targetQty || 0}</span>
+                    <button onClick={() => adjustField(t.id, "targetQty", 1)} style={inlineBtnStyle}>+</button>
+                  </div>
                 </div>
               </div>
             );
@@ -1822,121 +1831,106 @@ function StockTab({ products, stockTargets, onSave, loading }) {
         </div>
       )}
 
-      {/* Edit/Add modal */}
-      {editModal && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <div onClick={() => setEditModal(null)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }} />
-          <div style={{ position: "relative", width: "min(480px, 100%)", background: "#151530", border: `1px solid ${S.border}`, borderRadius: 20, padding: 28, maxHeight: "85vh", overflowY: "auto" }}>
-            <h3 style={{ fontSize: 18, fontWeight: 800, fontFamily: S.fontHead, color: S.text, margin: "0 0 20px" }}>
-              {stockTargets.some(t => t.id === editModal.id) ? "Edit Stock Target" : "Add Stock Target"}
-            </h3>
+      {/* Add/Edit modal */}
+      {editModal && (() => {
+        const selCat = editModal._cat || (editModal.productId ? prodMap[editModal.productId]?.category : "") || "";
+        const catProducts = products.filter(p => p.category === selCat).sort((a, b) => a.name.localeCompare(b.name));
+        const selProd = editModal.productId ? prodMap[editModal.productId] : null;
+        const availCols = selProd?.colors || [];
+        const maxC = selProd?.maxColors || 1;
+        const toggleColour = (c) => {
+          const cur = editModal.colours || [];
+          if (cur.includes(c)) {
+            setEditModal({ ...editModal, colours: cur.filter(x => x !== c) });
+          } else if (cur.length < maxC) {
+            setEditModal({ ...editModal, colours: [...cur, c] });
+          }
+        };
 
-            <label style={labelStyle}>Product</label>
-            <select value={editModal.productId} onChange={e => {
-              const pid = parseInt(e.target.value);
-              const prod = products.find(p => p.id === pid);
-              setEditModal({ ...editModal, productId: pid, productName: prod?.name || "", colour: editModal.colour || (prod?.colors?.[0] || "") });
-            }} style={{ ...inputStyle, marginBottom: 14 }}>
-              <option value="">Select product...</option>
-              {products.filter(p => p.available || stockTargets.some(t => t.productId === p.id)).sort((a, b) => a.name.localeCompare(b.name)).map(p => (
-                <option key={p.id} value={p.id}>{p.name} ({p.category})</option>
-              ))}
-            </select>
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+            <div onClick={() => setEditModal(null)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }} />
+            <div style={{ position: "relative", width: "min(480px, 100%)", background: "#151530", border: `1px solid ${S.border}`, borderRadius: 20, padding: 28, maxHeight: "85vh", overflowY: "auto" }}>
+              <h3 style={{ fontSize: 18, fontWeight: 800, fontFamily: S.fontHead, color: S.text, margin: "0 0 20px" }}>
+                {stockTargets.some(t => t.id === editModal.id) ? "Edit Stock Target" : "Add Stock Target"}
+              </h3>
 
-            {editModal.productId && (() => {
-              const prod = products.find(p => p.id === editModal.productId);
-              const cols = prod?.colors || [];
-              return <>
-                <label style={labelStyle}>Colour</label>
-                <select value={editModal.colour} onChange={e => setEditModal({ ...editModal, colour: e.target.value })} style={{ ...inputStyle, marginBottom: 14 }}>
-                  <option value="">Select colour...</option>
-                  {cols.map(c => <option key={c} value={c}>{c}</option>)}
+              <label style={labelStyle}>Category</label>
+              <select value={selCat} onChange={e => setEditModal({ ...editModal, _cat: e.target.value, productId: "", colours: [] })} style={{ ...selectStyle, marginBottom: 14 }}>
+                <option value="">Select category...</option>
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+
+              {selCat && <>
+                <label style={labelStyle}>Product</label>
+                <select value={editModal.productId || ""} onChange={e => {
+                  const pid = parseInt(e.target.value);
+                  const prod = products.find(p => p.id === pid);
+                  setEditModal({ ...editModal, productId: pid, productName: prod?.name || "", colours: [] });
+                }} style={{ ...selectStyle, marginBottom: 14 }}>
+                  <option value="">Select product...</option>
+                  {catProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
-              </>;
-            })()}
+              </>}
 
-            <label style={labelStyle}>Event</label>
-            <input list="event-list" value={editModal.event} onChange={e => setEditModal({ ...editModal, event: e.target.value })} placeholder="e.g. car-boot-1" style={{ ...inputStyle, marginBottom: 14 }} />
-            <datalist id="event-list">
-              {events.map(ev => <option key={ev} value={ev} />)}
-              <option value="general" />
-            </datalist>
+              {selProd && <>
+                <label style={labelStyle}>Colour{maxC > 1 ? `s (pick up to ${maxC})` : ""} — {(editModal.colours || []).length} selected</label>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+                  {availCols.map(color => {
+                    const on = (editModal.colours || []).includes(color);
+                    const fil = FILAMENTS[color];
+                    const hex = fil?.hex || "#888";
+                    const isGrad = hex.includes("linear");
+                    return (
+                      <button key={color} onClick={() => toggleColour(color)} style={{
+                        display: "flex", alignItems: "center", gap: 5, padding: "5px 10px 5px 6px", borderRadius: 20, cursor: "pointer",
+                        border: on ? "1px solid rgba(0,201,167,0.3)" : `1px solid rgba(255,255,255,0.06)`,
+                        background: on ? "rgba(0,201,167,0.08)" : "rgba(255,255,255,0.02)", opacity: on ? 1 : 0.4, transition: "all 0.2s",
+                      }}>
+                        <div style={{ width: 14, height: 14, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.15)", flexShrink: 0, ...(isGrad ? { background: hex } : { backgroundColor: hex }) }} />
+                        <span style={{ fontSize: 11, color: on ? S.text : S.muted, whiteSpace: "nowrap" }}>{color}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>}
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
-              <div>
-                <label style={labelStyle}>Target Qty</label>
-                <input type="number" min="0" value={editModal.targetQty} onChange={e => setEditModal({ ...editModal, targetQty: parseInt(e.target.value) || 0 })} style={inputStyle} />
+              <label style={labelStyle}>Event</label>
+              <input list="event-list" value={editModal.event} onChange={e => setEditModal({ ...editModal, event: e.target.value })} placeholder="e.g. car-boot-1" style={{ ...inputStyle, marginBottom: 14 }} />
+              <datalist id="event-list">
+                {events.map(ev => <option key={ev} value={ev} />)}
+                <option value="general" />
+              </datalist>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+                <div>
+                  <label style={labelStyle}>Target Qty</label>
+                  <input type="number" min="0" value={editModal.targetQty} onChange={e => setEditModal({ ...editModal, targetQty: parseInt(e.target.value) || 0 })} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>On Hand</label>
+                  <input type="number" min="0" value={editModal.onHand} onChange={e => setEditModal({ ...editModal, onHand: parseInt(e.target.value) || 0 })} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>CB Price (£)</label>
+                  <input type="number" min="0" step="0.50" value={editModal.carBootPrice} onChange={e => setEditModal({ ...editModal, carBootPrice: parseFloat(e.target.value) || 0 })} style={inputStyle} />
+                </div>
               </div>
-              <div>
-                <label style={labelStyle}>On Hand</label>
-                <input type="number" min="0" value={editModal.onHand} onChange={e => setEditModal({ ...editModal, onHand: parseInt(e.target.value) || 0 })} style={inputStyle} />
+
+              <label style={labelStyle}>Notes</label>
+              <input value={editModal.notes || ""} onChange={e => setEditModal({ ...editModal, notes: e.target.value })} placeholder="Optional notes" style={{ ...inputStyle, marginBottom: 20 }} />
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button onClick={() => setEditModal(null)} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Cancel</button>
+                <button onClick={() => {
+                  if (!editModal.productId || (editModal.colours || []).length === 0) { alert("Select a product and at least one colour"); return; }
+                  saveTarget(editModal);
+                }} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead }}>Save Target</button>
               </div>
-              <div>
-                <label style={labelStyle}>CB Price (£)</label>
-                <input type="number" min="0" step="0.25" value={editModal.carBootPrice} onChange={e => setEditModal({ ...editModal, carBootPrice: parseFloat(e.target.value) || 0 })} style={inputStyle} />
-              </div>
-            </div>
-
-            <label style={labelStyle}>Notes</label>
-            <input value={editModal.notes || ""} onChange={e => setEditModal({ ...editModal, notes: e.target.value })} placeholder="Optional notes" style={{ ...inputStyle, marginBottom: 20 }} />
-
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button onClick={() => setEditModal(null)} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Cancel</button>
-              <button onClick={() => {
-                if (!editModal.productId || !editModal.colour) { alert("Select a product and colour"); return; }
-                saveTarget(editModal);
-              }} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead }}>Save Target</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Adjust on-hand modal */}
-      {adjustModal && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <div onClick={() => setAdjustModal(null)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }} />
-          <div style={{ position: "relative", width: "min(400px, 100%)", background: "#151530", border: `1px solid ${S.border}`, borderRadius: 20, padding: 28 }}>
-            <h3 style={{ fontSize: 18, fontWeight: 800, fontFamily: S.fontHead, color: S.text, margin: "0 0 8px" }}>Adjust On-Hand</h3>
-            <p style={{ fontSize: 13, color: S.muted, marginBottom: 16 }}>
-              {prodMap[adjustModal.target.productId]?.name || "Product"} — {adjustModal.target.colour}
-              <br />Current on-hand: <strong style={{ color: S.text }}>{adjustModal.target.onHand || 0}</strong>
-            </p>
-
-            <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
-              <button onClick={() => setAdjustModal({ ...adjustModal, delta: adjustModal.delta - 1 })} style={{ width: 40, height: 40, borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(220,53,69,0.1)", color: "#dc3545", fontSize: 20, fontWeight: 800, cursor: "pointer" }}>−</button>
-              <div style={{ flex: 1, textAlign: "center", fontSize: 28, fontWeight: 800, fontFamily: S.fontMono, color: adjustModal.delta > 0 ? S.teal : adjustModal.delta < 0 ? "#dc3545" : S.muted }}>
-                {adjustModal.delta > 0 ? "+" : ""}{adjustModal.delta}
-              </div>
-              <button onClick={() => setAdjustModal({ ...adjustModal, delta: adjustModal.delta + 1 })} style={{ width: 40, height: 40, borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(0,201,167,0.1)", color: S.teal, fontSize: 20, fontWeight: 800, cursor: "pointer" }}>+</button>
-            </div>
-
-            <div style={{ fontSize: 12, color: S.muted, textAlign: "center", marginBottom: 14 }}>
-              New total: <strong style={{ color: S.text }}>{Math.max(0, (adjustModal.target.onHand || 0) + adjustModal.delta)}</strong>
-            </div>
-
-            <label style={labelStyle}>Reason (required)</label>
-            <input value={adjustModal.reason} onChange={e => setAdjustModal({ ...adjustModal, reason: e.target.value })} placeholder="e.g. Printed batch, Sold at car boot, Failed print..." style={{ ...inputStyle, marginBottom: 20 }} />
-
-            {/* Recent adjustment log */}
-            {(adjustModal.target.adjustmentLog || []).length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, color: S.muted, fontWeight: 700, fontFamily: S.fontHead, marginBottom: 6 }}>Recent adjustments</div>
-                {(adjustModal.target.adjustmentLog || []).slice(-5).reverse().map((log, i) => (
-                  <div key={i} style={{ fontSize: 11, color: S.dimmer, padding: "3px 0", borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
-                    <span style={{ color: log.change > 0 ? S.teal : "#dc3545", fontFamily: S.fontMono, fontWeight: 700 }}>{log.change > 0 ? "+" : ""}{log.change}</span>
-                    {" → "}{log.newTotal} · {log.reason} · <span style={{ fontFamily: S.fontMono }}>{new Date(log.date).toLocaleDateString("en-GB")}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button onClick={() => setAdjustModal(null)} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Cancel</button>
-              <button onClick={applyAdjustment} disabled={!adjustModal.delta || !adjustModal.reason.trim()} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: adjustModal.delta && adjustModal.reason.trim() ? `linear-gradient(135deg, ${S.teal}, #00a88a)` : "rgba(255,255,255,0.05)", color: adjustModal.delta && adjustModal.reason.trim() ? "#1a1a2e" : S.dimmer, fontSize: 14, fontWeight: 800, cursor: adjustModal.delta && adjustModal.reason.trim() ? "pointer" : "default", fontFamily: S.fontHead }}>Apply</button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -2984,7 +2978,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       )}
 
       {adminTab === "stock" && (
-        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} />
+        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} />
       )}
 
       {importingJSON && (
