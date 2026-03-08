@@ -196,6 +196,15 @@ async function saveStockTargets(targets) {
   try { await storageSet("stock-targets-v1", JSON.stringify(targets)); } catch (e) { console.error("Save stock targets failed:", e); }
 }
 
+/* ── Order Queue (display order) ── */
+async function loadOrderQueue() {
+  const r = await storageGet("order-queue-v1");
+  return r ? JSON.parse(r) : [];
+}
+async function saveOrderQueue(queue) {
+  try { await storageSet("order-queue-v1", JSON.stringify(queue)); } catch (e) { console.error("Save order queue failed:", e); }
+}
+
 /* ── Print Time Parser (string → decimal hours) ── */
 function parseTimeToHrs(str) {
   if (!str) return 0;
@@ -259,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v94 · 2026-03-08";
+const APP_VERSION = "v96 · 2026-03-08";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1140,10 +1149,14 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
    ═══════════════════════════════════════════════ */
 function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMeta }) {
   const [elijahPhoto, setElijahPhoto] = useState(null);
+  const [orderQueue, setOrderQueue] = useState([]);
+  const [hrsPerDay, setHrsPerDay] = useState(12);
 
-  // Load Elijah's photo from Firebase on mount
+  // Load Elijah's photo and order queue from Firebase on mount
   useEffect(() => {
     storageGet("elijah-photo").then(p => { if (p) setElijahPhoto(p); });
+    loadOrderQueue().then(q => { if (q && q.length) setOrderQueue(q); });
+    storageGet("order-queue-hrsperday").then(h => { if (h) setHrsPerDay(parseFloat(h) || 12); });
   }, []);
 
   const handlePhotoUpload = async (e) => {
@@ -1157,15 +1170,84 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     e.target.value = "";
   };
 
-  // Sort: undespatched first (by date oldest first), then despatched at bottom
+  // Sort: use queue order for active orders, despatched at bottom
   const sorted = useMemo(() => {
-    return [...orders].sort((a, b) => {
-      const aD = a.status.despatched ? 1 : 0;
-      const bD = b.status.despatched ? 1 : 0;
-      if (aD !== bD) return aD - bD; // undespatched first
-      return new Date(a.date) - new Date(b.date); // oldest first within group
+    const active = orders.filter(o => !o.status.despatched);
+    const done = orders.filter(o => o.status.despatched);
+
+    // Sort active by queue position (orders not in queue go at end, sorted by date)
+    const queued = [];
+    const unqueued = [];
+    active.forEach(o => {
+      const pos = orderQueue.indexOf(o.id);
+      if (pos >= 0) queued.push({ order: o, pos });
+      else unqueued.push(o);
     });
-  }, [orders]);
+    queued.sort((a, b) => a.pos - b.pos);
+    unqueued.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    const sortedActive = [...queued.map(q => q.order), ...unqueued];
+    const sortedDone = [...done].sort((a, b) => new Date(b.date) - new Date(a.date));
+    return [...sortedActive, ...sortedDone];
+  }, [orders, orderQueue]);
+
+  // Get print hours for an order
+  const getOrderPrintHrs = (order) => {
+    return order.items.reduce((sum, item) => {
+      if (item.isTip) return sum;
+      const prod = products.find(p => p.id === item.id);
+      const hrs = prod ? parseTimeToHrs(prod.printTime) : 0;
+      return sum + hrs * (item.qty || 1);
+    }, 0);
+  };
+
+  // Calculate cumulative hours ahead for each active order
+  const queueEstimates = useMemo(() => {
+    const estimates = {};
+    let cumHrs = 0;
+    for (const order of sorted) {
+      if (order.status.despatched) break;
+      if (order.status.produced) {
+        estimates[order.id] = { hrsAhead: 0, hrsThis: 0, estDate: null, produced: true };
+        continue;
+      }
+      const orderHrs = getOrderPrintHrs(order);
+      estimates[order.id] = {
+        hrsAhead: cumHrs,
+        hrsThis: orderHrs,
+        estDate: hrsPerDay > 0 ? (() => {
+          const totalHrs = cumHrs + orderHrs;
+          const days = Math.ceil(totalHrs / hrsPerDay);
+          const d = new Date();
+          d.setDate(d.getDate() + Math.max(1, days));
+          return d;
+        })() : null,
+        produced: false,
+      };
+      cumHrs += orderHrs;
+    }
+    return estimates;
+  }, [sorted, products, hrsPerDay]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reorder helpers
+  const moveOrder = async (orderId, direction) => {
+    const active = sorted.filter(o => !o.status.despatched);
+    const currentIds = active.map(o => o.id);
+    const idx = currentIds.indexOf(orderId);
+    if (idx < 0) return;
+    const newIdx = idx + direction;
+    if (newIdx < 0 || newIdx >= currentIds.length) return;
+    const newQueue = [...currentIds];
+    [newQueue[idx], newQueue[newIdx]] = [newQueue[newIdx], newQueue[idx]];
+    setOrderQueue(newQueue);
+    await saveOrderQueue(newQueue);
+  };
+
+  const updateHrsPerDay = async (val) => {
+    const v = Math.max(1, Math.min(24, val));
+    setHrsPerDay(v);
+    await storageSet("order-queue-hrsperday", String(v));
+  };
 
   const stats = useMemo(() => ({
     total: orders.length,
@@ -1433,6 +1515,16 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
         ))}
       </div>
 
+      {/* Print capacity setting */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "10px 16px", borderRadius: 12, background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}` }}>
+        <span style={{ fontSize: 12, color: S.muted, fontFamily: S.fontHead, fontWeight: 600 }}>⏱️ Print capacity</span>
+        <button onClick={() => updateHrsPerDay(hrsPerDay - 1)} style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 15, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+        <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, minWidth: 28, textAlign: "center" }}>{hrsPerDay}</span>
+        <button onClick={() => updateHrsPerDay(hrsPerDay + 1)} style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 15, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+        <span style={{ fontSize: 12, color: S.dimmer }}>hrs/day</span>
+        <span style={{ fontSize: 11, color: S.dimmer, marginLeft: "auto" }}>Used for estimated ready dates below</span>
+      </div>
+
       {/* Batch print & test buttons */}
       <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         {stats.toLabel > 0 && (
@@ -1486,7 +1578,8 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
       </div>
 
       {/* Column headers */}
-      <div className="ep-order-header" style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 70px 70px", gap: 8, padding: "0 16px 8px", alignItems: "center" }}>
+      <div className="ep-order-header" style={{ display: "grid", gridTemplateColumns: "36px 1fr 70px 70px 70px 70px", gap: 8, padding: "0 16px 8px", alignItems: "center" }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>#</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px" }}>Order</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Paid</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Made</span>
@@ -1496,14 +1589,29 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 
       {/* Order rows */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {sorted.map(order => {
+        {sorted.map((order, orderIdx) => {
           const allDone = order.status.despatched;
+          const est = queueEstimates[order.id];
+          const activeOrders = sorted.filter(o => !o.status.despatched);
+          const activeIdx = activeOrders.indexOf(order);
+          const isFirst = activeIdx === 0;
+          const isLast = activeIdx === activeOrders.length - 1;
           return (
             <div key={order.id} className="ep-order-row" style={{
               background: S.card, border: `1px solid ${S.border}`, borderRadius: 14, padding: "14px 16px",
               opacity: allDone ? 0.45 : 1, transition: "opacity 0.3s",
-              display: "grid", gridTemplateColumns: "1fr 70px 70px 70px 70px", gap: 8, alignItems: "center",
+              display: "grid", gridTemplateColumns: "36px 1fr 70px 70px 70px 70px", gap: 8, alignItems: "center",
             }}>
+              {/* Reorder buttons */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "center" }}>
+                {!allDone ? (<>
+                  <button onClick={() => moveOrder(order.id, -1)} disabled={isFirst} style={{ width: 28, height: 22, borderRadius: 6, border: `1px solid ${isFirst ? "transparent" : S.border}`, background: "transparent", color: isFirst ? "transparent" : S.muted, fontSize: 12, cursor: isFirst ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>▲</button>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: S.dimmer, fontFamily: S.fontMono }}>{activeIdx + 1}</span>
+                  <button onClick={() => moveOrder(order.id, 1)} disabled={isLast} style={{ width: 28, height: 22, borderRadius: 6, border: `1px solid ${isLast ? "transparent" : S.border}`, background: "transparent", color: isLast ? "transparent" : S.muted, fontSize: 12, cursor: isLast ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>▼</button>
+                </>) : (
+                  <span style={{ fontSize: 11, color: S.dimmer }}>✓</span>
+                )}
+              </div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>{order.id}</span>
@@ -1529,7 +1637,22 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                     </div>
                   ))}
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, marginTop: 6 }}>£{order.total.toFixed(2)}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: S.teal, fontFamily: S.fontMono }}>£{order.total.toFixed(2)}</span>
+                  {est && !allDone && !est.produced && est.hrsThis > 0 && (
+                    <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono, display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>⏱️ {est.hrsThis.toFixed(1)}h print</span>
+                      {est.hrsAhead > 0 && <span style={{ color: "#f59f00" }}>({est.hrsAhead.toFixed(1)}h ahead)</span>}
+                      {est.estDate && <span style={{ color: S.muted, background: "rgba(255,255,255,0.04)", padding: "1px 8px", borderRadius: 6 }}>📅 ~{est.estDate.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</span>}
+                    </span>
+                  )}
+                  {est && !allDone && est.produced && (
+                    <span style={{ fontSize: 11, color: S.teal, fontWeight: 600, fontFamily: S.fontHead }}>✓ Printed</span>
+                  )}
+                  {est && !allDone && !est.produced && est.hrsThis === 0 && (
+                    <span style={{ fontSize: 11, color: "#f59f00", fontFamily: S.fontHead }}>⚠️ No print time</span>
+                  )}
+                </div>
               </div>
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Checkbox checked={order.status.paid} onChange={() => toggleStatus(order.id, "paid")} color={S.teal} />
@@ -1564,12 +1687,32 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 /* ═══════════════════════════════════════════════
    STOCK TAB — Production stock targets & batch generator
    ═══════════════════════════════════════════════ */
-function StockTab({ products, stockTargets, onSave, loading, onEditProduct }) {
+function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addProduct, onClearAddProduct }) {
   const [eventFilter, setEventFilter] = useState("all");
   const [editModal, setEditModal] = useState(null); // null | { ...target } for add/edit
   const [batchMode, setBatchMode] = useState(null); // null | "hours" | "items"
   const [batchValue, setBatchValue] = useState(4);
   const [batchResults, setBatchResults] = useState(null);
+
+  // Auto-open add modal when a product is passed from Products tab
+  useEffect(() => {
+    if (addProduct) {
+      const events0 = [...new Set(stockTargets.map(t => t.event).filter(Boolean))];
+      setEditModal({
+        id: "st-" + Date.now(),
+        productId: addProduct.id,
+        productName: addProduct.name,
+        _cat: addProduct.category,
+        colours: [],
+        event: events0[0] || "car-boot-1",
+        targetQty: 1,
+        onHand: 0,
+        carBootPrice: 0,
+        notes: "",
+      });
+      onClearAddProduct();
+    }
+  }, [addProduct]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Migrate old colour (string) → colours (array)
   useEffect(() => {
@@ -1953,6 +2096,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [exporting, setExporting] = useState(false);
   const [stockTargets, setStockTargets] = useState([]);
   const [stockLoading, setStockLoading] = useState(true);
+  const [stockAddProduct, setStockAddProduct] = useState(null); // product to pre-fill in stock tab
 
   /* ── Load creators from Firebase on mount ── */
   useEffect(() => {
@@ -2389,6 +2533,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
               </div>
             </div>
             <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontHead, whiteSpace: "nowrap" }}>{product.category}</span>
+            <span onClick={(e) => { e.stopPropagation(); setAdminTab("stock"); setStockAddProduct(product); }} title="Add to Car Boot Plan" style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid rgba(0,201,167,0.25)`, background: "rgba(0,201,167,0.06)", color: S.teal, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>📊</span>
             <span style={{ color: S.dimmer, fontSize: 16 }}>›</span>
           </button>
         ))}
@@ -2978,7 +3123,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       )}
 
       {adminTab === "stock" && (
-        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} />
+        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} addProduct={stockAddProduct} onClearAddProduct={() => setStockAddProduct(null)} />
       )}
 
       {importingJSON && (
