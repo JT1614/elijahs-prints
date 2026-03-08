@@ -211,7 +211,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v91 · 2026-03-07";
+const APP_VERSION = "v92 · 2026-03-08";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -255,9 +255,10 @@ function computeAutoBadges(products, orders) {
     ...top5Expensive,
   ]);
 
-  // Compute badge per product (priority: NEW > Best Seller > Popular > Premium)
+  // Compute badge per product (priority: premiumOverride > NEW > Best Seller > Popular > Premium)
   const badges = {};
   products.forEach(p => {
+    if (p.premiumOverride) { badges[p.id] = "Premium"; return; }
     const pid = String(p.id);
     const addedDate = p.addedDate ? new Date(p.addedDate).getTime() : 0;
     const isNew = addedDate && (now - addedDate) <= TWO_WEEKS;
@@ -687,10 +688,12 @@ function ProductImage({ product, hovered }) {
    ═══════════════════════════════════════════════ */
 function ProductCard({ product, onAddToCart, cartAnimation }) {
   const maxC = product.maxColors || 1;
-  const [selectedColors, setSelectedColors] = useState([product.colors[0]]);
+  const fixedColours = product.colors.length === maxC;
+  const [selectedColors, setSelectedColors] = useState(fixedColours ? [...product.colors] : [product.colors[0]]);
   const [hovered, setHovered] = useState(false);
   const [sameColour, setSameColour] = useState(false);
   const toggleColor = (color) => {
+    if (fixedColours) return;
     if (maxC === 1) { setSelectedColors([color]); return; }
     if (sameColour) { setSelectedColors(Array(maxC).fill(color)); return; }
     if (selectedColors.includes(color)) { if (selectedColors.length > 1) setSelectedColors(selectedColors.filter(c => c !== color)); }
@@ -718,8 +721,8 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
           <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{selectedColors.some(c => FILAMENTS[c]?.premium) ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getPremiumPrice(product.price, selectedColors).toFixed(2)}</> : `£${product.price.toFixed(2)}`}</span>
         </div>
         <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.widthMm && product.heightMm ? `${product.widthMm}mm wide × ${product.heightMm}mm tall. ` : ""}{product.description}</p>
-        {maxC > 1 && <div style={{ fontSize: 11, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 6, background: "rgba(132,94,247,0.08)", padding: "4px 8px", borderRadius: 6, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
-        {maxC > 1 && (
+        {!fixedColours && maxC > 1 && <div style={{ fontSize: 11, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 6, background: "rgba(132,94,247,0.08)", padding: "4px 8px", borderRadius: 6, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
+        {!fixedColours && maxC > 1 && (
           <button onClick={handleSameToggle} style={{
             display: "flex", alignItems: "center", gap: 6, marginBottom: 6, padding: "4px 0",
             background: "none", border: "none", cursor: "pointer", fontSize: 11, color: sameColour ? S.teal : S.dimmer,
@@ -734,9 +737,9 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
             Same colour for all
           </button>
         )}
-        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
+        {!fixedColours && <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
           {[...product.colors].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={selectedColors.includes(c)} onClick={() => toggleColor(c)} size={20} />)}
-        </div>
+        </div>}
         <div style={{ fontSize: 10, color: S.dimmer, marginTop: 4, marginBottom: 4 }}>
           {sameColour && maxC > 1
             ? <span><span style={{ fontWeight: 600, color: S.muted }}>{selectedColors[0]}</span> × {maxC}</span>
@@ -760,11 +763,13 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
    ═══════════════════════════════════════════════ */
 function CrossSellCard({ product, onAddToCart }) {
   const maxC = product.maxColors || 1;
-  const [selectedColors, setSelectedColors] = useState([product.colors[0]]);
+  const fixedColours = product.colors.length === maxC;
+  const [selectedColors, setSelectedColors] = useState(fixedColours ? [...product.colors] : [product.colors[0]]);
   const [sameColour, setSameColour] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [added, setAdded] = useState(false);
   const toggleColor = (color) => {
+    if (fixedColours) return;
     if (maxC === 1) { setSelectedColors([color]); return; }
     if (sameColour) { setSelectedColors(Array(maxC).fill(color)); return; }
     if (selectedColors.includes(color)) { if (selectedColors.length > 1) setSelectedColors(selectedColors.filter(c => c !== color)); }
@@ -796,12 +801,21 @@ function CrossSellCard({ product, onAddToCart }) {
           <div style={{ fontSize: 11, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>
             {hasPremium ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 9 }}>£{product.price.toFixed(2)}</span> £{displayPrice.toFixed(2)}</> : `£${displayPrice.toFixed(2)}`}
           </div>
+          {fixedColours && <div style={{ fontSize: 9, color: S.dimmer, marginTop: 2 }}>
+            {selectedColors.map((c, i) => <span key={i}>{i > 0 && " + "}<span style={{ fontWeight: 600, color: S.muted }}>{c}</span></span>)}
+          </div>}
         </div>
-        <button onClick={() => setExpanded(!expanded)} style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "rgba(0,201,167,0.1)", color: S.teal, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, flexShrink: 0 }}>
-          {expanded ? "▾ Pick" : "▸ Pick"}
-        </button>
+        {fixedColours ? (
+          <button onClick={handleAdd} style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: added ? S.teal : "rgba(0,201,167,0.1)", color: added ? "#1a1a2e" : S.teal, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, flexShrink: 0 }}>
+            {added ? "✓" : "+ Add"}
+          </button>
+        ) : (
+          <button onClick={() => setExpanded(!expanded)} style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "rgba(0,201,167,0.1)", color: S.teal, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, flexShrink: 0 }}>
+            {expanded ? "▾ Pick" : "▸ Pick"}
+          </button>
+        )}
       </div>
-      {expanded && (
+      {!fixedColours && expanded && (
         <div style={{ padding: "6px 10px 10px", borderTop: `1px solid ${S.border}` }}>
           {maxC > 1 && <div style={{ fontSize: 10, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 4, background: "rgba(132,94,247,0.08)", padding: "3px 6px", borderRadius: 4, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
           {maxC > 1 && (
@@ -942,11 +956,21 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
           <div><label style={labelStyle}>Weight (g)</label><input style={inputStyle} type="number" min="0" value={p.grams} onChange={e => set("grams", parseInt(e.target.value) || 0)} /></div>
           <div><label style={labelStyle}>Print Time</label><input style={inputStyle} value={p.printTime} onChange={e => set("printTime", e.target.value)} placeholder="e.g. 2 hrs" /></div>
           <div>
-            <label style={labelStyle}>Badge (auto)</label>
-            <Tooltip position="bottom" text="Badges are assigned automatically based on order history and product attributes:<br/><br/>🆕 <strong>NEW</strong> — added in the last 14 days<br/>🏆 <strong>Best Seller</strong> — most ordered product<br/>🔥 <strong>Popular</strong> — ordered 3+ times<br/>⭐ <strong>Premium</strong> — manually set<br/><br/>You cannot edit this — it updates itself.">
-            <div style={{ ...inputStyle, display: "flex", alignItems: "center", background: "rgba(255,255,255,0.02)", cursor: "default" }}>
-              <span style={{ fontSize: 13, color: S.dimmer }}>{p._autoBadge || "—"}</span>
-            </div>
+            <label style={labelStyle}>Premium</label>
+            <Tooltip position="bottom" text="Toggle ON to manually badge this product as ⭐ Premium. This overrides all auto-badges (New, Popular, Best Seller).<br/><br/>When OFF, badges are assigned automatically.">
+            <button onClick={() => set("premiumOverride", !p.premiumOverride)} style={{
+              ...inputStyle, display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
+              background: p.premiumOverride ? "rgba(255,212,59,0.12)" : "rgba(255,255,255,0.02)",
+              border: p.premiumOverride ? "1px solid rgba(255,212,59,0.4)" : `1px solid ${S.border}`,
+            }}>
+              <div style={{
+                width: 32, height: 18, borderRadius: 9, position: "relative", transition: "background 0.2s",
+                background: p.premiumOverride ? "#ffd43b" : "rgba(255,255,255,0.1)", flexShrink: 0,
+              }}>
+                <div style={{ width: 14, height: 14, borderRadius: 7, background: p.premiumOverride ? "#1a1a2e" : "#fff", position: "absolute", top: 2, left: p.premiumOverride ? 16 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+              </div>
+              <span style={{ fontSize: 12, color: p.premiumOverride ? "#ffd43b" : S.dimmer, fontWeight: 600 }}>{p.premiumOverride ? "⭐ ON" : "OFF"}</span>
+            </button>
             </Tooltip>
           </div>
         </div>
@@ -1905,7 +1929,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 <span style={{ fontSize: 14, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{product.name}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{product.price.toFixed(2)}</span>
                 <span style={{ fontSize: 11, color: S.dimmer }}>{product.grams}g</span>
-                {autoBadges[product.id] && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(0,201,167,0.1)", color: S.teal, fontWeight: 600, fontFamily: S.fontHead }}>{autoBadges[product.id]}</span>}
+                {autoBadges[product.id] && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: product.premiumOverride ? "rgba(255,212,59,0.15)" : "rgba(0,201,167,0.1)", color: product.premiumOverride ? "#ffd43b" : S.teal, fontWeight: 600, fontFamily: S.fontHead }}>{autoBadges[product.id]}{product.premiumOverride ? " ⭐" : ""}</span>}
                 {(() => { const st = getProductStatus(product); if (st === "live") return null; const col = STATUS_COLORS[st]; return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: `${col}18`, color: col, fontWeight: 700, fontFamily: S.fontHead }}>{STATUS_LABELS[st]}</span>; })()}
                 {product.maxColors > 1 && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(132,94,247,0.1)", color: S.purple, fontWeight: 600 }}>{product.maxColors} colours</span>}
               </div>
@@ -2544,6 +2568,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     sourceUrl: data.sourceUrl || "",
                     creator: data.creator || "",
                     photoSource: data.photoSource || "own",
+                    premiumOverride: data.premiumOverride === true,
                     addedDate: new Date().toISOString(),
                   }));
                   await onSave([...freshProducts, ...newProducts]);
