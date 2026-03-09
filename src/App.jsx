@@ -268,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v103 · 2026-03-09";
+const APP_VERSION = "v104 · 2026-03-09";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1351,12 +1351,15 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     const photoSrc = elijahPhoto || "";
 
     // Product label HTML helper
+    const isKidsOrder = orderAudience === "kids";
+    const dragonAccent = isKidsOrder ? "dragon-accent" : "";
     const productLabel = (product, heading) => {
-      if (!product) return `<div class="label"><div class="label-inner product-label"><div class="accent-bar"></div><div class="heading">${heading}</div><div class="sub" style="margin:auto;text-align:center;">More coming soon!</div><div class="url">etprintworld.com</div></div></div>`;
+      const displayHeading = isKidsOrder ? `🐉 ${heading}` : heading;
+      if (!product) return `<div class="label"><div class="label-inner product-label ${dragonAccent}"><div class="accent-bar"></div><div class="heading">${displayHeading}</div><div class="sub" style="margin:auto;text-align:center;">More coming soon!</div><div class="url">etprintworld.com</div></div></div>`;
       const imgHtml = product.img ? `<img src="${product.img}" class="prod-img" />` : `<div class="prod-placeholder">📷</div>`;
-      return `<div class="label"><div class="label-inner product-label">
+      return `<div class="label"><div class="label-inner product-label ${dragonAccent}">
         <div class="accent-bar"></div>
-        <div class="heading">${heading}</div>
+        <div class="heading">${displayHeading}</div>
         <div class="prod-row">${imgHtml}<div class="prod-info">
           <div class="prod-name">${product.name}</div>
           <div class="prod-price">£${product.price.toFixed(2)}</div>
@@ -1405,6 +1408,10 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
   /* Product labels */
   .product-label { padding-top: 5.5mm; }
   .product-label .prod-row { display: flex; gap: 3mm; flex: 1; align-items: center; }
+
+  /* Kids dragon accent */
+  .dragon-accent .accent-bar { background: linear-gradient(90deg, #00c9a7, #845ef7, #00c9a7) !important; height: 2mm !important; }
+  .dragon-accent .heading { color: #845ef7 !important; }
   .product-label .prod-img { width: 38mm; height: 38mm; object-fit: contain; border-radius: 3mm; background: #f5f5f5; }
   .product-label .prod-placeholder { width: 38mm; height: 38mm; border-radius: 3mm; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 18pt; }
   .product-label .prod-name { font-family: 'Space Grotesk', sans-serif; font-size: 9pt; font-weight: 700; color: #1a1a2e; margin-bottom: 0.5mm; }
@@ -1437,8 +1444,8 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 
   <!-- Label 2: Thank You (dark mode) -->
   <div class="label"><div class="label-inner thankyou-label">
-    <div class="emoji">🧡</div>
-    <div class="msg">Thanks for your order!</div>
+    <div class="emoji">${isKidsOrder ? "🐉" : "🧡"}</div>
+    <div class="msg">${isKidsOrder ? "Thanks for your order, legend!" : "Thanks for your order!"}</div>
     <div class="submsg">I got <b style="color:#00c9a7;font-weight:800;text-transform:uppercase;background:rgba(255,255,255,0.92);padding:0.3mm 1.5mm;border-radius:1mm;">BANNED</b> from selling 3D prints at school,<br/>so I built this website instead!</div>
     <div class="url" style="margin-top: 2mm;">etprintworld.com</div>
     <div class="banned-tagline">Every product is 3D printed by Elijah, age 10, on his Bambu Lab P1S right here in Wales.</div>
@@ -1716,6 +1723,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
    ═══════════════════════════════════════════════ */
 function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addProduct, onClearAddProduct }) {
   const [eventFilter, setEventFilter] = useState("all");
+  const [stockCatFilter, setStockCatFilter] = useState("all");
   const [editModal, setEditModal] = useState(null); // null | { ...target } for add/edit
   const [batchMode, setBatchMode] = useState(null); // null | "hours" | "items"
   const [batchValue, setBatchValue] = useState(4);
@@ -1752,7 +1760,14 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
   if (events.length === 0) events.push("car-boot-1");
 
   // Filter targets
-  const filtered = eventFilter === "all" ? stockTargets : stockTargets.filter(t => t.event === eventFilter);
+  const filtered = stockTargets.filter(t => {
+    if (eventFilter !== "all" && t.event !== eventFilter) return false;
+    if (stockCatFilter !== "all") { const p = prodMap[t.productId]; if (!p || p.category !== stockCatFilter) return false; }
+    return true;
+  });
+
+  // Categories present in stock targets
+  const stockCategories = [...new Set(stockTargets.map(t => prodMap[t.productId]?.category).filter(Boolean))].sort();
 
   // Product lookup
   const prodMap = {};
@@ -1851,6 +1866,20 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
           </button>
         )}
       </div>
+
+      {/* Category filters */}
+      {stockCategories.length > 1 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+          {[{ id: "all", label: "All" }, ...stockCategories.map(c => ({ id: c, label: c }))].map(cat => {
+            const count = cat.id === "all" ? stockTargets.filter(t => eventFilter === "all" || t.event === eventFilter).length : stockTargets.filter(t => { const p = prodMap[t.productId]; return p?.category === cat.id && (eventFilter === "all" || t.event === eventFilter); }).length;
+            return (
+              <button key={cat.id} onClick={() => setStockCatFilter(cat.id)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${stockCatFilter === cat.id ? S.teal : S.border}`, background: stockCatFilter === cat.id ? "rgba(0,201,167,0.12)" : "transparent", color: stockCatFilter === cat.id ? S.teal : S.muted, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>
+                {cat.label} <span style={{ opacity: 0.6 }}>({count})</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Summary cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 20 }}>
