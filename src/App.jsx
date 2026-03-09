@@ -268,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v110 · 2026-03-09";
+const APP_VERSION = "v111 · 2026-03-09";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1730,6 +1730,17 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
   const [batchMode, setBatchMode] = useState(null); // null | "hours" | "items"
   const [batchValue, setBatchValue] = useState(4);
   const [batchResults, setBatchResults] = useState(null);
+  const [sellThrough, setSellThrough] = useState(80); // % expected to sell
+
+  // Load sell-through % from Firebase
+  useEffect(() => {
+    storageGet("stock-sellthrough-v1").then(v => { if (v) setSellThrough(parseFloat(v) || 80); });
+  }, []);
+  const updateSellThrough = (v) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(v)));
+    setSellThrough(clamped);
+    storageSet("stock-sellthrough-v1", String(clamped));
+  };
 
   // Auto-open add modal when a product is passed from Products tab
   useEffect(() => {
@@ -1873,7 +1884,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
       {stockCategories.length > 1 && (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
           {[{ id: "all", label: "All" }, ...stockCategories.map(c => ({ id: c, label: c }))].map(cat => {
-            const count = cat.id === "all" ? stockTargets.filter(t => eventFilter === "all" || t.event === eventFilter).length : stockTargets.filter(t => { const p = prodMap[t.productId]; return p?.category === cat.id && (eventFilter === "all" || t.event === eventFilter); }).length;
+            const count = cat.id === "all" ? stockTargets.filter(t => eventFilter === "all" || t.event === eventFilter).reduce((s, t) => s + (t.targetQty || 0), 0) : stockTargets.filter(t => { const p = prodMap[t.productId]; return p?.category === cat.id && (eventFilter === "all" || t.event === eventFilter); }).reduce((s, t) => s + (t.targetQty || 0), 0);
             return (
               <button key={cat.id} onClick={() => setStockCatFilter(cat.id)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${stockCatFilter === cat.id ? S.teal : S.border}`, background: stockCatFilter === cat.id ? "rgba(0,201,167,0.12)" : "transparent", color: stockCatFilter === cat.id ? S.teal : S.muted, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>
                 {cat.label} <span style={{ opacity: 0.6 }}>({count})</span>
@@ -1883,20 +1894,54 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
         </div>
       )}
 
+      {/* Terminology + category CB price */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+        <p style={{ fontSize: 11, color: S.dimmer, margin: 0, fontStyle: "italic" }}>
+          📦 <strong style={{ color: S.muted }}>Product</strong> = a design in any colour &nbsp;|&nbsp; <strong style={{ color: S.muted }}>SKU</strong> = a unique product + colour combination. All counts on this tab are SKUs.
+        </p>
+        {stockCatFilter !== "all" && (
+          <button onClick={() => {
+            const val = prompt("Set car boot price for all " + stockCatFilter + " targets (£):");
+            if (val === null) return;
+            const price = parseFloat(val);
+            if (isNaN(price) || price < 0) { alert("Invalid price"); return; }
+            onSave(stockTargets.map(t => {
+              const p = prodMap[t.productId];
+              if (p?.category !== stockCatFilter) return t;
+              if (eventFilter !== "all" && t.event !== eventFilter) return t;
+              return { ...t, carBootPrice: price };
+            }));
+          }} style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid rgba(0,201,167,0.4)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, whiteSpace: "nowrap" }}>
+            💰 Set CB Price for {stockCatFilter}
+          </button>
+        )}
+      </div>
+
       {/* Summary cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 20 }}>
         {[
-          { label: "Target", value: totalTargets, icon: "🎯" },
+          { label: "Target SKUs", value: totalTargets, icon: "🎯" },
           { label: "On Hand", value: totalOnHand, icon: "📦" },
           { label: "To Print", value: totalRemaining, icon: "🖨️" },
           { label: "Print Hours", value: totalPrintHrs.toFixed(1) + "h", icon: "⏱️" },
-          { label: "Est. Revenue", value: "£" + totalRevenue.toFixed(2), icon: "💰" },
         ].map(card => (
           <div key={card.label} style={{ padding: "14px 16px", borderRadius: 14, background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}` }}>
             <div style={{ fontSize: 11, color: S.muted, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 4 }}>{card.icon} {card.label}</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: S.text, fontFamily: S.fontHead }}>{card.value}</div>
           </div>
         ))}
+        {/* Revenue card with sell-through % */}
+        <div style={{ padding: "14px 16px", borderRadius: 14, background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}` }}>
+          <div style={{ fontSize: 11, color: S.muted, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 4 }}>💰 Est. Revenue</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: S.teal, fontFamily: S.fontHead }}>£{(totalRevenue * sellThrough / 100).toFixed(2)}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 6 }}>
+            <span style={{ fontSize: 10, color: S.dimmer }}>Sell‑through</span>
+            <button onClick={() => updateSellThrough(sellThrough - 5)} style={{ width: 20, height: 20, borderRadius: 5, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 12, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1 }}>−</button>
+            <span style={{ fontSize: 12, fontWeight: 800, color: S.text, fontFamily: S.fontMono, minWidth: 30, textAlign: "center" }}>{sellThrough}%</span>
+            <button onClick={() => updateSellThrough(sellThrough + 5)} style={{ width: 20, height: 20, borderRadius: 5, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 12, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1 }}>+</button>
+          </div>
+          <div style={{ fontSize: 10, color: S.dimmer, marginTop: 2 }}>100% = £{totalRevenue.toFixed(2)}</div>
+        </div>
       </div>
 
       {/* Batch generator panel */}
