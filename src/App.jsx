@@ -169,6 +169,10 @@ const DEFAULT_CATEGORY_META = {
   "Bird Feeders": { audience: "adult", hasDimensions: false, sortOrder: 4 },
   "Household": { audience: "adult", hasDimensions: false, sortOrder: 5 },
 };
+/* Sort any category array by categoryMeta sortOrder — use everywhere for consistency */
+function sortCategoriesByMeta(cats, meta) {
+  return [...cats].sort((a, b) => ((meta[a] || {}).sortOrder ?? 99) - ((meta[b] || {}).sortOrder ?? 99));
+}
 async function loadCreators() {
   try {
     console.log("loadCreators: step 1 — calling storageGet");
@@ -915,7 +919,7 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
     set("colors", cur.includes(color) ? cur.filter(c => c !== color) : [...cur, color]);
   };
 
-  const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 8, fontSize: 14, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontFamily: S.font, outline: "none", boxSizing: "border-box" };
+  const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 8, fontSize: 14, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontFamily: S.font, outline: "none", boxSizing: "border-box", colorScheme: "dark" };
   const labelStyle = { fontSize: 11, fontWeight: 600, color: S.muted, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4, display: "block" };
   const sectionStyle = { marginBottom: 20 };
 
@@ -982,7 +986,7 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
           <div>
             <label style={labelStyle}>Category *</label>
             <select value={p.category} onChange={e => set("category", e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              {sortCategoriesByMeta(categories, categoryMeta).map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
         </div>
@@ -1723,7 +1727,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 /* ═══════════════════════════════════════════════
    STOCK TAB — Production stock targets & batch generator
    ═══════════════════════════════════════════════ */
-function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addProduct, onClearAddProduct }) {
+function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addProduct, onClearAddProduct, categoryMeta = {} }) {
   const [eventFilter, setEventFilter] = useState("all");
   const [stockCatFilter, setStockCatFilter] = useState("all");
   const [editModal, setEditModal] = useState(null); // null | { ...target } for add/edit
@@ -1784,7 +1788,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
   });
 
   // All categories from products (show even if no stock targets yet)
-  const stockCategories = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
+  const stockCategories = sortCategoriesByMeta([...new Set(products.map(p => p.category).filter(Boolean))], categoryMeta);
 
   // Summary stats
   const totalTargets = filtered.reduce((s, t) => s + (t.targetQty || 0), 0);
@@ -1858,7 +1862,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
   };
 
   const selectStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "#1a1a2e", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none", boxSizing: "border-box", colorScheme: "dark" };
-  const inputStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none", boxSizing: "border-box" };
+  const inputStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none", boxSizing: "border-box", colorScheme: "dark" };
   const labelStyle = { fontSize: 12, fontWeight: 700, color: S.muted, fontFamily: S.fontHead, marginBottom: 4, display: "block" };
   const inlineBtnStyle = { width: 28, height: 28, borderRadius: 7, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 15, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 };
 
@@ -2104,7 +2108,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
               <label style={labelStyle}>Category</label>
               <select value={selCat} onChange={e => setEditModal({ ...editModal, _cat: e.target.value, productId: "", colours: [] })} style={{ ...selectStyle, marginBottom: 14 }}>
                 <option value="">Select category...</option>
-                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                {sortCategoriesByMeta(categories, categoryMeta).map(c => <option key={c} value={c}>{c}</option>)}
               </select>
 
               {selCat && <>
@@ -2564,7 +2568,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 { id: "colours", label: "🎨 Colours", shortLabel: "🎨 Colours", count: ALL_COLORS.length },
           { id: "categories", label: "📂 Categories", shortLabel: "📂 Cats", count: categories.length },
           { id: "creators", label: "👤 Creators", shortLabel: "👤 Creators", count: creators.length },
-          { id: "stock", label: "📊 Stock", shortLabel: "📊 Stock", count: stockTargets.length },
+          { id: "stock", label: "📊 Stock", shortLabel: "📊 Stock", count: stockTargets.reduce((s, t) => s + (t.targetQty || 0), 0) },
         ].map(tab => (
 
            
@@ -2633,7 +2637,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
         {displayCategories.map(cat => {
-          const catCount = cat === "All" ? products.length : products.filter(p => p.category === cat).length;
+          const catCount = cat === "All" ? filteredByStatus.length : filteredByStatus.filter(p => p.category === cat).length;
           return (
           <button key={cat} onClick={() => setFilter(cat)} style={{ padding: "7px 14px", borderRadius: 20, border: filter === cat ? `1.5px solid ${S.purple}` : `1px solid ${S.border}`, background: filter === cat ? "rgba(132,94,247,0.1)" : "rgba(255,255,255,0.02)", color: filter === cat ? S.purple : S.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 5 }}>{cat}{catCount > 0 && cat !== "All" && <span style={{ fontSize: 10, opacity: 0.7 }}>{catCount}</span>}</button>
           );
@@ -2915,7 +2919,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
               </div>
               <div>
                 <label style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono, textTransform: "uppercase", display: "block", marginBottom: 4 }}>Filament Type</label>
-                <select value={newColourType} onChange={e => setNewColourType(e.target.value)} style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 14, fontFamily: S.font, outline: "none", boxSizing: "border-box" }}>
+                <select value={newColourType} onChange={e => setNewColourType(e.target.value)} style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 14, fontFamily: S.font, outline: "none", boxSizing: "border-box", colorScheme: "dark" }}>
                   {["PLA Basic", "PLA Matte", "PLA Silk+", "PLA Gradient", "ELEGOO Silk", "Reprapper PLA", "PETG", "TPU"].map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
@@ -3081,7 +3085,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                                       setSavedMsg(`Swapped ${colour} → ${newColour} on ${prod.name}`); setTimeout(() => setSavedMsg(""), 3000);
                                       e.target.value = "";
                                     }}
-                                    style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 11, fontFamily: S.fontHead, cursor: "pointer" }}
+                                    style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 11, fontFamily: S.fontHead, cursor: "pointer", colorScheme: "dark" }}
                                   >
                                     <option value="">Swap colour…</option>
                                     {availableSwaps.map(c => <option key={c} value={c}>{c}</option>)}
@@ -3248,7 +3252,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                         <button onClick={() => moveCategory(1)} disabled={sortIdx === sortedCats.length - 1} style={{ padding: "1px 6px", borderRadius: 4, border: "none", background: sortIdx === sortedCats.length - 1 ? "transparent" : "rgba(255,255,255,0.06)", color: sortIdx === sortedCats.length - 1 ? S.dimmer : S.muted, fontSize: 10, cursor: sortIdx === sortedCats.length - 1 ? "default" : "pointer", lineHeight: 1 }}>▼</button>
                       </div>
                       <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: S.text, fontFamily: S.fontHead, minWidth: 120 }}>{cat}</span>
-                      <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>{count} product{count !== 1 ? "s" : ""}</span>
+                      <span onClick={count > 0 ? () => { setFilter(cat); setStatusFilter("All"); setProductCreatorFilter(""); setAdminTab("products"); } : undefined} style={{ fontSize: 11, color: count > 0 ? S.teal : S.dimmer, fontWeight: count > 0 ? 700 : 400, cursor: count > 0 ? "pointer" : "default", textDecoration: count > 0 ? "underline" : "none", fontFamily: S.fontMono }}>{count} product{count !== 1 ? "s" : ""}</span>
                       {/* Audience toggle */}
                       <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, audience: meta.audience === "kids" ? "adult" : "kids" }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.audience === "kids" ? "rgba(255,193,7,0.4)" : "rgba(132,94,247,0.4)"}`, background: meta.audience === "kids" ? "rgba(255,193,7,0.1)" : "rgba(132,94,247,0.1)", color: meta.audience === "kids" ? "#ffc107" : S.purple, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.audience === "kids" ? "👶 Kids" : "🧑 Adult"}</button>
                       {/* Dimensions toggle */}
@@ -3447,7 +3451,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <input value={c.name} onChange={e => { const u=[...creators]; u[idx]={...u[idx],name:e.target.value}; setCreators(u); }} placeholder="Creator name" style={{ flex: 2, minWidth: 120, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
                         <input value={c.platform} onChange={e => { const u=[...creators]; u[idx]={...u[idx],platform:e.target.value}; setCreators(u); }} placeholder="Platform" style={{ flex: 1, minWidth: 100, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
-                        <select value={c.licenceStatus} onChange={e => { const u=[...creators]; u[idx]={...u[idx],licenceStatus:e.target.value}; setCreators(u); }} style={{ flex: 1, minWidth: 150, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "#1a1a2e", color: S.text, fontSize: 13, fontFamily: S.fontHead }}>
+                        <select value={c.licenceStatus} onChange={e => { const u=[...creators]; u[idx]={...u[idx],licenceStatus:e.target.value}; setCreators(u); }} style={{ flex: 1, minWidth: 150, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "#1a1a2e", color: S.text, fontSize: 13, fontFamily: S.fontHead, colorScheme: "dark" }}>
                           <option value="no_licence">🔴 No licence</option>
                           <option value="dm_sent">🟡 DM sent</option>
                           <option value="pending_subscribe">🟡 Pending subscribe</option>
@@ -3492,7 +3496,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       )}
 
       {adminTab === "stock" && (
-        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} addProduct={stockAddProduct} onClearAddProduct={() => setStockAddProduct(null)} />
+        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} addProduct={stockAddProduct} onClearAddProduct={() => setStockAddProduct(null)} categoryMeta={categoryMeta} />
       )}
 
       {importingJSON && (
@@ -3945,7 +3949,7 @@ function SpecialRequestPage({ onBack }) {
     setSent(true);
   };
 
-  const inputStyle = { width: "100%", padding: "14px 16px", borderRadius: 12, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 15, fontFamily: S.font, boxSizing: "border-box" };
+  const inputStyle = { width: "100%", padding: "14px 16px", borderRadius: 12, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 15, fontFamily: S.font, boxSizing: "border-box", colorScheme: "dark" };
   const chipStyle = (active) => ({ display: "inline-flex", alignItems: "center", gap: 6, padding: "12px 20px", borderRadius: 14, border: `2px solid ${active ? S.teal : S.border}`, background: active ? "rgba(0,201,167,0.12)" : "rgba(255,255,255,0.03)", color: active ? S.teal : S.muted, cursor: "pointer", fontSize: 14, fontWeight: active ? 700 : 500, fontFamily: S.font, transition: "all 0.2s" });
   const labelStyle = { fontSize: 13, color: S.muted, marginBottom: 6, display: "block", fontWeight: 600 };
 
@@ -4320,7 +4324,7 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
 const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVer(v => v + 1); await saveCategoryMeta(meta); };
 
    
- const displayCategories = useMemo(() => ["All", ...[...categories].sort((a, b) => ((categoryMeta[a] || {}).sortOrder ?? 99) - ((categoryMeta[b] || {}).sortOrder ?? 99))], [catVer, categoryMeta]);
+ const displayCategories = useMemo(() => ["All", ...sortCategoriesByMeta(categories, categoryMeta)], [catVer, categoryMeta]);
 
   const catCounts = useMemo(() => {
     if (!products) return {};
@@ -4456,7 +4460,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           </div>
         </div>
         <div className="ep-cat-bar" style={{ maxWidth: 1200, margin: "0 auto", padding: "12px 24px 12px", display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", position: "sticky", top: 64, zIndex: 90, background: "rgba(13,13,26,0.95)", backdropFilter: "blur(12px)", borderBottom: `1px solid ${S.border}` }}>
-          {displayCategories.map(cat => (
+          {displayCategories.filter(cat => cat === "All" || (catCounts[cat] || 0) > 0).map(cat => (
             <button key={cat} onClick={() => setActiveCat(cat)} style={{ padding: "8px 16px", borderRadius: 20, border: activeCat === cat ? `1.5px solid ${S.teal}` : `1px solid rgba(255,255,255,0.15)`, background: activeCat === cat ? "rgba(0,201,167,0.12)" : "rgba(255,255,255,0.05)", color: activeCat === cat ? S.teal : S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 6 }}>
               {cat}<span style={{ fontSize: 11, color: activeCat === cat ? "rgba(0,201,167,0.6)" : S.muted, fontFamily: S.fontMono }}>{catCounts[cat] || 0}</span>
             </button>
