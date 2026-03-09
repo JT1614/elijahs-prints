@@ -268,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v105 · 2026-03-09";
+const APP_VERSION = "v107 · 2026-03-09";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1761,6 +1761,10 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
   const events = [...new Set(stockTargets.map(t => t.event).filter(Boolean))];
   if (events.length === 0) events.push("car-boot-1");
 
+  // Product lookup
+  const prodMap = {};
+  products.forEach(p => { prodMap[p.id] = p; });
+
   // Filter targets
   const filtered = stockTargets.filter(t => {
     if (eventFilter !== "all" && t.event !== eventFilter) return false;
@@ -1770,10 +1774,6 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
 
   // Categories present in stock targets
   const stockCategories = [...new Set(stockTargets.map(t => prodMap[t.productId]?.category).filter(Boolean))].sort();
-
-  // Product lookup
-  const prodMap = {};
-  products.forEach(p => { prodMap[p.id] = p; });
 
   // Summary stats
   const totalTargets = filtered.reduce((s, t) => s + (t.targetQty || 0), 0);
@@ -2322,6 +2322,28 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       wsCre["!cols"] = [{ wch: 22 }, { wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 30 }, { wch: 14 }, { wch: 14 }, { wch: 50 }];
       XLSX.utils.book_append_sheet(wb, wsCre, "Creators");
 
+      /* Stock Targets tab */
+      const stockRows = stockTargets.map(t => {
+        const prod = products.find(p => p.id === t.productId);
+        const remaining = Math.max(0, (t.targetQty || 0) - (t.onHand || 0));
+        return {
+          "Product": prod?.name || t.productName || "Unknown",
+          "Category": prod?.category || "",
+          "Colours": (t.colours || []).join(" + "),
+          "Event": t.event || "",
+          "Target Qty": t.targetQty || 0,
+          "On Hand": t.onHand || 0,
+          "Remaining": remaining,
+          "CB Price (£)": t.carBootPrice || 0,
+          "Web Price (£)": prod?.price || 0,
+          "Print Time": prod?.printTime || "",
+          "Notes": t.notes || "",
+        };
+      });
+      const wsStock = XLSX.utils.json_to_sheet(stockRows);
+      wsStock["!cols"] = [{ wch: 28 }, { wch: 16 }, { wch: 30 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 30 }];
+      XLSX.utils.book_append_sheet(wb, wsStock, "Stock");
+
       /* Download */
       const date = new Date().toISOString().slice(0, 10);
       XLSX.writeFile(wb, `ET-Print-World-Export-${date}.xlsx`);
@@ -2481,7 +2503,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {savedMsg && <span style={{ color: S.teal, fontWeight: 700, fontFamily: S.fontHead, fontSize: 14 }}>✓ {savedMsg}</span>}
-          <Tooltip position="bottom" text="Downloads a full Excel spreadsheet (.xlsx) with five tabs: Products, Orders, Colours, Categories, and Creators.<br/><br/>Useful for records, the licence audit tracker, or sharing data with Claude for analysis.">
+          <Tooltip position="bottom" text="Downloads a full Excel spreadsheet (.xlsx) with six tabs: Products, Orders, Colours, Categories, Creators, and Stock.<br/><br/>Useful for records, the licence audit tracker, or sharing data with Claude for analysis.">
             <button onClick={exportData} disabled={exporting} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 14, fontWeight: 700, cursor: exporting ? "wait" : "pointer", fontFamily: S.fontHead, opacity: exporting ? 0.5 : 1 }}>{exporting ? "⏳ Exporting…" : "📊 Export Data"}</button>
           </Tooltip>
           <span style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono, opacity: 0.6 }}>{APP_VERSION}</span>
@@ -4151,7 +4173,7 @@ function ElijahsPrintsInner() {
     let p = products.filter(x => x.available !== false);
     if (activeCat !== "All") p = p.filter(x => x.category === activeCat);
     if (search.trim()) { const q = search.toLowerCase(); p = p.filter(x => x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)); }
-    const badgePriority = { "New": 1, "Popular": 2, "Premium": 3, "Best Seller": 4 };
+    const badgePriority = { "Premium": 1, "New": 2, "Popular": 3, "Best Seller": 4 };
     p.sort((a, b) => {
       const ab = autoBadges[a.id]; const bb = autoBadges[b.id];
       const ap = ab ? (badgePriority[ab] || 5) : 6;
@@ -4312,7 +4334,15 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
             <p style={{ fontSize: "clamp(13px, 2.5vw, 16px)", color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.7, fontStyle: "italic" }}>Bambu Lab P1S Combo · Ships from Wales 🏴󠁧󠁢󠁷󠁬󠁳󠁿</p>
             <p style={{ fontSize: 15, color: S.muted, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {ALL_COLORS.length} colours · Free school drop-off or UK-wide shipping</p>
             <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap", maxWidth: 340, margin: "0 auto" }}>
-              {ALL_COLORS.map(name => <div key={name} title={name} style={{ width: 20, height: 20, borderRadius: "50%", background: FILAMENTS[name].hex, border: "2px solid rgba(255,255,255,0.15)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }} />)}
+              {ALL_COLORS.map(name => {
+                const f = FILAMENTS[name];
+                const isGrad = f.hex.includes("linear");
+                return (
+                  <Tooltip key={name} position="top" text={`<strong>${name}</strong><br/>${f.type}${f.premium ? " · Premium ✦" : ""}`}>
+                    <div style={{ width: 20, height: 20, borderRadius: "50%", ...(isGrad ? { background: f.hex } : { backgroundColor: f.hex }), border: f.paused ? "2px dashed rgba(245,159,0,0.5)" : "2px solid rgba(255,255,255,0.15)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)", cursor: "pointer", opacity: f.paused ? 0.5 : 1 }} />
+                  </Tooltip>
+                );
+              })}
             </div>
           </div>
         </header>
@@ -4322,10 +4352,10 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products..." style={{ width: "100%", padding: "10px 16px", borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 14, fontFamily: S.font, outline: "none", textAlign: "center" }} />
           </div>
         </div>
-        <div className="ep-cat-bar" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 28px", display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+        <div className="ep-cat-bar" style={{ maxWidth: 1200, margin: "0 auto", padding: "12px 24px 12px", display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", position: "sticky", top: 0, zIndex: 40, background: "rgba(13,13,26,0.95)", backdropFilter: "blur(12px)", borderBottom: `1px solid ${S.border}` }}>
           {displayCategories.map(cat => (
-            <button key={cat} onClick={() => setActiveCat(cat)} style={{ padding: "8px 16px", borderRadius: 20, border: activeCat === cat ? `1.5px solid ${S.teal}` : `1px solid ${S.border}`, background: activeCat === cat ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.02)", color: activeCat === cat ? S.teal : S.muted, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 6 }}>
-              {cat}<span style={{ fontSize: 11, color: activeCat === cat ? "rgba(0,201,167,0.6)" : S.dimmer, fontFamily: S.fontMono }}>{catCounts[cat] || 0}</span>
+            <button key={cat} onClick={() => setActiveCat(cat)} style={{ padding: "8px 16px", borderRadius: 20, border: activeCat === cat ? `1.5px solid ${S.teal}` : `1px solid rgba(255,255,255,0.15)`, background: activeCat === cat ? "rgba(0,201,167,0.12)" : "rgba(255,255,255,0.05)", color: activeCat === cat ? S.teal : S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 6 }}>
+              {cat}<span style={{ fontSize: 11, color: activeCat === cat ? "rgba(0,201,167,0.6)" : S.muted, fontFamily: S.fontMono }}>{catCounts[cat] || 0}</span>
             </button>
           ))}
         </div>
