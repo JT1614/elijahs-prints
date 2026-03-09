@@ -31,7 +31,7 @@ const COLOUR_SORT_MAP = {
   "Silk Black-Green (2 colour tone)": 21, "Blue-Green (2 colour tone)": 22, "Ocean to Meadow": 22,
   "Rainbow - Red-Gold-Blue": 23, "Rainbow - Red-Blue-Green": 24, "Rainbow": 23,
 };
-function colourSort(a, b) { return (COLOUR_SORT_MAP[a] || 999) - (COLOUR_SORT_MAP[b] || 999); }
+function colourSort(a, b) { return (FILAMENTS[a]?.sortOrder || COLOUR_SORT_MAP[a] || 999) - (FILAMENTS[b]?.sortOrder || COLOUR_SORT_MAP[b] || 999); }
 function sortedFilamentKeys(fil) {
   return Object.keys(fil).sort((a, b) => (fil[a].sortOrder || COLOUR_SORT_MAP[a] || 999) - (fil[b].sortOrder || COLOUR_SORT_MAP[b] || 999));
 }
@@ -268,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v107 · 2026-03-09";
+const APP_VERSION = "v108 · 2026-03-09";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -657,7 +657,7 @@ function ColorSwatch({ name, selected, onClick, size = 22, disabled }) {
   return (
     <button className="ep-swatch" onClick={disabled ? undefined : onClick} title={`${name} (${fil.type})`} disabled={disabled} style={{
       width: size, height: size, borderRadius: "50%", cursor: disabled ? "default" : "pointer", flexShrink: 0,
-      background: fil.hex, border: selected ? "2.5px solid #00c9a7" : "2px solid rgba(255,255,255,0.15)",
+      position: "relative", background: fil.hex, border: selected ? "2.5px solid #00c9a7" : "2px solid rgba(255,255,255,0.15)",
       outline: selected ? "2px solid rgba(0,201,167,0.3)" : "none", outlineOffset: 1,
       transition: "all 0.2s", transform: selected ? "scale(1.15)" : "scale(1)", padding: 0,
       boxShadow: selected ? "0 0 8px rgba(0,201,167,0.3)" : "none", opacity: disabled ? 0.3 : 1,
@@ -4332,14 +4332,20 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               I got <span style={{ color: S.teal, fontWeight: 800, fontStyle: "normal", fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "1px" }}>BANNED</span> from selling 3D prints at school…<br /><span style={{ color: S.teal, fontWeight: 700, fontStyle: "normal" }}>so I built this website instead!!</span>
             </div>
             <p style={{ fontSize: "clamp(13px, 2.5vw, 16px)", color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.7, fontStyle: "italic" }}>Bambu Lab P1S Combo · Ships from Wales 🏴󠁧󠁢󠁷󠁬󠁳󠁿</p>
-            <p style={{ fontSize: 15, color: S.muted, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {ALL_COLORS.length} colours · Free school drop-off or UK-wide shipping</p>
+            <p style={{ fontSize: 15, color: S.muted, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused).length} colours · Free school drop-off or UK-wide shipping</p>
             <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap", maxWidth: 340, margin: "0 auto" }}>
-              {ALL_COLORS.map(name => {
+              {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused).map(name => {
                 const f = FILAMENTS[name];
                 const isGrad = f.hex.includes("linear");
+                const tipText = f.premium
+                  ? `<strong style="color:#ffd43b;">✨ ${name}</strong><br/>${f.type} · <span style="color:#ffd43b;">Premium</span>`
+                  : `<strong>${name}</strong><br/>${f.type}`;
                 return (
-                  <Tooltip key={name} position="top" text={`<strong>${name}</strong><br/>${f.type}${f.premium ? " · Premium ✦" : ""}`}>
-                    <div style={{ width: 20, height: 20, borderRadius: "50%", ...(isGrad ? { background: f.hex } : { backgroundColor: f.hex }), border: f.paused ? "2px dashed rgba(245,159,0,0.5)" : "2px solid rgba(255,255,255,0.15)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)", cursor: "pointer", opacity: f.paused ? 0.5 : 1 }} />
+                  <Tooltip key={name} position="top" text={tipText}>
+                    <div style={{ position: "relative", width: 20, height: 20 }}>
+                      <div style={{ width: 20, height: 20, borderRadius: "50%", ...(isGrad ? { background: f.hex } : { backgroundColor: f.hex }), border: "2px solid rgba(255,255,255,0.15)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)", cursor: "pointer" }} />
+                      {f.premium && <span style={{ position: "absolute", top: -5, right: -5, fontSize: 8, lineHeight: 1 }}>✨</span>}
+                    </div>
                   </Tooltip>
                 );
               })}
@@ -4352,7 +4358,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products..." style={{ width: "100%", padding: "10px 16px", borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 14, fontFamily: S.font, outline: "none", textAlign: "center" }} />
           </div>
         </div>
-        <div className="ep-cat-bar" style={{ maxWidth: 1200, margin: "0 auto", padding: "12px 24px 12px", display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", position: "sticky", top: 0, zIndex: 40, background: "rgba(13,13,26,0.95)", backdropFilter: "blur(12px)", borderBottom: `1px solid ${S.border}` }}>
+        <div className="ep-cat-bar" style={{ maxWidth: 1200, margin: "0 auto", padding: "12px 24px 12px", display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", position: "sticky", top: 64, zIndex: 90, background: "rgba(13,13,26,0.95)", backdropFilter: "blur(12px)", borderBottom: `1px solid ${S.border}` }}>
           {displayCategories.map(cat => (
             <button key={cat} onClick={() => setActiveCat(cat)} style={{ padding: "8px 16px", borderRadius: 20, border: activeCat === cat ? `1.5px solid ${S.teal}` : `1px solid rgba(255,255,255,0.15)`, background: activeCat === cat ? "rgba(0,201,167,0.12)" : "rgba(255,255,255,0.05)", color: activeCat === cat ? S.teal : S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 6 }}>
               {cat}<span style={{ fontSize: 11, color: activeCat === cat ? "rgba(0,201,167,0.6)" : S.muted, fontFamily: S.fontMono }}>{catCounts[cat] || 0}</span>
