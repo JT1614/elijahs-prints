@@ -268,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v100 · 2026-03-09";
+const APP_VERSION = "v101 · 2026-03-09";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -2306,6 +2306,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [newColourType, setNewColourType] = useState("PLA Basic");
   const [newColourPremium, setNewColourPremium] = useState(false);
  const [editingColour, setEditingColour] = useState(null);
+  const [showPausedAudit, setShowPausedAudit] = useState(false);
   const [newCatName, setNewCatName] = useState("");
   const [editingCat, setEditingCat] = useState(null);
   const [editCatName, setEditCatName] = useState("");
@@ -2892,25 +2893,98 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             const unusedColours = ALL_COLORS.filter(c => !usedColours.has(c));
             const brokenRefs = new Set();
             liveProds.forEach(p => (p.colors || []).forEach(c => { if (!FILAMENTS[c]) brokenRefs.add(c); }));
-            const pausedCount = ALL_COLORS.filter(c => FILAMENTS[c]?.paused).length;
+            const pausedColours = ALL_COLORS.filter(c => FILAMENTS[c]?.paused);
+            const pausedCount = pausedColours.length;
+            // Find live products affected by paused colours
+            const affectedProds = pausedCount > 0 ? liveProds.filter(p => (p.colors || []).some(c => FILAMENTS[c]?.paused)) : [];
+            const onlyPausedProds = affectedProds.filter(p => (p.colors || []).every(c => FILAMENTS[c]?.paused));
             const issues = [
-              pausedCount > 0 && { icon: "⏸️", label: `${pausedCount} paused (restocking)`, color: "#f59f00" },
+              pausedCount > 0 && { icon: "⏸️", label: `${pausedCount} paused — ${affectedProds.length} live product${affectedProds.length !== 1 ? "s" : ""} affected${onlyPausedProds.length > 0 ? ` (${onlyPausedProds.length} with NO available colours!)` : ""}`, color: "#f59f00", clickable: true },
               unusedColours.length > 0 && { icon: "👻", label: `${unusedColours.length} not used by any live product`, color: S.dimmer },
               brokenRefs.size > 0 && { icon: "🔗", label: `${brokenRefs.size} colour${brokenRefs.size !== 1 ? "s" : ""} referenced by products but missing from library`, color: "#ff6b6b" },
             ].filter(Boolean);
             if (issues.length === 0) return null;
             return (
-              <div style={{ padding: "10px 16px", borderRadius: 12, background: "rgba(245,159,0,0.06)", border: "1px solid rgba(245,159,0,0.2)", marginBottom: 16, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#f59f00", fontFamily: S.fontHead }}>📋 Colour Audit</span>
-                {issues.map((iss, i) => (
-                  <span key={i} style={{ fontSize: 11, color: iss.color, fontWeight: 600, fontFamily: S.fontHead }}>{iss.icon} {iss.label}</span>
-                ))}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ padding: "10px 16px", borderRadius: showPausedAudit && affectedProds.length > 0 ? "12px 12px 0 0" : 12, background: "rgba(245,159,0,0.06)", border: "1px solid rgba(245,159,0,0.2)", display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#f59f00", fontFamily: S.fontHead }}>📋 Colour Audit</span>
+                  {issues.map((iss, i) => (
+                    <span key={i} onClick={iss.clickable ? () => setShowPausedAudit(!showPausedAudit) : undefined} style={{ fontSize: 11, color: iss.color, fontWeight: 600, fontFamily: S.fontHead, cursor: iss.clickable ? "pointer" : "default", textDecoration: iss.clickable ? "underline" : "none" }}>{iss.icon} {iss.label}{iss.clickable ? (showPausedAudit ? " ▴" : " ▾") : ""}</span>
+                  ))}
+                </div>
+
+                {/* Expanded paused filament product impact panel */}
+                {showPausedAudit && affectedProds.length > 0 && (
+                  <div style={{ border: "1px solid rgba(245,159,0,0.2)", borderTop: "none", borderRadius: "0 0 12px 12px", background: "rgba(245,159,0,0.03)", padding: 16 }}>
+                    {pausedColours.map(colour => {
+                      const prodsForColour = affectedProds.filter(p => (p.colors || []).includes(colour));
+                      if (prodsForColour.length === 0) return null;
+                      return (
+                        <div key={colour} style={{ marginBottom: 16 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                            <div style={{ width: 18, height: 18, borderRadius: 5, background: FILAMENTS[colour]?.hex || "#888", border: "2px dashed rgba(245,159,0,0.5)", flexShrink: 0 }} />
+                            <span style={{ fontSize: 13, fontWeight: 700, color: "#f59f00", fontFamily: S.fontHead }}>{colour}</span>
+                            <span style={{ fontSize: 11, color: S.dimmer }}>— {prodsForColour.length} product{prodsForColour.length !== 1 ? "s" : ""}</span>
+                          </div>
+                          {prodsForColour.map(prod => {
+                            const otherColours = (prod.colors || []).filter(c => !FILAMENTS[c]?.paused);
+                            const hasAlternatives = otherColours.length > 0;
+                            const availableSwaps = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && !(prod.colors || []).includes(c));
+                            return (
+                              <div key={prod.id || prod.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 4, borderRadius: 8, background: !hasAlternatives ? "rgba(255,107,107,0.06)" : "rgba(255,255,255,0.02)", border: `1px solid ${!hasAlternatives ? "rgba(255,107,107,0.2)" : S.border}`, flexWrap: "wrap" }}>
+                                <div style={{ flex: 1, minWidth: 140 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{prod.name}</div>
+                                  <div style={{ fontSize: 10, color: hasAlternatives ? S.dimmer : "#ff6b6b", fontFamily: S.fontMono }}>
+                                    {hasAlternatives ? `${otherColours.length} other colour${otherColours.length !== 1 ? "s" : ""} available` : "⚠️ NO available colours — action needed"}
+                                  </div>
+                                </div>
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                  <select
+                                    defaultValue=""
+                                    onChange={e => {
+                                      const newColour = e.target.value;
+                                      if (!newColour) return;
+                                      if (!confirm(`Swap "${colour}" → "${newColour}" on ${prod.name}? This is permanent.`)) { e.target.value = ""; return; }
+                                      const updatedProducts = products.map(p => {
+                                        if (p.id !== prod.id && p.name !== prod.name) return p;
+                                        return { ...p, colors: (p.colors || []).map(c => c === colour ? newColour : c) };
+                                      });
+                                      onSave(updatedProducts);
+                                      setSavedMsg(`Swapped ${colour} → ${newColour} on ${prod.name}`); setTimeout(() => setSavedMsg(""), 3000);
+                                      e.target.value = "";
+                                    }}
+                                    style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 11, fontFamily: S.fontHead, cursor: "pointer" }}
+                                  >
+                                    <option value="">Swap colour…</option>
+                                    {availableSwaps.map(c => <option key={c} value={c}>{c}</option>)}
+                                  </select>
+                                  <button
+                                    onClick={() => {
+                                      if (!confirm(`Pause "${prod.name}"? It will be hidden from customers.`)) return;
+                                      const updatedProducts = products.map(p => {
+                                        if (p.id !== prod.id && p.name !== prod.name) return p;
+                                        return { ...p, available: false, status: "paused" };
+                                      });
+                                      onSave(updatedProducts);
+                                      setSavedMsg(`${prod.name} paused`); setTimeout(() => setSavedMsg(""), 3000);
+                                    }}
+                                    style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}
+                                  >Pause product</button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })()}
 
           {/* Existing colours grid */}
-          <div className="ep-admin-colours-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+          <div className="ep-admin-colours-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
             {ALL_COLORS.map(name => {
               const f = FILAMENTS[name];
               const isEditing = editingColour === name;
@@ -2919,7 +2993,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 <div key={name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: isEditing ? "rgba(0,201,167,0.06)" : isPaused ? "rgba(245,159,0,0.04)" : S.card, border: `1px solid ${isEditing ? S.teal : isPaused ? "rgba(245,159,0,0.3)" : S.border}`, opacity: isPaused ? 0.7 : 1 }}>
                   <div style={{ width: 32, height: 32, borderRadius: 8, background: f.hex, border: isPaused ? "2px dashed rgba(245,159,0,0.5)" : "2px solid rgba(255,255,255,0.12)", flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: S.text, fontFamily: S.fontHead, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{name}</div>
                     <div style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>
                       {f.type}{f.premium ? " ✦" : ""}{isPaused ? " · ⏸️ Restocking" : ""}
                     </div>
