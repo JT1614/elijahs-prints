@@ -268,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v99 · 2026-03-09";
+const APP_VERSION = "v100 · 2026-03-09";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1111,7 +1111,7 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
                 <input style={{ ...inputStyle, flex: 1 }} value={p.creator || ""} onChange={e => set("creator", e.target.value)} placeholder="e.g. helloadorable" list="creator-datalist" />
                 {(() => { const cr = creators.find(c => c.name === p.creator); return cr?.profileUrl ? <button onClick={() => window.open(cr.profileUrl, "_blank")} style={{ padding: "8px 12px", borderRadius: 10, border: `1px solid rgba(132,94,247,0.3)`, background: "rgba(132,94,247,0.08)", color: S.purple, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, whiteSpace: "nowrap" }}>👤 Profile</button> : null; })()}
               </div>
-              <datalist id="creator-datalist">{creators.map(c => <option key={c.id} value={c.name} />)}</datalist>
+              <datalist id="creator-datalist">{[...creators].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => <option key={c.id} value={c.name} />)}</datalist>
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, color: S.muted, marginBottom: 4, fontFamily: S.fontHead, fontWeight: 600 }}>PHOTO SOURCE</div>
@@ -2134,6 +2134,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         setCreatorsDebug("Step 2: storageGet returned " + (r ? r.length + " chars" : "null"));
         if (!r) { setCreatorsDebug("📭 No creators document in Firebase. Import CSV to start."); return; }
         const parsed = JSON.parse(r);
+        parsed.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         setCreators(parsed);
         setCreatorsDebug("✅ Loaded " + parsed.length + " creators from Firebase");
       } catch (e) {
@@ -3117,6 +3118,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                         photoRights: (clean[7] || "own_needed").toLowerCase().replace(/\s+/g, "_"),
                       };
                     }).filter(c => c.name);
+                    parsed.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
                     setCreators(parsed);
                     try {
                       await saveCreators(parsed);
@@ -3219,7 +3221,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       </div>
                       <input value={c.actionRequired} onChange={e => { const u=[...creators]; u[idx]={...u[idx],actionRequired:e.target.value}; setCreators(u); }} placeholder="Action required" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={async () => { setEditing(null); await saveCreators(creators); }} style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: S.teal, color: "#1a1a2e", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Save</button>
+                        <button onClick={async () => { const sorted = [...creators].sort((a, b) => (a.name || "").localeCompare(b.name || "")); setCreators(sorted); setEditing(null); await saveCreators(sorted); }} style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: S.teal, color: "#1a1a2e", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Save</button>
                         <button onClick={() => setEditing(null)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 13, cursor: "pointer", fontFamily: S.fontHead }}>Cancel</button>
                         <button onClick={async () => { if (!window.confirm("Delete " + c.name + "?")) return; const u=creators.filter((_,i)=>i!==idx); setCreators(u); await saveCreators(u); setEditing(null); }} style={{ marginLeft: "auto", padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(220,53,69,0.3)", background: "rgba(220,53,69,0.08)", color: "#dc3545", fontSize: 13, cursor: "pointer", fontFamily: S.fontHead }}>Delete</button>
                       </div>
