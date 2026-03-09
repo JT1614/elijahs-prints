@@ -1727,7 +1727,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 /* ═══════════════════════════════════════════════
    STOCK TAB — Production stock targets & batch generator
    ═══════════════════════════════════════════════ */
-function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addProduct, onClearAddProduct, categoryMeta = {} }) {
+function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addProduct, onClearAddProduct, categoryMeta = {}, orders = [] }) {
   const [eventFilter, setEventFilter] = useState("all");
   const [stockCatFilter, setStockCatFilter] = useState("all");
   const [editModal, setEditModal] = useState(null); // null | { ...target } for add/edit
@@ -1947,6 +1947,191 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
           <div style={{ fontSize: 10, color: S.dimmer, marginTop: 2 }}>100% = £{totalRevenue.toFixed(2)}</div>
         </div>
       </div>
+
+      {/* ── Margin Analysis Panel ── */}
+      {totalTargets > 0 && (() => {
+        // Filament cost helper: premium = 30% more
+        const filCost = (colors) => (colors || []).some(c => FILAMENTS[c]?.premium) ? 0.013 : 0.01;
+
+        // ── Car Boot margin ──
+        const cbPrintCost = filtered.reduce((s, t) => {
+          const prod = prodMap[t.productId];
+          if (!prod?.grams) return s;
+          return s + (t.targetQty || 0) * prod.grams * filCost(t.colours);
+        }, 0);
+        const cbGrossRevenue = totalRevenue;
+        const cbEstRevenue = cbGrossRevenue * sellThrough / 100;
+        const cbMargin = cbEstRevenue - cbPrintCost;
+        const cbMarginPerHr = totalPrintHrs > 0 ? cbMargin / totalPrintHrs : 0;
+
+        // ── Website margin (despatched orders only, exclude delivery) ──
+        const despOrders = orders.filter(o => o.status?.despatched);
+        let webProductRev = 0, webTipRev = 0, webPrintCost = 0, webPrintHrs = 0;
+        let webOrderCount = 0, webItemCount = 0, webSkippedItems = 0;
+
+        despOrders.forEach(order => {
+          (order.items || []).forEach(item => {
+            if (item.isTip) { webTipRev += (item.price || 0); return; }
+            const prod = prodMap[item.id];
+            const qty = item.qty || 1;
+            webProductRev += (item.price || 0) * qty;
+            if (prod?.grams && prod?.printTime) {
+              const hrs = parseTimeToHrs(prod.printTime);
+              const cost = prod.grams * filCost(item.selectedColors || []);
+              webPrintCost += cost * qty;
+              webPrintHrs += hrs * qty;
+              webItemCount += qty;
+            } else {
+              webSkippedItems += qty;
+            }
+          });
+          webOrderCount++;
+        });
+
+        const webTotalMargin = webProductRev + webTipRev - webPrintCost;
+        const webMarginPerHr = webPrintHrs > 0 ? webTotalMargin / webPrintHrs : 0;
+        const webTipPerHr = webPrintHrs > 0 ? webTipRev / webPrintHrs : 0;
+
+        // ── Breakeven sell-through % ──
+        const breakeven = cbGrossRevenue > 0 ? (webMarginPerHr * totalPrintHrs + cbPrintCost) / cbGrossRevenue * 100 : 0;
+
+        // ── Gap analysis — calculate factors sorted by £/hr impact ──
+        const gapFactors = [];
+        const gap = webMarginPerHr - cbMarginPerHr;
+
+        // Factor 1: Sell-through drag
+        if (sellThrough < 100 && cbGrossRevenue > 0) {
+          const fullMarginPerHr = totalPrintHrs > 0 ? (cbGrossRevenue - cbPrintCost) / totalPrintHrs : 0;
+          const drag = fullMarginPerHr - cbMarginPerHr;
+          if (Math.abs(drag) > 0.01) {
+            const per5 = totalPrintHrs > 0 ? (cbGrossRevenue * 0.05) / totalPrintHrs : 0;
+            gapFactors.push({ icon: "🎯", impact: drag, text: `Sell-through at ${sellThrough}% costs £${drag.toFixed(2)}/hr — each +5% adds £${per5.toFixed(2)}/hr` });
+          }
+        }
+
+        // Factor 2: Price gap on overlapping products
+        const cbProductIds = new Set(filtered.map(t => t.productId));
+        let priceDragTotal = 0, priceDragHrs = 0;
+        filtered.forEach(t => {
+          const prod = prodMap[t.productId];
+          if (!prod?.grams || !prod?.printTime) return;
+          // Find average web price for this product from despatched orders
+          let webRevForProd = 0, webQtyForProd = 0;
+          despOrders.forEach(o => (o.items || []).forEach(i => {
+            if (!i.isTip && i.id === t.productId) { webRevForProd += (i.price || 0) * (i.qty || 1); webQtyForProd += (i.qty || 1); }
+          }));
+          if (webQtyForProd > 0 && t.carBootPrice > 0) {
+            const webAvgPrice = webRevForProd / webQtyForProd;
+            const priceDiff = webAvgPrice - t.carBootPrice;
+            const hrs = parseTimeToHrs(prod.printTime);
+            priceDragTotal += priceDiff * (t.targetQty || 0);
+            priceDragHrs += hrs * (t.targetQty || 0);
+          }
+        });
+        if (priceDragHrs > 0 && Math.abs(priceDragTotal / priceDragHrs) > 0.01) {
+          const avgPctDiff = priceDragTotal > 0 ? Math.round(priceDragTotal / (filtered.reduce((s, t) => { const p = prodMap[t.productId]; let wr = 0, wq = 0; despOrders.forEach(o => (o.items || []).forEach(i => { if (!i.isTip && i.id === t.productId) { wr += (i.price || 0) * (i.qty || 1); wq += (i.qty || 1); }})); return s + (wq > 0 ? wr : 0); }, 0) || 1) * 100) : 0;
+          const impact = priceDragTotal / totalPrintHrs;
+          gapFactors.push({ icon: "💰", impact: Math.abs(impact), text: priceDragTotal > 0 ? `Car boot prices average ${Math.abs(avgPctDiff)}% below web for overlapping products — £${Math.abs(impact).toFixed(2)}/hr impact` : `Car boot prices average ${Math.abs(avgPctDiff)}% above web — £${Math.abs(impact).toFixed(2)}/hr advantage` });
+        }
+
+        // Factor 3: Mix efficiency — find worst margin/hr products consuming most hours
+        const byMph = filtered.map(t => {
+          const prod = prodMap[t.productId];
+          if (!prod?.grams || !prod?.printTime) return null;
+          const hrs = parseTimeToHrs(prod.printTime);
+          const plateCap = getPlateCapacity(prod?.category, prod?.widthMm, prod?.heightMm);
+          const rem = Math.max(0, (t.targetQty || 0) - (t.onHand || 0));
+          const plates = Math.ceil(rem / plateCap);
+          const totalHrs = plates * hrs;
+          const unitMargin = (t.carBootPrice || 0) - prod.grams * filCost(t.colours);
+          const mph = hrs > 0 ? unitMargin / hrs : 0;
+          return { name: prod.name, mph, totalHrs, category: prod.category, qty: t.targetQty || 0 };
+        }).filter(Boolean).sort((a, b) => a.mph - b.mph);
+        if (byMph.length >= 3) {
+          const worst = byMph.slice(0, 2);
+          const best = byMph[byMph.length - 1];
+          const worstHrsPct = Math.round(worst.reduce((s, w) => s + w.totalHrs, 0) / totalPrintHrs * 100);
+          if (worstHrsPct > 15 && best.mph > worst[0].mph * 1.5) {
+            gapFactors.push({ icon: "⏱️", impact: best.mph - worst[0].mph, text: `${worst.map(w => w.name).join(" + ")} use ${worstHrsPct}% of print hours at £${worst[0].mph.toFixed(2)}/hr — best is ${best.name} at £${best.mph.toFixed(2)}/hr` });
+          }
+        }
+
+        // Factor 4: Tips (website only)
+        if (webTipPerHr > 0.01) {
+          gapFactors.push({ icon: "🧡", impact: webTipPerHr, text: `Tips contribute £${webTipPerHr.toFixed(2)}/hr to website margin (£${webTipRev.toFixed(2)} total across ${webOrderCount} orders)` });
+        }
+
+        // Sort by impact descending, take top 3
+        gapFactors.sort((a, b) => b.impact - a.impact);
+        const top3 = gapFactors.slice(0, 3);
+
+        const cbWins = cbMarginPerHr >= webMarginPerHr;
+        const hasWebData = webPrintHrs > 0;
+        const compColour = !hasWebData ? S.muted : cbWins ? S.teal : Math.abs(gap) < 0.50 ? "#f59f00" : "#ff6b6b";
+
+        return (
+          <div style={{ padding: 16, borderRadius: 16, background: "rgba(132,94,247,0.04)", border: `1px solid rgba(132,94,247,0.15)`, marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: S.purple, fontFamily: S.fontHead, marginBottom: 12 }}>📊 Margin Analysis</div>
+
+            {/* Margin cards row */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 14 }}>
+              <Tooltip position="bottom" text="<strong>Filament cost only.</strong><br/>Standard PLA: £0.01/g (£10/kg)<br/>Premium filament: £0.013/g (+30%)<br/><br/>Sum of (target qty × grams × cost/g) for all SKUs in view. If any colour in a target is premium, the premium rate applies.">
+              <div style={{ padding: "12px 14px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}` }}>
+                <div style={{ fontSize: 10, color: S.muted, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 3 }}>🏷️ Print Cost</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#ff6b6b", fontFamily: S.fontHead }}>£{cbPrintCost.toFixed(2)}</div>
+              </div>
+              </Tooltip>
+              <Tooltip position="bottom" text={`<strong>Estimated revenue minus print cost.</strong><br/><br/>Revenue: £${cbGrossRevenue.toFixed(2)} × ${sellThrough}% sell-through = £${cbEstRevenue.toFixed(2)}<br/>Print cost: £${cbPrintCost.toFixed(2)}<br/>Margin: £${cbEstRevenue.toFixed(2)} − £${cbPrintCost.toFixed(2)} = <strong>£${cbMargin.toFixed(2)}</strong>`}>
+              <div style={{ padding: "12px 14px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}` }}>
+                <div style={{ fontSize: 10, color: S.muted, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 3 }}>📈 Est. Margin</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: cbMargin > 0 ? S.teal : "#ff6b6b", fontFamily: S.fontHead }}>£{cbMargin.toFixed(2)}</div>
+                <div style={{ fontSize: 10, color: S.dimmer }}>Revenue £{cbEstRevenue.toFixed(2)} − Cost £{cbPrintCost.toFixed(2)}</div>
+              </div>
+              </Tooltip>
+              <Tooltip position="bottom" text={`<strong>Car boot margin ÷ total print hours.</strong><br/><br/>Margin: £${cbMargin.toFixed(2)}<br/>Print hours: ${totalPrintHrs.toFixed(1)}h<br/>£/hr: <strong>£${cbMarginPerHr.toFixed(2)}</strong><br/><br/>This is what each hour of printing earns you at the car boot — compare against the website to decide where printer time is best spent.`}>
+              <div style={{ padding: "12px 14px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: `1px solid ${cbWins && hasWebData ? "rgba(0,201,167,0.3)" : S.border}` }}>
+                <div style={{ fontSize: 10, color: S.muted, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 3 }}>🏪 Car Boot £/hr</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: compColour, fontFamily: S.fontHead }}>£{cbMarginPerHr.toFixed(2)}</div>
+              </div>
+              </Tooltip>
+              <Tooltip position="bottom" text={hasWebData ? `<strong>Blended margin/hr from all despatched orders.</strong><br/><br/>Product revenue: £${webProductRev.toFixed(2)} (delivery revenue excluded)<br/>Tips: £${webTipRev.toFixed(2)}<br/>Print cost: £${webPrintCost.toFixed(2)}<br/>Total margin: £${webTotalMargin.toFixed(2)}<br/>Print hours: ${webPrintHrs.toFixed(1)}h<br/>£/hr: <strong>£${webMarginPerHr.toFixed(2)}</strong>${webTipRev > 0 ? `<br/><br/>Without tips: £${(webPrintHrs > 0 ? (webProductRev - webPrintCost) / webPrintHrs : 0).toFixed(2)}/hr` : ""}${webSkippedItems > 0 ? `<br/><br/>⚠️ ${webSkippedItems} items excluded (missing grams or print time)` : ""}` : "No despatched orders yet — this will populate once orders are marked as despatched."}>
+              <div style={{ padding: "12px 14px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: `1px solid ${!cbWins && hasWebData ? "rgba(0,201,167,0.3)" : S.border}` }}>
+                <div style={{ fontSize: 10, color: S.muted, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 3 }}>🌐 Website £/hr</div>
+                {hasWebData ? (<>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: !cbWins ? S.teal : S.text, fontFamily: S.fontHead }}>£{webMarginPerHr.toFixed(2)}</div>
+                  <div style={{ fontSize: 10, color: S.dimmer }}>{webOrderCount} orders · {webItemCount} items{webTipRev > 0 ? ` · incl £${webTipRev.toFixed(2)} tips` : ""}{webSkippedItems > 0 ? ` · ${webSkippedItems} skipped (no data)` : ""}</div>
+                </>) : (
+                  <div style={{ fontSize: 13, color: S.dimmer }}>No despatched orders</div>
+                )}
+              </div>
+              </Tooltip>
+              {hasWebData && cbGrossRevenue > 0 && (
+                <Tooltip position="bottom" text={`<strong>The sell-through % needed for car boot margin/hr to equal website margin/hr.</strong><br/><br/>Formula: (website £/hr × print hours + print cost) ÷ gross revenue<br/>= (£${webMarginPerHr.toFixed(2)} × ${totalPrintHrs.toFixed(1)}h + £${cbPrintCost.toFixed(2)}) ÷ £${cbGrossRevenue.toFixed(2)}<br/>= <strong>${breakeven.toFixed(0)}%</strong><br/><br/>${breakeven <= sellThrough ? "✅ Your current sell-through estimate beats this — car boot is worth the print hours." : breakeven <= 90 ? "⚠️ Tight but achievable — monitor actual sales closely." : "🔴 You need to sell almost everything to match website returns."}`}>
+                <div style={{ padding: "12px 14px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}` }}>
+                  <div style={{ fontSize: 10, color: S.muted, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 3 }}>⚖️ Breakeven</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: breakeven <= sellThrough ? S.teal : breakeven <= 90 ? "#f59f00" : "#ff6b6b", fontFamily: S.fontHead }}>{breakeven.toFixed(0)}%</div>
+                  <div style={{ fontSize: 10, color: S.dimmer }}>Sell-through to match website £/hr</div>
+                </div>
+                </Tooltip>
+              )}
+            </div>
+
+            {/* Gap analysis — top 3 factors */}
+            {hasWebData && top3.length > 0 && (
+              <div style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}` }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: S.muted, fontFamily: S.fontHead, marginBottom: 8 }}>
+                  {cbWins ? "📊 Why car boot wins" : "📊 Why the gap — top factors by £/hr impact"}
+                </div>
+                {top3.map((f, i) => (
+                  <div key={i} style={{ fontSize: 12, color: S.text, lineHeight: 1.6, marginBottom: i < top3.length - 1 ? 6 : 0 }}>
+                    <span style={{ fontWeight: 700, marginRight: 6 }}>{i + 1}.</span>{f.icon} {f.text}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Batch generator panel */}
       {batchMode && (
@@ -3496,7 +3681,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       )}
 
       {adminTab === "stock" && (
-        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} addProduct={stockAddProduct} onClearAddProduct={() => setStockAddProduct(null)} categoryMeta={categoryMeta} />
+        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} addProduct={stockAddProduct} onClearAddProduct={() => setStockAddProduct(null)} categoryMeta={categoryMeta} orders={orders} />
       )}
 
       {importingJSON && (
