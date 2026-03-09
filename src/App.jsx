@@ -268,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v104 · 2026-03-09";
+const APP_VERSION = "v105 · 2026-03-09";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -803,6 +803,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
             : selectedColors.map((c, i) => <span key={i}>{i > 0 && " + "}<span style={{ fontWeight: 600, color: S.muted }}>{c}</span></span>)
           }
         </div>
+        {maxC > 1 && !sameColour && !fixedColours && <div style={{ fontSize: 9, color: S.purple, fontStyle: "italic", marginBottom: 2, lineHeight: 1.4, opacity: 0.8 }}>1st colour = largest part, last = smallest detail</div>}
         <button onClick={() => canAdd && onAddToCart(product, selectedColors)} disabled={!canAdd} style={{
           width: "100%", padding: "10px 0", borderRadius: 10, border: "none", marginTop: 6,
           background: cartAnimation === product.id ? S.teal : canAdd ? "linear-gradient(135deg, rgba(0,201,167,0.15), rgba(0,201,167,0.08))" : "rgba(255,255,255,0.03)",
@@ -892,6 +893,7 @@ function CrossSellCard({ product, onAddToCart }) {
               : selectedColors.map((c, i) => <span key={i}>{i > 0 && " + "}<span style={{ fontWeight: 600, color: S.muted }}>{c}</span></span>)
             }
           </div>
+          {maxC > 1 && !sameColour && !fixedColours && <div style={{ fontSize: 8, color: S.purple, fontStyle: "italic", marginBottom: 4, lineHeight: 1.3, opacity: 0.8 }}>1st = largest part, last = smallest</div>}
           <button onClick={handleAdd} disabled={!canAdd} style={{ width: "100%", padding: "6px 0", borderRadius: 8, border: "none", background: added ? S.teal : canAdd ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.03)", color: added ? "#1a1a2e" : canAdd ? S.teal : "rgba(255,255,255,0.2)", fontSize: 10, fontWeight: 700, cursor: canAdd ? "pointer" : "default", fontFamily: S.fontHead, textTransform: "uppercase" }}>
             {added ? "✓ Added!" : !canAdd ? `Select ${maxC} colours` : "+ Add to Cart"}
           </button>
