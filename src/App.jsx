@@ -22,7 +22,7 @@ const DEFAULT_FILAMENTS = {
   "Rainbow":           { hex: "linear-gradient(135deg, #e74c3c, #f39c12, #2ecc71, #3498db, #9b59b6)", type: "Reprapper PLA", premium: true, sortOrder: 16 },
 };
 const COLOUR_SORT_MAP = {
-  "White": 1, "Matte White": 1, "Bone White": 2, "Beige": 3, "Desert Tan": 4, "Matte Desert Tan": 4,
+  "White": 1, "Matte White": 1, "Bone White": 2, "Matte Ash Gray": 2.5, "Beige": 3, "Desert Tan": 4, "Matte Desert Tan": 4,
   "Latte Brown": 5, "Caramel Brown": 6, "Brown": 7, "Dark Brown": 7, "Black": 8, "Matte Charcoal": 8,
   "Red": 9, "Mandarin Orange": 10, "Matte Orange": 10, "Sunflower Yellow": 11,
   "Bright Green": 12, "Sage Green": 13, "Olive Green": 14, "Turquoise": 15,
@@ -268,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v108 · 2026-03-09";
+const APP_VERSION = "v110 · 2026-03-09";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -2900,7 +2900,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                         // Rebuild object preserving order, replacing the edited entry
                         Object.keys(FILAMENTS).forEach(key => {
                           if (key === editingColour) {
-                            updated[name] = { hex: newColourHex, type: newColourType, ...(newColourPremium ? { premium: true } : {}) };
+                            updated[name] = { hex: newColourHex, type: newColourType, sortOrder: FILAMENTS[editingColour].sortOrder || COLOUR_SORT_MAP[editingColour] || 999, ...(newColourPremium ? { premium: true } : {}), ...(FILAMENTS[editingColour].paused ? { paused: true } : {}) };
                           } else {
                             updated[key] = FILAMENTS[key];
                           }
@@ -2917,9 +2917,10 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                         setEditingColour(null);
                         setSavedMsg("Colour updated!"); setTimeout(() => setSavedMsg(""), 2000);
                       } else {
-                        // Adding new colour
+                        // Adding new colour — auto-assign next sortOrder
                         if (FILAMENTS[name]) { alert("Colour already exists!"); return; }
-                        const updated = { ...FILAMENTS, [name]: { hex: newColourHex, type: newColourType, ...(newColourPremium ? { premium: true } : {}) } };
+                        const maxSort = Math.max(0, ...Object.values(FILAMENTS).map(f => f.sortOrder || 0));
+                        const updated = { ...FILAMENTS, [name]: { hex: newColourHex, type: newColourType, sortOrder: maxSort + 1, ...(newColourPremium ? { premium: true } : {}) } };
                         onSaveFilaments(updated);
                         setSavedMsg("Colour added!"); setTimeout(() => setSavedMsg(""), 2000);
                       }
@@ -3065,21 +3066,65 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             );
           })()}
 
-          {/* Existing colours grid */}
-          <div className="ep-admin-colours-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
-            {ALL_COLORS.map(name => {
+          {/* Existing colours list */}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <button onClick={() => {
+              if (!confirm("Reset sort order to the standard sequence (whites → browns → brights → premiums → rainbow)? This will overwrite any custom ordering.")) return;
+              const updated = {};
+              Object.keys(FILAMENTS).forEach(name => {
+                updated[name] = { ...FILAMENTS[name], sortOrder: COLOUR_SORT_MAP[name] || 999 };
+              });
+              onSaveFilaments(updated);
+              setSavedMsg("Sort order reset!"); setTimeout(() => setSavedMsg(""), 2000);
+            }} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.03)", color: S.muted, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>
+              🔄 Reset sort order
+            </button>
+          </div>
+          <div style={{ background: S.card, borderRadius: 16, border: `1px solid ${S.border}`, overflow: "hidden" }}>
+            {ALL_COLORS.length === 0 && <p style={{ textAlign: "center", color: S.dimmer, fontSize: 13, padding: 32 }}>No colours yet — add one above or use the filament scanner.</p>}
+            {ALL_COLORS.map((name, idx) => {
               const f = FILAMENTS[name];
               const isEditing = editingColour === name;
               const isPaused = !!f.paused;
+              const isGrad = f.hex.includes("linear");
+              const prodCount = products.filter(p => getProductStatus(p) === "live" && (p.colors || []).includes(name)).length;
+              const totalProdCount = products.filter(p => (p.colors || []).includes(name)).length;
+              const moveColour = (dir) => {
+                const sorted = [...ALL_COLORS];
+                const target = idx + dir;
+                if (target < 0 || target >= sorted.length) return;
+                // Swap sortOrder values
+                const updated = { ...FILAMENTS };
+                const aName = sorted[idx]; const bName = sorted[target];
+                const aSort = updated[aName].sortOrder || COLOUR_SORT_MAP[aName] || idx + 1;
+                const bSort = updated[bName].sortOrder || COLOUR_SORT_MAP[bName] || target + 1;
+                updated[aName] = { ...updated[aName], sortOrder: bSort };
+                updated[bName] = { ...updated[bName], sortOrder: aSort };
+                onSaveFilaments(updated);
+              };
               return (
-                <div key={name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: isEditing ? "rgba(0,201,167,0.06)" : isPaused ? "rgba(245,159,0,0.04)" : S.card, border: `1px solid ${isEditing ? S.teal : isPaused ? "rgba(245,159,0,0.3)" : S.border}`, opacity: isPaused ? 0.7 : 1 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: f.hex, border: isPaused ? "2px dashed rgba(245,159,0,0.5)" : "2px solid rgba(255,255,255,0.12)", flexShrink: 0 }} />
+                <div key={name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: idx < ALL_COLORS.length - 1 ? `1px solid ${S.border}` : "none", background: isEditing ? "rgba(0,201,167,0.06)" : isPaused ? "rgba(245,159,0,0.04)" : "transparent" }}>
+                  {/* Position & reorder */}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, width: 28, flexShrink: 0 }}>
+                    <button onClick={() => moveColour(-1)} disabled={idx === 0} style={{ width: 22, height: 16, borderRadius: 4, border: "none", background: idx === 0 ? "transparent" : "rgba(255,255,255,0.05)", color: idx === 0 ? "transparent" : S.muted, fontSize: 10, cursor: idx === 0 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>▲</button>
+                    <span style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono, fontWeight: 600 }}>{idx + 1}</span>
+                    <button onClick={() => moveColour(1)} disabled={idx === ALL_COLORS.length - 1} style={{ width: 22, height: 16, borderRadius: 4, border: "none", background: idx === ALL_COLORS.length - 1 ? "transparent" : "rgba(255,255,255,0.05)", color: idx === ALL_COLORS.length - 1 ? "transparent" : S.muted, fontSize: 10, cursor: idx === ALL_COLORS.length - 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>▼</button>
+                  </div>
+                  {/* Swatch */}
+                  <div style={{ width: 36, height: 36, borderRadius: 8, ...(isGrad ? { background: f.hex } : { backgroundColor: f.hex }), border: isPaused ? "2px dashed rgba(245,159,0,0.5)" : "2px solid rgba(255,255,255,0.12)", flexShrink: 0, position: "relative" }}>
+                    {f.premium && <span style={{ position: "absolute", top: -4, right: -4, fontSize: 9 }}>✨</span>}
+                  </div>
+                  {/* Name & details */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{name}</div>
-                    <div style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>
-                      {f.type}{f.premium ? " ✦" : ""}{isPaused ? " · ⏸️ Restocking" : ""}
+                    <div style={{ fontSize: 13, fontWeight: 700, color: isPaused ? "#f59f00" : S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{name}{isPaused ? " ⏸️" : ""}</div>
+                    <div style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <span>{f.type}</span>
+                      {f.premium && <span style={{ color: "#ffd43b" }}>Premium ✦</span>}
+                      <span>{prodCount > 0 ? `${prodCount} live` : "0 live"}{totalProdCount > prodCount ? ` (${totalProdCount} total)` : ""}</span>
+                      {!isGrad && <span style={{ fontFamily: S.fontMono, opacity: 0.6 }}>{f.hex}</span>}
                     </div>
                   </div>
+                  {/* Action buttons */}
                   <button
                     onClick={() => {
                       const updated = { ...FILAMENTS };
@@ -3107,7 +3152,6 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       const updated = { ...FILAMENTS };
                       delete updated[name];
                       onSaveFilaments(updated);
-                      // Strip deleted colour from all products
                       const cleaned = products.map(p => {
                         const filtered = (p.colors || []).filter(c => c !== name);
                         if (filtered.length === (p.colors || []).length) return p;
@@ -4072,12 +4116,20 @@ function ElijahsPrintsInner() {
     loadOrders().then(o => setOrders(o || []));
     loadFilaments().then(f => {
       if (f) {
-        // Merge sortOrder from defaults into Firebase-loaded filaments
+        // Migrate: stamp COLOUR_SORT_MAP order into Firebase sortOrder as canonical values
         const merged = {};
+        let needsMigration = false;
         for (const [name, data] of Object.entries(f)) {
-          merged[name] = { ...data, sortOrder: data.sortOrder || (DEFAULT_FILAMENTS[name]?.sortOrder) || 999 };
+          const mapOrder = COLOUR_SORT_MAP[name];
+          if (mapOrder && data.sortOrder !== mapOrder) {
+            merged[name] = { ...data, sortOrder: mapOrder };
+            needsMigration = true;
+          } else {
+            merged[name] = { ...data, sortOrder: data.sortOrder || 999 };
+          }
         }
         FILAMENTS = merged; ALL_COLORS = sortedFilamentKeys(merged); setFilamentVer(v => v + 1);
+        if (needsMigration) saveFilaments(merged);
       }
     });
     loadCategories().then(cats => {
