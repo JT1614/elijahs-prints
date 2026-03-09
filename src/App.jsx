@@ -268,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v98 · 2026-03-09";
+const APP_VERSION = "v99 · 2026-03-09";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1581,6 +1581,27 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
         )}
       </div>
 
+      {/* Orders Audit Banner */}
+      {(() => {
+        const active = orders.filter(o => !o.status.despatched);
+        const now = Date.now();
+        const oldUndespatched = active.filter(o => (now - new Date(o.date).getTime()) > 7 * 24 * 60 * 60 * 1000);
+        const unpaid = active.filter(o => !o.status.paid);
+        const issues = [
+          unpaid.length > 0 && { icon: "💳", label: `${unpaid.length} unpaid order${unpaid.length !== 1 ? "s" : ""}`, color: "#ff6b6b" },
+          oldUndespatched.length > 0 && { icon: "📅", label: `${oldUndespatched.length} order${oldUndespatched.length !== 1 ? "s" : ""} older than 7 days not sent`, color: "#f59f00" },
+        ].filter(Boolean);
+        if (issues.length === 0) return null;
+        return (
+          <div style={{ padding: "10px 16px", borderRadius: 12, background: "rgba(245,159,0,0.06)", border: "1px solid rgba(245,159,0,0.2)", marginBottom: 12, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#f59f00", fontFamily: S.fontHead }}>📋 Order Audit ({active.length} active)</span>
+            {issues.map((iss, i) => (
+              <span key={i} style={{ fontSize: 11, color: iss.color, fontWeight: 600, fontFamily: S.fontHead }}>{iss.icon} {iss.label}</span>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Column headers */}
       <div className="ep-order-header" style={{ display: "grid", gridTemplateColumns: "36px 1fr 70px 70px 70px 70px", gap: 8, padding: "0 16px 8px", alignItems: "center" }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>#</span>
@@ -2527,12 +2548,18 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         const noPhoto = live.filter(p => !p.img);
         const noCreator = live.filter(p => !p.creator);
         const noGrams = live.filter(p => !p.grams || p.grams <= 0);
+        const noDesc = live.filter(p => !p.description || p.description.trim().length < 5);
+        const zeroPrice = live.filter(p => !p.price || p.price <= 0);
+        const noColours = live.filter(p => !p.colors || p.colors.length === 0);
         const issues = [
+          noPhoto.length > 0 && { icon: "📷", label: `${noPhoto.length} missing photo`, color: "#ff6b6b" },
+          zeroPrice.length > 0 && { icon: "💰", label: `${zeroPrice.length} with £0 price`, color: "#ff6b6b" },
           noUrl.length > 0 && { icon: "🔗", label: `${noUrl.length} missing source URL`, color: "#f59f00" },
           noPrintTime.length > 0 && { icon: "⏱️", label: `${noPrintTime.length} missing print time`, color: "#f59f00" },
-          noPhoto.length > 0 && { icon: "📷", label: `${noPhoto.length} missing photo`, color: "#ff6b6b" },
           noCreator.length > 0 && { icon: "👤", label: `${noCreator.length} missing creator`, color: "#f59f00" },
           noGrams.length > 0 && { icon: "⚖️", label: `${noGrams.length} missing weight`, color: "#f59f00" },
+          noDesc.length > 0 && { icon: "📝", label: `${noDesc.length} missing description`, color: S.dimmer },
+          noColours.length > 0 && { icon: "🎨", label: `${noColours.length} no colours assigned`, color: "#f59f00" },
         ].filter(Boolean);
         if (issues.length === 0) return null;
         return (
@@ -2856,20 +2883,56 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             </div>
           </div>
 
+          {/* Colours Audit Banner */}
+          {(() => {
+            const liveProds = products.filter(p => getProductStatus(p) === "live");
+            const usedColours = new Set();
+            liveProds.forEach(p => (p.colors || []).forEach(c => usedColours.add(c)));
+            const unusedColours = ALL_COLORS.filter(c => !usedColours.has(c));
+            const brokenRefs = new Set();
+            liveProds.forEach(p => (p.colors || []).forEach(c => { if (!FILAMENTS[c]) brokenRefs.add(c); }));
+            const pausedCount = ALL_COLORS.filter(c => FILAMENTS[c]?.paused).length;
+            const issues = [
+              pausedCount > 0 && { icon: "⏸️", label: `${pausedCount} paused (restocking)`, color: "#f59f00" },
+              unusedColours.length > 0 && { icon: "👻", label: `${unusedColours.length} not used by any live product`, color: S.dimmer },
+              brokenRefs.size > 0 && { icon: "🔗", label: `${brokenRefs.size} colour${brokenRefs.size !== 1 ? "s" : ""} referenced by products but missing from library`, color: "#ff6b6b" },
+            ].filter(Boolean);
+            if (issues.length === 0) return null;
+            return (
+              <div style={{ padding: "10px 16px", borderRadius: 12, background: "rgba(245,159,0,0.06)", border: "1px solid rgba(245,159,0,0.2)", marginBottom: 16, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#f59f00", fontFamily: S.fontHead }}>📋 Colour Audit</span>
+                {issues.map((iss, i) => (
+                  <span key={i} style={{ fontSize: 11, color: iss.color, fontWeight: 600, fontFamily: S.fontHead }}>{iss.icon} {iss.label}</span>
+                ))}
+              </div>
+            );
+          })()}
+
           {/* Existing colours grid */}
           <div className="ep-admin-colours-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
             {ALL_COLORS.map(name => {
               const f = FILAMENTS[name];
               const isEditing = editingColour === name;
+              const isPaused = !!f.paused;
               return (
-                <div key={name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: isEditing ? "rgba(0,201,167,0.06)" : S.card, border: `1px solid ${isEditing ? S.teal : S.border}` }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: f.hex, border: "2px solid rgba(255,255,255,0.12)", flexShrink: 0 }} />
+                <div key={name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: isEditing ? "rgba(0,201,167,0.06)" : isPaused ? "rgba(245,159,0,0.04)" : S.card, border: `1px solid ${isEditing ? S.teal : isPaused ? "rgba(245,159,0,0.3)" : S.border}`, opacity: isPaused ? 0.7 : 1 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: f.hex, border: isPaused ? "2px dashed rgba(245,159,0,0.5)" : "2px solid rgba(255,255,255,0.12)", flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: S.text, fontFamily: S.fontHead, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</div>
                     <div style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>
-                      {f.type}{f.premium ? " ✦" : ""}
+                      {f.type}{f.premium ? " ✦" : ""}{isPaused ? " · ⏸️ Restocking" : ""}
                     </div>
                   </div>
+                  <button
+                    onClick={() => {
+                      const updated = { ...FILAMENTS };
+                      updated[name] = { ...updated[name], paused: !isPaused };
+                      onSaveFilaments(updated);
+                      setSavedMsg(isPaused ? `${name} back in stock!` : `${name} marked as restocking`); setTimeout(() => setSavedMsg(""), 2000);
+                    }}
+                    title={isPaused ? "Mark as back in stock" : "Mark as restocking"}
+                    style={{ width: 28, height: 28, borderRadius: 8, border: "none", background: isPaused ? "rgba(0,201,167,0.12)" : "rgba(245,159,0,0.08)", color: isPaused ? S.teal : "#f59f00", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                  >{isPaused ? "▶️" : "⏸️"}</button>
                   <button
                     onClick={() => {
                       setEditingColour(name);
@@ -3003,6 +3066,26 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 <span style={{ fontSize: 20 }}>⚠️</span>
                 <span style={{ fontSize: 13, color: "#dc3545", fontWeight: 700, fontFamily: S.fontHead }}>{unassigned.length} live product{unassigned.length !== 1 ? "s have" : " has"} no creator assigned</span>
                 <span style={{ marginLeft: "auto", fontSize: 12, color: S.muted, fontFamily: S.fontHead }}>Tap to view →</span>
+              </div>
+            );
+          })()}
+
+          {/* Creator Audit Banner */}
+          {(() => {
+            const liveP = products.filter(p => getProductStatus(p) === "live");
+            const payingNoProds = creators.filter(c => c.licenceStatus === "subscribed" && (parseFloat(c.monthlyCost) || 0) > 0 && !liveP.some(p => p.creator === c.name));
+            const noProfile = creators.filter(c => c.licenceStatus !== "deleted" && !c.profileUrl && liveP.some(p => p.creator === c.name));
+            const issues = [
+              payingNoProds.length > 0 && { icon: "💸", label: `${payingNoProds.length} subscribed with no live products (${payingNoProds.map(c => c.name).join(", ")})`, color: "#ff6b6b" },
+              noProfile.length > 0 && { icon: "🔗", label: `${noProfile.length} with live products but no profile URL`, color: "#f59f00" },
+            ].filter(Boolean);
+            if (issues.length === 0) return null;
+            return (
+              <div style={{ padding: "10px 16px", borderRadius: 12, background: "rgba(245,159,0,0.06)", border: "1px solid rgba(245,159,0,0.2)", display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#f59f00", fontFamily: S.fontHead }}>📋 Creator Audit</span>
+                {issues.map((iss, i) => (
+                  <span key={i} style={{ fontSize: 11, color: iss.color, fontWeight: 600, fontFamily: S.fontHead }}>{iss.icon} {iss.label}</span>
+                ))}
               </div>
             );
           })()}
