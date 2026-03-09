@@ -1783,8 +1783,8 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
     return true;
   });
 
-  // Categories present in stock targets
-  const stockCategories = [...new Set(stockTargets.map(t => prodMap[t.productId]?.category).filter(Boolean))].sort();
+  // All categories from products (show even if no stock targets yet)
+  const stockCategories = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
 
   // Summary stats
   const totalTargets = filtered.reduce((s, t) => s + (t.targetQty || 0), 0);
@@ -1886,7 +1886,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
           {[{ id: "all", label: "All" }, ...stockCategories.map(c => ({ id: c, label: c }))].map(cat => {
             const count = cat.id === "all" ? stockTargets.filter(t => eventFilter === "all" || t.event === eventFilter).reduce((s, t) => s + (t.targetQty || 0), 0) : stockTargets.filter(t => { const p = prodMap[t.productId]; return p?.category === cat.id && (eventFilter === "all" || t.event === eventFilter); }).reduce((s, t) => s + (t.targetQty || 0), 0);
             return (
-              <button key={cat.id} onClick={() => setStockCatFilter(cat.id)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${stockCatFilter === cat.id ? S.teal : S.border}`, background: stockCatFilter === cat.id ? "rgba(0,201,167,0.12)" : "transparent", color: stockCatFilter === cat.id ? S.teal : S.muted, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>
+              <button key={cat.id} onClick={() => setStockCatFilter(cat.id)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px ${count === 0 && cat.id !== "all" ? "dashed" : "solid"} ${stockCatFilter === cat.id ? S.teal : S.border}`, background: stockCatFilter === cat.id ? "rgba(0,201,167,0.12)" : "transparent", color: stockCatFilter === cat.id ? S.teal : count === 0 && cat.id !== "all" ? S.dimmer : S.muted, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>
                 {cat.label} <span style={{ opacity: 0.6 }}>({count})</span>
               </button>
             );
