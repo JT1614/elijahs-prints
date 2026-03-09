@@ -268,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v97 · 2026-03-09";
+const APP_VERSION = "v98 · 2026-03-09";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -648,8 +648,8 @@ const S = {
   card: "rgba(255,255,255,0.03)",
   border: "rgba(255,255,255,0.08)",
   text: "#e8e8e8",
-  muted: "rgba(255,255,255,0.4)",
-  dimmer: "rgba(255,255,255,0.25)",
+  muted: "rgba(255,255,255,0.5)",
+  dimmer: "rgba(255,255,255,0.35)",
 };
 
 function ColorSwatch({ name, selected, onClick, size = 22, disabled }) {
@@ -1658,6 +1658,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                   )}
                 </div>
               </div>
+              <div className="ep-order-checks-wrap" style={{ display: "contents" }}>
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Checkbox checked={order.status.paid} onChange={() => toggleStatus(order.id, "paid")} color={S.teal} />
                 <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: S.teal, fontWeight: 600, fontFamily: S.fontHead }}>Paid</span>
@@ -1679,6 +1680,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Checkbox checked={order.status.despatched} onChange={() => toggleStatus(order.id, "despatched")} color={S.purple} />
                 <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: S.purple, fontWeight: 600, fontFamily: S.fontHead }}>Sent</span>
+              </div>
               </div>
             </div>
           );
@@ -2509,10 +2511,39 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
-        {displayCategories.map(cat => (
-          <button key={cat} onClick={() => setFilter(cat)} style={{ padding: "7px 14px", borderRadius: 20, border: filter === cat ? `1.5px solid ${S.purple}` : `1px solid ${S.border}`, background: filter === cat ? "rgba(132,94,247,0.1)" : "rgba(255,255,255,0.02)", color: filter === cat ? S.purple : S.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>{cat}</button>
-        ))}
+        {displayCategories.map(cat => {
+          const catCount = cat === "All" ? products.length : products.filter(p => p.category === cat).length;
+          return (
+          <button key={cat} onClick={() => setFilter(cat)} style={{ padding: "7px 14px", borderRadius: 20, border: filter === cat ? `1.5px solid ${S.purple}` : `1px solid ${S.border}`, background: filter === cat ? "rgba(132,94,247,0.1)" : "rgba(255,255,255,0.02)", color: filter === cat ? S.purple : S.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 5 }}>{cat}{catCount > 0 && cat !== "All" && <span style={{ fontSize: 10, opacity: 0.7 }}>{catCount}</span>}</button>
+          );
+        })}
       </div>
+
+      {/* Data Audit Banner — live products only */}
+      {(() => {
+        const live = products.filter(p => getProductStatus(p) === "live");
+        const noUrl = live.filter(p => !p.sourceUrl);
+        const noPrintTime = live.filter(p => !p.printTime || parseTimeToHrs(p.printTime) === 0);
+        const noPhoto = live.filter(p => !p.img);
+        const noCreator = live.filter(p => !p.creator);
+        const noGrams = live.filter(p => !p.grams || p.grams <= 0);
+        const issues = [
+          noUrl.length > 0 && { icon: "🔗", label: `${noUrl.length} missing source URL`, color: "#f59f00" },
+          noPrintTime.length > 0 && { icon: "⏱️", label: `${noPrintTime.length} missing print time`, color: "#f59f00" },
+          noPhoto.length > 0 && { icon: "📷", label: `${noPhoto.length} missing photo`, color: "#ff6b6b" },
+          noCreator.length > 0 && { icon: "👤", label: `${noCreator.length} missing creator`, color: "#f59f00" },
+          noGrams.length > 0 && { icon: "⚖️", label: `${noGrams.length} missing weight`, color: "#f59f00" },
+        ].filter(Boolean);
+        if (issues.length === 0) return null;
+        return (
+          <div style={{ padding: "10px 16px", borderRadius: 12, background: "rgba(245,159,0,0.06)", border: "1px solid rgba(245,159,0,0.2)", marginBottom: 16, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#f59f00", fontFamily: S.fontHead }}>📋 Data Audit ({live.length} live)</span>
+            {issues.map((iss, i) => (
+              <span key={i} style={{ fontSize: 11, color: iss.color, fontWeight: 600, fontFamily: S.fontHead }}>{iss.icon} {iss.label}</span>
+            ))}
+          </div>
+        );
+      })()}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {filtered.map(product => (
@@ -2929,24 +2960,25 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* RAG status mapping — exposure-aware */}
           {(() => {
-            const activeProds = products.filter(p => p.available);
+            const liveProds = products.filter(p => getProductStatus(p) === "live");
             const getRag = (c) => {
               if (c.licenceStatus === "deleted") return "grey";
               if (c.licenceStatus === "subscribed" || c.licenceStatus === "free") return "green";
               if (c.licenceStatus === "known_risk" || c.licenceStatus === "pending_subscribe" || c.licenceStatus === "dm_sent") return "amber";
               // no_licence: red only if live products exist, amber otherwise
-              const hasLiveProds = activeProds.some(p => p.creator === c.name);
+              const hasLiveProds = liveProds.some(p => p.creator === c.name);
               return hasLiveProds ? "red" : "amber";
             };
             const counts = { red: 0, amber: 0, green: 0, grey: 0 };
             const costs = { red: 0, amber: 0, green: 0, grey: 0, all: 0 };
-            creators.forEach(c => { const r = getRag(c); counts[r]++; const cost = parseFloat(c.monthlyCost) || 0; costs[r] += cost; if (c.licenceStatus !== "deleted") costs.all += cost; });
+            const prodCounts = { red: 0, amber: 0, green: 0, grey: 0, all: 0 };
+            creators.forEach(c => { const r = getRag(c); counts[r]++; const cost = parseFloat(c.monthlyCost) || 0; costs[r] += cost; if (c.licenceStatus !== "deleted") costs.all += cost; const cProds = liveProds.filter(p => p.creator === c.name).length; prodCounts[r] += cProds; prodCounts.all += cProds; });
             const filterBtns = [
-              { id: "all", label: "All", val: creators.length, cost: costs.all, bg: "rgba(255,255,255,0.03)", border: S.border, color: S.text },
-              { id: "red", label: "🔴 Action needed", val: counts.red, cost: costs.red, bg: "rgba(220,53,69,0.1)", border: "rgba(220,53,69,0.3)", color: "#dc3545" },
-              { id: "amber", label: "🟡 In progress", val: counts.amber, cost: costs.amber, bg: "rgba(245,159,0,0.1)", border: "rgba(245,159,0,0.3)", color: "#f59f00" },
-              { id: "green", label: "✅ Covered", val: counts.green, cost: costs.green, bg: "rgba(0,201,167,0.1)", border: "rgba(0,201,167,0.3)", color: S.teal },
-              { id: "grey", label: "🗑 Archived", val: counts.grey, cost: costs.grey, bg: "rgba(255,255,255,0.03)", border: S.border, color: S.dimmer },
+              { id: "all", label: "All", val: creators.length, cost: costs.all, prods: prodCounts.all, bg: "rgba(255,255,255,0.03)", border: S.border, color: S.text },
+              { id: "red", label: "🔴 Action needed", val: counts.red, cost: costs.red, prods: prodCounts.red, bg: "rgba(220,53,69,0.1)", border: "rgba(220,53,69,0.3)", color: "#dc3545" },
+              { id: "amber", label: "🟡 In progress", val: counts.amber, cost: costs.amber, prods: prodCounts.amber, bg: "rgba(245,159,0,0.1)", border: "rgba(245,159,0,0.3)", color: "#f59f00" },
+              { id: "green", label: "✅ Covered", val: counts.green, cost: costs.green, prods: prodCounts.green, bg: "rgba(0,201,167,0.1)", border: "rgba(0,201,167,0.3)", color: S.teal },
+              { id: "grey", label: "🗑 Archived", val: counts.grey, cost: costs.grey, prods: prodCounts.grey, bg: "rgba(255,255,255,0.03)", border: S.border, color: S.dimmer },
             ];
             return (
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -2955,6 +2987,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     <div style={{ fontSize: 22, fontWeight: 800, color: s.color, fontFamily: S.fontHead }}>{s.val}</div>
                     <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{s.label}</div>
                     {s.cost > 0 && <div style={{ fontSize: 11, color: S.muted, marginTop: 4, fontFamily: S.fontMono }}>£{s.cost.toFixed(2)}/mo</div>}
+                    {s.prods > 0 && <div style={{ fontSize: 10, color: S.dimmer, marginTop: 2, fontFamily: S.fontMono }}>{s.prods} live product{s.prods !== 1 ? "s" : ""}</div>}
                   </div>
                 ))}
               </div>
@@ -2963,7 +2996,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
           {/* Import buttons */}
           {(() => {
-            const unassigned = products.filter(p => p.available && !p.creator);
+            const unassigned = products.filter(p => getProductStatus(p) === "live" && !p.creator);
             if (unassigned.length === 0) return null;
             return (
               <div onClick={() => { setProductCreatorFilter("__none__"); setStatusFilter("All"); setFilter("All"); setAdminTab("products"); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 12, background: "rgba(220,53,69,0.08)", border: "1px solid rgba(220,53,69,0.25)", cursor: "pointer" }}>
@@ -3056,7 +3089,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           <div style={{ background: S.card, borderRadius: 16, border: `1px solid ${S.border}`, overflow: "hidden" }}>
             {creators.length === 0 && <p style={{ textAlign: "center", color: S.dimmer, fontSize: 13, padding: 32 }}>No creators yet — import the Creator Register CSV to get started.</p>}
             {creators.map((c, idx) => {
-              const activeProds = products.filter(p => p.available && p.creator === c.name);
+              const activeProds = products.filter(p => getProductStatus(p) === "live" && p.creator === c.name);
               const hasProds = activeProds.length > 0;
               const rag = (() => {
                 if (c.licenceStatus === "deleted") return "grey";
@@ -3117,7 +3150,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       <span style={{ fontSize: 11, fontWeight: 700, color: health.color, background: health.bg, padding: "3px 10px", borderRadius: 20, fontFamily: S.fontHead }}>{health.label}</span>
                       {c.monthlyCost > 0 && <span style={{ fontSize: 12, color: S.muted, fontFamily: S.fontMono }}>£{c.monthlyCost.toFixed(2)}/mo</span>}
                       <span style={{ fontSize: 11, fontWeight: 600, color: c.photoRights === "included" ? S.teal : "#f59f00", background: c.photoRights === "included" ? "rgba(0,201,167,0.1)" : "rgba(245,159,0,0.08)", padding: "3px 8px", borderRadius: 12, fontFamily: S.fontHead }}>{c.photoRights === "included" ? "📷 Photos OK" : "📷 Own photos"}</span>
-                      <span onClick={activeProds.length > 0 ? (e) => { e.stopPropagation(); setProductCreatorFilter(c.name); setStatusFilter("All"); setFilter("All"); setAdminTab("products"); } : undefined} style={{ fontSize: 11, color: activeProds.length > 0 ? S.teal : S.dimmer, fontWeight: activeProds.length > 0 ? 700 : 400, cursor: activeProds.length > 0 ? "pointer" : "default", textDecoration: activeProds.length > 0 ? "underline" : "none", fontFamily: S.fontHead }}>{activeProds.length} active product{activeProds.length !== 1 ? "s" : ""}</span>
+                      <span onClick={activeProds.length > 0 ? (e) => { e.stopPropagation(); setProductCreatorFilter(c.name); setStatusFilter("All"); setFilter("All"); setAdminTab("products"); } : undefined} style={{ fontSize: 11, color: activeProds.length > 0 ? S.teal : S.dimmer, fontWeight: activeProds.length > 0 ? 700 : 400, cursor: activeProds.length > 0 ? "pointer" : "default", textDecoration: activeProds.length > 0 ? "underline" : "none", fontFamily: S.fontHead }}>{activeProds.length} live product{activeProds.length !== 1 ? "s" : ""}</span>
                       <button onClick={() => setEditing("creator_" + c.id)} style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 12, cursor: "pointer", fontFamily: S.fontHead }}>Edit</button>
                     </div>
                   )}
@@ -3978,9 +4011,10 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           .ep-form-3col { grid-template-columns: 1fr !important; }
           .ep-checkout-steps span.ep-step-label { display: none !important; }
           .ep-order-header { display: none !important; }
-          .ep-order-row { grid-template-columns: 1fr !important; }
+          .ep-order-row { grid-template-columns: 36px 1fr !important; grid-template-rows: auto auto !important; }
           .ep-order-check { justify-content: flex-start !important; }
           .ep-check-label { display: inline !important; }
+          .ep-order-checks-wrap { grid-column: 1 / -1 !important; display: flex !important; gap: 12px !important; flex-wrap: wrap !important; padding-top: 8px !important; border-top: 1px solid rgba(255,255,255,0.05) !important; margin-top: 8px !important; }
           .ep-stats-grid { grid-template-columns: repeat(3, 1fr) !important; }
           .ep-editor-2col { grid-template-columns: 1fr !important; }
           .ep-hero { padding: 40px 16px 28px !important; }
