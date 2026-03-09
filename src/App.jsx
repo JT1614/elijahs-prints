@@ -1979,7 +1979,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
 
                   {/* CB Price */}
                   <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                    <span style={{ fontSize: 10, color: S.muted, fontFamily: S.fontHead, marginRight: 2 }}>CB</span>
+                    <span style={{ fontSize: 10, color: S.muted, fontFamily: S.fontHead, marginRight: 2 }}>CB{prod?.price ? ` (web £${Number(prod.price).toFixed(2)})` : ""}</span>
                     <button onClick={() => adjustField(t.id, "carBootPrice", -1, 0, 0.5)} style={inlineBtnStyle}>−</button>
                     <span style={{ fontSize: 14, fontWeight: 800, color: t.carBootPrice ? S.teal : S.dimmer, fontFamily: S.fontMono, minWidth: 48, textAlign: "center" }}>
                       {t.carBootPrice ? "£" + t.carBootPrice.toFixed(2) : "—"}
@@ -2082,7 +2082,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
                   <input type="number" min="0" value={editModal.onHand} onChange={e => setEditModal({ ...editModal, onHand: parseInt(e.target.value) || 0 })} style={inputStyle} />
                 </div>
                 <div>
-                  <label style={labelStyle}>CB Price (£)</label>
+                  <label style={labelStyle}>CB Price (£){selProd?.price ? ` — web price £${Number(selProd.price).toFixed(2)}` : ""}</label>
                   <input type="number" min="0" step="0.50" value={editModal.carBootPrice} onChange={e => setEditModal({ ...editModal, carBootPrice: parseFloat(e.target.value) || 0 })} style={inputStyle} />
                 </div>
               </div>
