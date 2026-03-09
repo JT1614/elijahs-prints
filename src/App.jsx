@@ -268,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v96 · 2026-03-08";
+const APP_VERSION = "v97 · 2026-03-09";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1107,7 +1107,10 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, color: S.muted, marginBottom: 4, fontFamily: S.fontHead, fontWeight: 600 }}>CREATOR</div>
-              <input style={inputStyle} value={p.creator || ""} onChange={e => set("creator", e.target.value)} placeholder="e.g. helloadorable" list="creator-datalist" />
+              <div style={{ display: "flex", gap: 6 }}>
+                <input style={{ ...inputStyle, flex: 1 }} value={p.creator || ""} onChange={e => set("creator", e.target.value)} placeholder="e.g. helloadorable" list="creator-datalist" />
+                {(() => { const cr = creators.find(c => c.name === p.creator); return cr?.profileUrl ? <button onClick={() => window.open(cr.profileUrl, "_blank")} style={{ padding: "8px 12px", borderRadius: 10, border: `1px solid rgba(132,94,247,0.3)`, background: "rgba(132,94,247,0.08)", color: S.purple, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, whiteSpace: "nowrap" }}>👤 Profile</button> : null; })()}
+              </div>
               <datalist id="creator-datalist">{creators.map(c => <option key={c.id} value={c.name} />)}</datalist>
             </div>
             <div style={{ flex: 1 }}>
@@ -1329,8 +1332,9 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     // Label 6: Newest (within audience, highest ID)
     const newestSorted = [...audienceProducts].sort((a, b) => b.id - a.id);
     const newProduct1 = pickProduct(newestSorted);
-    // Label 7: Second newest
-    const newProduct2 = pickProduct(newestSorted);
+    // Label 7: Premium product (within audience, premiumOverride set); falls back to second newest
+    const premiumCandidates = audienceProducts.filter(p => p.premiumOverride);
+    const newProduct2 = pickProduct(premiumCandidates.length > 0 ? premiumCandidates : newestSorted);
 
     // Address
     const addr = order.shipping?.id === "collection"
@@ -1458,8 +1462,8 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
   <!-- Label 6: Just Arrived -->
   ${productLabel(newProduct1, "🆕 JUST ARRIVED")}
 
-  <!-- Label 7: Also New -->
-  ${productLabel(newProduct2, "🆕 ALSO NEW")}
+  <!-- Label 7: Premium Pick -->
+  ${productLabel(newProduct2, "✨ PREMIUM PICK")}
 
   <!-- Label 8: Elijah / Brand (full-bleed photo) -->
   <div class="label"><div class="label-inner elijah-label">
@@ -1859,7 +1863,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
             batchResults.length === 0 ? (
               <p style={{ color: S.muted, fontSize: 13 }}>Nothing to print — all targets met!</p>
             ) : (
-              <div style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${S.border}` }}>
+              <div className="ep-batch-table" style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${S.border}`, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: "rgba(0,201,167,0.1)" }}>
@@ -2430,25 +2434,26 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       </div>
 
       {/* Tab bar */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 24, background: "rgba(255,255,255,0.02)", borderRadius: 12, padding: 4, border: `1px solid ${S.border}` }}>
+      <div className="ep-admin-tabs" style={{ display: "flex", gap: 4, marginBottom: 24, background: "rgba(255,255,255,0.02)", borderRadius: 12, padding: 4, border: `1px solid ${S.border}`, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
         {[
-          { id: "orders", label: "📦 Order Book", count: pendingOrders },
-          { id: "products", label: "🏷️ Products", count: products.length },
-{ id: "colours", label: "🎨 Colours", count: ALL_COLORS.length },
-          { id: "categories", label: "📂 Categories", count: categories.length },
-          { id: "creators", label: "👤 Creators", count: creators.length },
-          { id: "stock", label: "📊 Stock", count: stockTargets.length },
+          { id: "orders", label: "📦 Order Book", shortLabel: "📦 Orders", count: pendingOrders },
+          { id: "products", label: "🏷️ Products", shortLabel: "🏷️ Products", count: products.length },
+{ id: "colours", label: "🎨 Colours", shortLabel: "🎨 Colours", count: ALL_COLORS.length },
+          { id: "categories", label: "📂 Categories", shortLabel: "📂 Cats", count: categories.length },
+          { id: "creators", label: "👤 Creators", shortLabel: "👤 Creators", count: creators.length },
+          { id: "stock", label: "📊 Stock", shortLabel: "📊 Stock", count: stockTargets.length },
         ].map(tab => (
 
            
           <button key={tab.id} onClick={() => { setAdminTab(tab.id); setProductCreatorFilter(""); }} style={{
-            flex: 1, padding: "12px 16px", borderRadius: 10, border: "none", cursor: "pointer",
+            flex: "1 0 auto", padding: "12px 16px", borderRadius: 10, border: "none", cursor: "pointer",
             background: adminTab === tab.id ? "rgba(0,201,167,0.1)" : "transparent",
             color: adminTab === tab.id ? S.teal : S.muted,
             fontSize: 14, fontWeight: 700, fontFamily: S.fontHead, transition: "all 0.2s",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, whiteSpace: "nowrap",
           }}>
-            {tab.label}
+            <span className="ep-tab-full">{tab.label}</span>
+            <span className="ep-tab-short" style={{ display: "none" }}>{tab.shortLabel}</span>
             {tab.count > 0 && (
               <span style={{
                 fontSize: 11, fontFamily: S.fontMono, fontWeight: 700, padding: "2px 8px", borderRadius: 10,
@@ -2523,6 +2528,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 <span style={{ fontSize: 14, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{product.name}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{product.price.toFixed(2)}</span>
                 <span style={{ fontSize: 11, color: S.dimmer }}>{product.grams}g</span>
+                {(() => { const hrs = parseTimeToHrs(product.printTime); const margin = hrs > 0 && product.grams > 0 ? (product.price - product.grams * 0.01) / hrs : 0; return margin > 0 ? <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: margin >= 2 ? "rgba(0,201,167,0.1)" : margin >= 1 ? "rgba(245,159,0,0.1)" : "rgba(255,107,107,0.1)", color: margin >= 2 ? S.teal : margin >= 1 ? "#f59f00" : "#ff6b6b", fontWeight: 700, fontFamily: S.fontMono }}>£{margin.toFixed(2)}/hr</span> : null; })()}
                 {autoBadges[product.id] && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: product.premiumOverride ? "rgba(255,212,59,0.15)" : "rgba(0,201,167,0.1)", color: product.premiumOverride ? "#ffd43b" : S.teal, fontWeight: 600, fontFamily: S.fontHead }}>{autoBadges[product.id]}{product.premiumOverride ? " ⭐" : ""}</span>}
                 {(() => { const st = getProductStatus(product); if (st === "live") return null; const col = STATUS_COLORS[st]; return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: `${col}18`, color: col, fontWeight: 700, fontFamily: S.fontHead }}>{STATUS_LABELS[st]}</span>; })()}
                 {product.maxColors > 1 && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(132,94,247,0.1)", color: S.purple, fontWeight: 600 }}>{product.maxColors} colours</span>}
@@ -3989,6 +3995,11 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           .ep-colour-form-grid { grid-template-columns: 1fr !important; }
           button:not(.ep-swatch), [role="button"] { min-height: 44px; }
           .ep-checkout-page input, .ep-checkout-page select, .ep-checkout-page textarea { min-height: 48px; font-size: 16px !important; }
+          .ep-admin-tabs { gap: 2px !important; }
+          .ep-admin-tabs button { padding: 10px 8px !important; font-size: 12px !important; }
+          .ep-tab-full { display: none !important; }
+          .ep-tab-short { display: inline !important; }
+          .ep-batch-table table { min-width: 420px; }
         }
         @media (max-width: 380px) {
           .ep-product-grid { grid-template-columns: 1fr !important; }
