@@ -268,7 +268,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v101 · 2026-03-09";
+const APP_VERSION = "v102 · 2026-03-09";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -2919,26 +2919,55 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     {pausedColours.map(colour => {
                       const prodsForColour = affectedProds.filter(p => (p.colors || []).includes(colour));
                       if (prodsForColour.length === 0) return null;
+                      const fullRangeProds = prodsForColour.filter(p => (p.colors || []).length >= ALL_COLORS.length);
+                      const selectiveProds = prodsForColour.filter(p => (p.colors || []).length < ALL_COLORS.length);
                       return (
                         <div key={colour} style={{ marginBottom: 16 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                             <div style={{ width: 18, height: 18, borderRadius: 5, background: FILAMENTS[colour]?.hex || "#888", border: "2px dashed rgba(245,159,0,0.5)", flexShrink: 0 }} />
                             <span style={{ fontSize: 13, fontWeight: 700, color: "#f59f00", fontFamily: S.fontHead }}>{colour}</span>
                             <span style={{ fontSize: 11, color: S.dimmer }}>— {prodsForColour.length} product{prodsForColour.length !== 1 ? "s" : ""}</span>
+                            {fullRangeProds.length > 0 && (
+                              <button
+                                onClick={() => {
+                                  if (!confirm(`Remove "${colour}" from ${fullRangeProds.length} full-range product${fullRangeProds.length !== 1 ? "s" : ""}? They have all colours so this is safe.`)) return;
+                                  const ids = new Set(fullRangeProds.map(p => p.id || p.name));
+                                  const updatedProducts = products.map(p => {
+                                    if (!ids.has(p.id) && !ids.has(p.name)) return p;
+                                    return { ...p, colors: (p.colors || []).filter(c => c !== colour) };
+                                  });
+                                  onSave(updatedProducts);
+                                  setSavedMsg(`Removed ${colour} from ${fullRangeProds.length} full-range products`); setTimeout(() => setSavedMsg(""), 3000);
+                                }}
+                                style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${S.teal}`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}
+                              >Remove from {fullRangeProds.length} full-range product{fullRangeProds.length !== 1 ? "s" : ""}</button>
+                            )}
                           </div>
-                          {prodsForColour.map(prod => {
+                          {selectiveProds.map(prod => {
                             const otherColours = (prod.colors || []).filter(c => !FILAMENTS[c]?.paused);
                             const hasAlternatives = otherColours.length > 0;
                             const availableSwaps = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && !(prod.colors || []).includes(c));
                             return (
                               <div key={prod.id || prod.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 4, borderRadius: 8, background: !hasAlternatives ? "rgba(255,107,107,0.06)" : "rgba(255,255,255,0.02)", border: `1px solid ${!hasAlternatives ? "rgba(255,107,107,0.2)" : S.border}`, flexWrap: "wrap" }}>
                                 <div style={{ flex: 1, minWidth: 140 }}>
-                                  <div style={{ fontSize: 12, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{prod.name}</div>
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: S.teal, fontFamily: S.fontHead, cursor: "pointer", textDecoration: "underline" }} onClick={() => { setEditing(prod); setAdminTab("products"); }}>{prod.name}</div>
                                   <div style={{ fontSize: 10, color: hasAlternatives ? S.dimmer : "#ff6b6b", fontFamily: S.fontMono }}>
                                     {hasAlternatives ? `${otherColours.length} other colour${otherColours.length !== 1 ? "s" : ""} available` : "⚠️ NO available colours — action needed"}
                                   </div>
                                 </div>
                                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                  <button
+                                    onClick={() => {
+                                      if (!confirm(`Remove "${colour}" from ${prod.name}?`)) return;
+                                      const updatedProducts = products.map(p => {
+                                        if (p.id !== prod.id && p.name !== prod.name) return p;
+                                        return { ...p, colors: (p.colors || []).filter(c => c !== colour) };
+                                      });
+                                      onSave(updatedProducts);
+                                      setSavedMsg(`Removed ${colour} from ${prod.name}`); setTimeout(() => setSavedMsg(""), 3000);
+                                    }}
+                                    style={{ padding: "5px 10px", borderRadius: 6, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}
+                                  >Remove</button>
                                   <select
                                     defaultValue=""
                                     onChange={e => {
