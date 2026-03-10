@@ -272,7 +272,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v111 · 2026-03-09";
+const APP_VERSION = "v112 · 2026-03-10";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1001,8 +1001,8 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
         {(categoryMeta[p.category] || {}).hasDimensions && (
           <div style={sectionStyle}>
             <div className="ep-editor-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div><label style={labelStyle}>Width (mm)</label><input style={inputStyle} type="number" min="0" value={p.widthMm || ""} onChange={e => set("widthMm", parseInt(e.target.value) || 0)} placeholder="e.g. 95" /></div>
-              <div><label style={labelStyle}>Height (mm)</label><input style={inputStyle} type="number" min="0" value={p.heightMm || ""} onChange={e => set("heightMm", parseInt(e.target.value) || 0)} placeholder="e.g. 110" /></div>
+              <div><label style={labelStyle}>Width (mm)</label><input style={inputStyle} type="number" min="0" value={p.widthMm || ""} onChange={e => set("widthMm", e.target.value === "" ? "" : parseInt(e.target.value))} onBlur={() => { if (p.widthMm === "" || isNaN(p.widthMm)) set("widthMm", 0); }} placeholder="e.g. 95" /></div>
+              <div><label style={labelStyle}>Height (mm)</label><input style={inputStyle} type="number" min="0" value={p.heightMm || ""} onChange={e => set("heightMm", e.target.value === "" ? "" : parseInt(e.target.value))} onBlur={() => { if (p.heightMm === "" || isNaN(p.heightMm)) set("heightMm", 0); }} placeholder="e.g. 110" /></div>
             </div>
             {p.widthMm > 0 && p.heightMm > 0 && (
               <div style={{ display: "flex", gap: 16, marginTop: 8, padding: "8px 12px", background: "rgba(255,255,255,0.02)", borderRadius: 8, border: `1px solid ${S.border}` }}>
@@ -1015,8 +1015,8 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
 
         {/* Row: price, grams, print time, badge */}
         <div className="ep-editor-2col" style={{ ...sectionStyle, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
-          <div><label style={labelStyle}>Price (£) *</label><input style={inputStyle} type="number" step="0.05" min="0" value={p.price} onChange={e => set("price", parseFloat(e.target.value) || 0)} /></div>
-          <div><label style={labelStyle}>Weight (g)</label><input style={inputStyle} type="number" min="0" value={p.grams} onChange={e => set("grams", parseInt(e.target.value) || 0)} /></div>
+          <div><label style={labelStyle}>Price (£) *</label><input style={inputStyle} type="number" step="0.05" min="0" value={p.price} onChange={e => set("price", e.target.value === "" ? "" : parseFloat(e.target.value))} onBlur={() => { if (p.price === "" || isNaN(p.price)) set("price", 0); }} /></div>
+          <div><label style={labelStyle}>Weight (g)</label><input style={inputStyle} type="number" min="0" value={p.grams} onChange={e => set("grams", e.target.value === "" ? "" : parseInt(e.target.value))} onBlur={() => { if (p.grams === "" || isNaN(p.grams)) set("grams", 0); }} /></div>
           <div><label style={labelStyle}>Print Time</label><input style={inputStyle} value={p.printTime} onChange={e => set("printTime", e.target.value)} placeholder="e.g. 2 hrs" /></div>
           <div>
             <label style={labelStyle}>Premium</label>
@@ -1226,9 +1226,9 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
         hrsThis: orderHrs,
         estDate: hrsPerDay > 0 ? (() => {
           const totalHrs = cumHrs + orderHrs;
-          const days = Math.ceil(totalHrs / hrsPerDay);
+          const calendarHrs = (totalHrs / hrsPerDay) * 24;
           const d = new Date();
-          d.setDate(d.getDate() + Math.max(1, days));
+          d.setTime(d.getTime() + calendarHrs * 60 * 60 * 1000);
           return d;
         })() : null,
         produced: false,
@@ -1539,7 +1539,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
         <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, minWidth: 28, textAlign: "center" }}>{hrsPerDay}</span>
         <button onClick={() => updateHrsPerDay(hrsPerDay + 1)} style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 15, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
         <span style={{ fontSize: 12, color: S.dimmer }}>hrs/day</span>
-        <span style={{ fontSize: 11, color: S.dimmer, marginLeft: "auto" }}>Used for estimated ready dates below</span>
+        <span style={{ fontSize: 11, color: S.dimmer, marginLeft: "auto" }}>Printing hrs/day — set 24 for 24/7</span>
       </div>
 
       {/* Batch print & test buttons */}
@@ -1680,8 +1680,8 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                   {est && !allDone && !est.produced && est.hrsThis > 0 && (
                     <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono, display: "flex", alignItems: "center", gap: 6 }}>
                       <span>⏱️ {est.hrsThis.toFixed(1)}h print</span>
-                      {est.hrsAhead > 0 && <span style={{ color: "#f59f00" }}>({est.hrsAhead.toFixed(1)}h ahead)</span>}
-                      {est.estDate && <span style={{ color: S.muted, background: "rgba(255,255,255,0.04)", padding: "1px 8px", borderRadius: 6 }}>📅 ~{est.estDate.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</span>}
+                      {est.hrsAhead > 0 && <span style={{ color: "#f59f00" }}>· {(est.hrsAhead + est.hrsThis).toFixed(1)}h total</span>}
+                      {est.estDate && <span style={{ color: S.muted, background: "rgba(255,255,255,0.04)", padding: "1px 8px", borderRadius: 6 }}>📅 ~{est.estDate.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} {est.estDate.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
                     </span>
                   )}
                   {est && !allDone && est.produced && (
@@ -1841,8 +1841,9 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
       .sort((a, b) => b.remaining - a.remaining);
 
     const batches = [];
-    let budget = batchMode === "hours" ? batchValue : Infinity;
-    let itemBudget = batchMode === "items" ? batchValue : Infinity;
+    const val = parseInt(batchValue) || 1;
+    let budget = batchMode === "hours" ? val : Infinity;
+    let itemBudget = batchMode === "items" ? val : Infinity;
 
     for (const t of remaining) {
       if (budget <= 0 || itemBudget <= 0) break;
@@ -2142,7 +2143,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
               <option value="hours">By hours available</option>
               <option value="items">By items needed</option>
             </select>
-            <input type="number" min="1" value={batchValue} onChange={e => setBatchValue(parseInt(e.target.value) || 1)} style={{ ...inputStyle, width: 80 }} />
+            <input type="number" min="1" value={batchValue} onChange={e => setBatchValue(e.target.value === "" ? "" : parseInt(e.target.value))} onBlur={() => { if (batchValue === "" || isNaN(batchValue)) setBatchValue(1); }} style={{ ...inputStyle, width: 80 }} />
             <span style={{ fontSize: 13, color: S.muted }}>{batchMode === "hours" ? "hours" : "items"}</span>
             <button onClick={generateBatch} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: S.teal, color: "#1a1a2e", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead }}>Generate</button>
           </div>
@@ -2340,15 +2341,15 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
                 <div>
                   <label style={labelStyle}>Target Qty</label>
-                  <input type="number" min="0" value={editModal.targetQty} onChange={e => setEditModal({ ...editModal, targetQty: parseInt(e.target.value) || 0 })} style={inputStyle} />
+                  <input type="number" min="0" value={editModal.targetQty} onChange={e => setEditModal({ ...editModal, targetQty: e.target.value === "" ? "" : parseInt(e.target.value) })} onBlur={() => { if (editModal.targetQty === "" || isNaN(editModal.targetQty)) setEditModal(m => ({ ...m, targetQty: 0 })); }} style={inputStyle} />
                 </div>
                 <div>
                   <label style={labelStyle}>On Hand</label>
-                  <input type="number" min="0" value={editModal.onHand} onChange={e => setEditModal({ ...editModal, onHand: parseInt(e.target.value) || 0 })} style={inputStyle} />
+                  <input type="number" min="0" value={editModal.onHand} onChange={e => setEditModal({ ...editModal, onHand: e.target.value === "" ? "" : parseInt(e.target.value) })} onBlur={() => { if (editModal.onHand === "" || isNaN(editModal.onHand)) setEditModal(m => ({ ...m, onHand: 0 })); }} style={inputStyle} />
                 </div>
                 <div>
                   <label style={labelStyle}>CB Price (£){selProd?.price ? ` — web price £${Number(selProd.price).toFixed(2)}` : ""}</label>
-                  <input type="number" min="0" step="0.50" value={editModal.carBootPrice} onChange={e => setEditModal({ ...editModal, carBootPrice: parseFloat(e.target.value) || 0 })} style={inputStyle} />
+                  <input type="number" min="0" step="0.50" value={editModal.carBootPrice} onChange={e => setEditModal({ ...editModal, carBootPrice: e.target.value === "" ? "" : parseFloat(e.target.value) })} onBlur={() => { if (editModal.carBootPrice === "" || isNaN(editModal.carBootPrice)) setEditModal(m => ({ ...m, carBootPrice: 0 })); }} style={inputStyle} />
                 </div>
               </div>
 
@@ -2679,6 +2680,18 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const filteredByCategory = filter === "All" ? filteredByStatus : filteredByStatus.filter(p => p.category === filter);
   const filtered = !productCreatorFilter ? filteredByCategory : productCreatorFilter === "__none__" ? filteredByCategory.filter(p => !p.creator) : filteredByCategory.filter(p => p.creator === productCreatorFilter);
 
+  // Margin/hr relative banding: compute thresholds from filtered products
+  const marginHrBands = useMemo(() => {
+    const margins = filtered.map(p => {
+      const hrs = parseTimeToHrs(p.printTime);
+      return hrs > 0 && p.grams > 0 ? (p.price - p.grams * 0.01) / hrs : null;
+    }).filter(m => m !== null && m > 0).sort((a, b) => a - b);
+    if (margins.length < 3) return { low: 0, high: Infinity };
+    const i33 = Math.floor(margins.length / 3);
+    const i67 = Math.floor((margins.length * 2) / 3);
+    return { low: margins[i33], high: margins[i67] };
+  }, [filtered]);
+
   const migrateImages = async () => {
     const base64Products = products.filter(p => p.img && p.img.startsWith("data:"));
     if (base64Products.length === 0) { setMigrationMsg("✅ No base64 images to migrate — all clean!"); setTimeout(() => setMigrationMsg(""), 3000); return; }
@@ -2875,7 +2888,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 <span style={{ fontSize: 14, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{product.name}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{product.price.toFixed(2)}</span>
                 <span style={{ fontSize: 11, color: S.dimmer }}>{product.grams}g</span>
-                {(() => { const hrs = parseTimeToHrs(product.printTime); const margin = hrs > 0 && product.grams > 0 ? (product.price - product.grams * 0.01) / hrs : 0; return margin > 0 ? <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: margin >= 2 ? "rgba(0,201,167,0.1)" : margin >= 1 ? "rgba(245,159,0,0.1)" : "rgba(255,107,107,0.1)", color: margin >= 2 ? S.teal : margin >= 1 ? "#f59f00" : "#ff6b6b", fontWeight: 700, fontFamily: S.fontMono }}>£{margin.toFixed(2)}/hr</span> : null; })()}
+                {(() => { const hrs = parseTimeToHrs(product.printTime); const hasData = hrs > 0 && product.grams > 0; if (!hasData) return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(136,136,170,0.1)", color: S.dimmer, fontWeight: 700, fontFamily: S.fontMono }}>— /hr</span>; const margin = (product.price - product.grams * 0.01) / hrs; const band = margin >= marginHrBands.high ? "top" : margin >= marginHrBands.low ? "mid" : "low"; const bg = band === "top" ? "rgba(0,201,167,0.1)" : band === "mid" ? "rgba(245,159,0,0.1)" : "rgba(255,107,107,0.1)"; const col = band === "top" ? S.teal : band === "mid" ? "#f59f00" : "#ff6b6b"; return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: bg, color: col, fontWeight: 700, fontFamily: S.fontMono }}>£{margin.toFixed(2)}/hr</span>; })()}
                 {autoBadges[product.id] && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: product.premiumOverride ? "rgba(255,212,59,0.15)" : "rgba(0,201,167,0.1)", color: product.premiumOverride ? "#ffd43b" : S.teal, fontWeight: 600, fontFamily: S.fontHead }}>{autoBadges[product.id]}{product.premiumOverride ? " ⭐" : ""}</span>}
                 {(() => { const st = getProductStatus(product); if (st === "live") return null; const col = STATUS_COLORS[st]; return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: `${col}18`, color: col, fontWeight: 700, fontFamily: S.fontHead }}>{STATUS_LABELS[st]}</span>; })()}
                 {product.maxColors > 1 && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(132,94,247,0.1)", color: S.purple, fontWeight: 600 }}>{product.maxColors} colours</span>}
@@ -3648,7 +3661,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <input value={c.profileUrl} onChange={e => { const u=[...creators]; u[idx]={...u[idx],profileUrl:e.target.value}; setCreators(u); }} placeholder="Profile URL" style={{ flex: 3, minWidth: 160, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
-                        <input value={c.monthlyCost} onChange={e => { const u=[...creators]; u[idx]={...u[idx],monthlyCost:parseFloat(e.target.value)||0}; setCreators(u); }} placeholder="£/mo" type="number" step="0.01" style={{ flex: 1, minWidth: 70, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
+                        <input value={c.monthlyCost} onChange={e => { const u=[...creators]; u[idx]={...u[idx],monthlyCost:e.target.value===""?"":parseFloat(e.target.value)}; setCreators(u); }} onBlur={() => { if (c.monthlyCost === "" || isNaN(c.monthlyCost)) { const u=[...creators]; u[idx]={...u[idx],monthlyCost:0}; setCreators(u); } }} placeholder="£/mo" type="number" step="0.01" style={{ flex: 1, minWidth: 70, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.06)", color: S.text, fontSize: 13, fontFamily: S.fontHead }} />
                         <Tooltip position="top" text="Does this creator's subscription include rights to use their <strong>official product photos</strong> on the ET Print World website?<br/><br/>If yes, you can use MakerWorld/Patreon images. If no, Elijah must photograph every product himself before it goes live.">
                         <button onClick={() => { const u=[...creators]; u[idx]={...u[idx], photoRights: c.photoRights === "included" ? "own_needed" : "included"}; setCreators(u); }} style={{ minWidth: 140, padding: "8px 12px", borderRadius: 8, border: `1px solid ${c.photoRights === "included" ? S.teal : "rgba(245,159,0,0.4)"}`, background: c.photoRights === "included" ? "rgba(0,201,167,0.12)" : "rgba(245,159,0,0.08)", color: c.photoRights === "included" ? S.teal : "#f59f00", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>{c.photoRights === "included" ? "📷 Photos included" : "📷 Own photos needed"}</button>
                         </Tooltip>
