@@ -173,6 +173,18 @@ const DEFAULT_CATEGORY_META = {
 function sortCategoriesByMeta(cats, meta) {
   return [...cats].sort((a, b) => ((meta[a] || {}).sortOrder ?? 99) - ((meta[b] || {}).sortOrder ?? 99));
 }
+
+/* Multi-category helpers — product.category can be string or array */
+function getProductCategories(p) {
+  if (!p || !p.category) return [];
+  return Array.isArray(p.category) ? p.category : [p.category];
+}
+function productInCategory(p, cat) {
+  return getProductCategories(p).includes(cat);
+}
+function isCategoryPaused(cat, meta) {
+  return !!(meta[cat] || {}).paused;
+}
 async function loadCreators() {
   try {
     console.log("loadCreators: step 1 — calling storageGet");
@@ -230,7 +242,8 @@ function parseTimeToHrs(str) {
 
 /* ── Plate Capacity by Category ── */
 function getPlateCapacity(category, widthMm, heightMm) {
-  const cat = (category || "").toLowerCase();
+  const raw = Array.isArray(category) ? category[0] : category;
+  const cat = (raw || "").toLowerCase();
   if (cat === "key rings") return 6;
   if (cat === "clickers") return 3;
   if (cat === "dragons") return 1;
@@ -272,7 +285,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v112 · 2026-03-10";
+const APP_VERSION = "v113 · 2026-03-11";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -677,7 +690,7 @@ function Badge({ text }) {
   return <span style={{ background: bg[text] || "#666", color: fg[text] || "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", position: "absolute", top: 12, right: 12, zIndex: 2 }}>{text}</span>;
 }
 function getPlanterSize(product) {
-  if (product.category !== "Planters" || !product.widthMm || !product.heightMm) return "";
+  if (!productInCategory(product, "Planters") || !product.widthMm || !product.heightMm) return "";
   if ((product.name || "").toLowerCase().includes("wall")) return "Wall";
   const vol = product.widthMm * product.heightMm;
   if (vol <= 10000 || product.heightMm <= 70) return "Small";
@@ -685,7 +698,7 @@ function getPlanterSize(product) {
   return "Large";
 }
 function getDragonSize(product) {
-  if (product.category !== "Dragons") return "";
+  if (!productInCategory(product, "Dragons")) return "";
   const p = product.price;
   if (p <= 2.50) return "Small";
   if (p <= 5.00) return "Medium";
@@ -773,7 +786,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
       transition: "all 0.4s cubic-bezier(0.16,1,0.3,1)", transform: hovered ? "translateY(-6px)" : "translateY(0)",
       boxShadow: hovered ? "0 20px 60px rgba(0,201,167,0.15), 0 0 0 1px rgba(0,201,167,0.2)" : "0 4px 20px rgba(0,0,0,0.2)",
     }}>
-      {product.badge && product.category !== "Dragons" && <Badge text={product.badge} />}
+      {product.badge && !productInCategory(product, "Dragons") && <Badge text={product.badge} />}
       <SizeBadge product={product} />
       <ProductImage product={product} hovered={hovered} />
       <div style={{ padding: "14px 16px 16px" }}>
@@ -981,13 +994,21 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
         </div>
 
         {/* Row: name + category */}
-        <div className="ep-editor-2col" style={{ ...sectionStyle, display: "grid", gridTemplateColumns: "1fr 180px", gap: 12 }}>
-          <div><label style={labelStyle}>Product Name *</label><input style={inputStyle} value={p.name} onChange={e => set("name", e.target.value)} placeholder="Product name" /></div>
+        <div style={{ ...sectionStyle }}>
+          <div style={{ marginBottom: 12 }}><label style={labelStyle}>Product Name *</label><input style={inputStyle} value={p.name} onChange={e => set("name", e.target.value)} placeholder="Product name" /></div>
           <div>
-            <label style={labelStyle}>Category *</label>
-            <select value={p.category} onChange={e => set("category", e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-              {sortCategoriesByMeta(categories, categoryMeta).map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <label style={labelStyle}>Categories * <span style={{ fontWeight: 400, color: S.dimmer }}>(tap to toggle)</span></label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+              {sortCategoriesByMeta(categories, categoryMeta).map(c => {
+                const cats = getProductCategories(p);
+                const active = cats.includes(c);
+                return <button key={c} type="button" onClick={() => {
+                  const current = getProductCategories(p);
+                  const updated = active ? current.filter(x => x !== c) : [...current, c];
+                  if (updated.length > 0) set("category", updated);
+                }} style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${active ? S.teal : S.border}`, background: active ? "rgba(0,201,167,0.15)" : "transparent", color: active ? S.teal : S.muted, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer", fontFamily: S.fontHead }}>{c}</button>;
+              })}
+            </div>
           </div>
         </div>
 
@@ -997,8 +1018,8 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
           <textarea style={{ ...inputStyle, height: 64, resize: "vertical" }} value={p.description} onChange={e => set("description", e.target.value)} />
         </div>
 
-        {/* Dimensions — only shown when category has hasDimensions enabled */}
-        {(categoryMeta[p.category] || {}).hasDimensions && (
+        {/* Dimensions — only shown when any selected category has hasDimensions enabled */}
+        {getProductCategories(p).some(c => (categoryMeta[c] || {}).hasDimensions) && (
           <div style={sectionStyle}>
             <div className="ep-editor-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div><label style={labelStyle}>Width (mm)</label><input style={inputStyle} type="number" min="0" value={p.widthMm || ""} onChange={e => set("widthMm", e.target.value === "" ? "" : parseInt(e.target.value))} onBlur={() => { if (p.widthMm === "" || isNaN(p.widthMm)) set("widthMm", 0); }} placeholder="e.g. 95" /></div>
@@ -1305,9 +1326,9 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     const orderItemIds = order.items.filter(i => !i.isTip).map(i => i.id);
     
     // Look up categories from products list (order items don't carry category)
-    const orderCategories = order.items.filter(i => !i.isTip).map(i => {
+    const orderCategories = order.items.filter(i => !i.isTip).flatMap(i => {
       const prod = (products || []).find(p => p.id === i.id);
-      return prod ? prod.category : (i.category || "");
+      return prod ? getProductCategories(prod) : (i.category ? [].concat(i.category) : []);
     }).filter(Boolean);
     const mainCategory = orderCategories[0] || "";
     
@@ -1317,7 +1338,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     
     // Filter available products by same audience for recommendations
     const audienceProducts = orderAudience
-      ? availProducts.filter(p => (categoryMeta[p.category] || {}).audience === orderAudience)
+      ? availProducts.filter(p => getProductCategories(p).some(c => (categoryMeta[c] || {}).audience === orderAudience))
       : availProducts;
 
     // Build deduplicated recommendation list
@@ -1331,7 +1352,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     };
 
     // Label 4: Same category (within audience)
-    const rangeProduct = pickProduct(audienceProducts.filter(p => p.category === mainCategory));
+    const rangeProduct = pickProduct(audienceProducts.filter(p => productInCategory(p, mainCategory)));
     // Label 5: Most popular (within audience, badged first, then any)
     const badged = audienceProducts.filter(p => p.badge === "Best Seller" || p.badge === "Popular");
     const popularProduct = pickProduct(badged.length > 0 ? badged : audienceProducts);
@@ -1735,6 +1756,8 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
   const [batchValue, setBatchValue] = useState(4);
   const [batchResults, setBatchResults] = useState(null);
   const [sellThrough, setSellThrough] = useState(80); // % expected to sell
+  const [openPanels, setOpenPanels] = useState({ margin: false, filament: false }); // collapsible sections
+  const togglePanel = (key) => setOpenPanels(prev => ({ ...prev, [key]: !prev[key] }));
 
   // Load sell-through % from Firebase
   useEffect(() => {
@@ -1754,7 +1777,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
         id: "st-" + Date.now(),
         productId: addProduct.id,
         productName: addProduct.name,
-        _cat: addProduct.category,
+        _cat: getProductCategories(addProduct)[0] || "",
         colours: [],
         event: events0[0] || "car-boot-1",
         targetQty: 1,
@@ -1783,12 +1806,12 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
   // Filter targets
   const filtered = stockTargets.filter(t => {
     if (eventFilter !== "all" && t.event !== eventFilter) return false;
-    if (stockCatFilter !== "all") { const p = prodMap[t.productId]; if (!p || p.category !== stockCatFilter) return false; }
+    if (stockCatFilter !== "all") { const p = prodMap[t.productId]; if (!p || !productInCategory(p, stockCatFilter)) return false; }
     return true;
   });
 
   // All categories from products (show even if no stock targets yet)
-  const stockCategories = sortCategoriesByMeta([...new Set(products.map(p => p.category).filter(Boolean))], categoryMeta);
+  const stockCategories = sortCategoriesByMeta([...new Set(products.flatMap(p => getProductCategories(p)))], categoryMeta);
 
   // Summary stats
   const totalTargets = filtered.reduce((s, t) => s + (t.targetQty || 0), 0);
@@ -1889,7 +1912,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
       {stockCategories.length > 1 && (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
           {[{ id: "all", label: "All" }, ...stockCategories.map(c => ({ id: c, label: c }))].map(cat => {
-            const count = cat.id === "all" ? stockTargets.filter(t => eventFilter === "all" || t.event === eventFilter).reduce((s, t) => s + (t.targetQty || 0), 0) : stockTargets.filter(t => { const p = prodMap[t.productId]; return p?.category === cat.id && (eventFilter === "all" || t.event === eventFilter); }).reduce((s, t) => s + (t.targetQty || 0), 0);
+            const count = cat.id === "all" ? stockTargets.filter(t => eventFilter === "all" || t.event === eventFilter).reduce((s, t) => s + (t.targetQty || 0), 0) : stockTargets.filter(t => { const p = prodMap[t.productId]; return productInCategory(p, cat.id) && (eventFilter === "all" || t.event === eventFilter); }).reduce((s, t) => s + (t.targetQty || 0), 0);
             return (
               <button key={cat.id} onClick={() => setStockCatFilter(cat.id)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px ${count === 0 && cat.id !== "all" ? "dashed" : "solid"} ${stockCatFilter === cat.id ? S.teal : S.border}`, background: stockCatFilter === cat.id ? "rgba(0,201,167,0.12)" : "transparent", color: stockCatFilter === cat.id ? S.teal : count === 0 && cat.id !== "all" ? S.dimmer : S.muted, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>
                 {cat.label} <span style={{ opacity: 0.6 }}>({count})</span>
@@ -1902,7 +1925,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
       {/* Terminology + category CB price */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
         <p style={{ fontSize: 11, color: S.dimmer, margin: 0, fontStyle: "italic" }}>
-          📦 <strong style={{ color: S.muted }}>Product</strong> = a design in any colour &nbsp;|&nbsp; <strong style={{ color: S.muted }}>SKU</strong> = a unique product + colour combination. All counts on this tab are SKUs.
+          📦 <strong style={{ color: S.muted }}>Product</strong> = a design in any colour &nbsp;|&nbsp; <strong style={{ color: S.muted }}>SKU</strong> = product + colour combo &nbsp;|&nbsp; <strong style={{ color: S.muted }}>Item</strong> = a single physical print
         </p>
         {stockCatFilter !== "all" && (
           <button onClick={() => {
@@ -1912,7 +1935,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
             if (isNaN(price) || price < 0) { alert("Invalid price"); return; }
             onSave(stockTargets.map(t => {
               const p = prodMap[t.productId];
-              if (p?.category !== stockCatFilter) return t;
+              if (!productInCategory(p, stockCatFilter)) return t;
               if (eventFilter !== "all" && t.event !== eventFilter) return t;
               return { ...t, carBootPrice: price };
             }));
@@ -1925,7 +1948,8 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
       {/* Summary cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 20 }}>
         {[
-          { label: "Target SKUs", value: totalTargets, icon: "🎯" },
+          { label: "SKUs", value: filtered.length, icon: "🏷️" },
+          { label: "Target Items", value: totalTargets, icon: "🎯" },
           { label: "On Hand", value: totalOnHand, icon: "📦" },
           { label: "To Print", value: totalRemaining, icon: "🖨️" },
           { label: "Print Hours", value: totalPrintHrs.toFixed(1) + "h", icon: "⏱️" },
@@ -1949,8 +1973,14 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
         </div>
       </div>
 
-      {/* ── Margin Analysis Panel ── */}
-      {totalTargets > 0 && (() => {
+      {/* ── Margin Analysis Panel (collapsible) ── */}
+      {totalTargets > 0 && (
+        <button onClick={() => togglePanel("margin")} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderRadius: 12, border: `1px solid ${openPanels.margin ? "rgba(0,201,167,0.3)" : S.border}`, background: openPanels.margin ? "rgba(0,201,167,0.06)" : "rgba(255,255,255,0.02)", cursor: "pointer", marginBottom: openPanels.margin ? 0 : 16 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: openPanels.margin ? S.teal : S.muted, fontFamily: S.fontHead }}>💰 Pricing & Margin Analysis</span>
+          <span style={{ fontSize: 12, color: S.dimmer }}>{openPanels.margin ? "▼" : "▶"}</span>
+        </button>
+      )}
+      {totalTargets > 0 && openPanels.margin && (() => {
         // Filament cost helper: premium = 30% more
         const filCost = (colors) => (colors || []).some(c => FILAMENTS[c]?.premium) ? 0.013 : 0.01;
 
@@ -2076,7 +2106,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
 
             {/* Margin cards row */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 14 }}>
-              <Tooltip position="bottom" text="<strong>Filament cost only.</strong><br/>Standard PLA: £0.01/g (£10/kg)<br/>Premium filament: £0.013/g (+30%)<br/><br/>Sum of (target qty × grams × cost/g) for all SKUs in view. If any colour in a target is premium, the premium rate applies.">
+              <Tooltip position="bottom" text="<strong>Filament cost only.</strong><br/>Standard PLA: £0.01/g (£10/kg)<br/>Premium filament: £0.013/g (+30%)<br/><br/>Sum of (target qty × grams × cost/g) for all items in view. If any colour in a target is premium, the premium rate applies.">
               <div style={{ padding: "12px 14px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}` }}>
                 <div style={{ fontSize: 10, color: S.muted, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 3 }}>🏷️ Print Cost</div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: "#ff6b6b", fontFamily: S.fontHead }}>£{cbPrintCost.toFixed(2)}</div>
@@ -2187,6 +2217,107 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
         </div>
       )}
 
+      {/* ── Filament Purchase Panel (collapsible) ── */}
+      {totalRemaining > 0 && (
+        <button onClick={() => togglePanel("filament")} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderRadius: 12, border: `1px solid ${openPanels.filament ? "rgba(132,94,247,0.3)" : S.border}`, background: openPanels.filament ? "rgba(132,94,247,0.06)" : "rgba(255,255,255,0.02)", cursor: "pointer", marginBottom: openPanels.filament ? 0 : 16 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: openPanels.filament ? S.purple : S.muted, fontFamily: S.fontHead }}>🧵 Filament Purchase Plan</span>
+          <span style={{ fontSize: 12, color: S.dimmer }}>{openPanels.filament ? "▼" : "▶"}</span>
+        </button>
+      )}
+      {totalRemaining > 0 && openPanels.filament && (() => {
+        const WASTE = 1.10; // 10% waste/failures
+        const STD_COST = 10; // £/kg standard PLA
+        const PREM_COST = 13; // £/kg premium
+        const SPOOL_GRAMS = 1000;
+        // Build filament requirements from remaining items
+        const filNeeds = {};
+        filtered.forEach(t => {
+          const prod = prodMap[t.productId];
+          if (!prod?.grams) return;
+          const rem = Math.max(0, (t.targetQty || 0) - (t.onHand || 0));
+          if (rem <= 0) return;
+          const cols = t.colours || [];
+          if (cols.length === 0) return;
+          const gramsEach = prod.grams / cols.length; // equal split for multi-colour
+          cols.forEach(c => {
+            if (!filNeeds[c]) filNeeds[c] = { grams: 0, premium: !!FILAMENTS[c]?.premium, type: FILAMENTS[c]?.type || "PLA" };
+            filNeeds[c].grams += rem * gramsEach;
+          });
+        });
+        // Apply waste factor and calculate spools
+        const rows = Object.entries(filNeeds)
+          .map(([colour, d]) => ({
+            colour,
+            rawGrams: Math.round(d.grams),
+            totalGrams: Math.round(d.grams * WASTE),
+            spools: Math.ceil((d.grams * WASTE) / SPOOL_GRAMS),
+            premium: d.premium,
+            type: d.type,
+            cost: Math.ceil((d.grams * WASTE) / SPOOL_GRAMS) * (d.premium ? PREM_COST : STD_COST),
+          }))
+          .sort((a, b) => b.totalGrams - a.totalGrams);
+        const totalCost = rows.reduce((s, r) => s + r.cost, 0);
+        const totalSpools = rows.reduce((s, r) => s + r.spools, 0);
+        const totalGrams = rows.reduce((s, r) => s + r.totalGrams, 0);
+
+        return (
+          <div style={{ padding: 20, borderRadius: 16, background: "rgba(132,94,247,0.04)", border: `1px solid rgba(132,94,247,0.2)`, marginBottom: 20 }}>
+            <p style={{ fontSize: 11, color: S.dimmer, marginBottom: 12, fontStyle: "italic" }}>Based on remaining items to print. Assumes zero current filament stock + 10% waste. Buy this much and you'll be back to the same stock level after printing.</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 16 }}>
+              {[
+                { label: "Colours", value: rows.length, icon: "🎨" },
+                { label: "Total Grams", value: (totalGrams / 1000).toFixed(1) + "kg", icon: "⚖️" },
+                { label: "Spools", value: totalSpools, icon: "🧵" },
+                { label: "Est. Cost", value: "£" + totalCost, icon: "💷" },
+              ].map(c => (
+                <div key={c.label} style={{ padding: "10px 12px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}` }}>
+                  <div style={{ fontSize: 10, color: S.muted, fontFamily: S.fontHead, fontWeight: 600 }}>{c.icon} {c.label}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: S.text, fontFamily: S.fontHead }}>{c.value}</div>
+                </div>
+              ))}
+            </div>
+            {rows.length > 0 && (
+              <div style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${S.border}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: "rgba(132,94,247,0.1)" }}>
+                      {["Colour", "Type", "Grams", "+10%", "Spools", "Cost"].map(h => (
+                        <th key={h} style={{ padding: "8px 10px", textAlign: h === "Colour" || h === "Type" ? "left" : "center", color: S.purple, fontFamily: S.fontHead, fontWeight: 700, fontSize: 11 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={r.colour} style={{ background: i % 2 ? "rgba(255,255,255,0.02)" : "transparent", borderTop: `1px solid ${S.border}` }}>
+                        <td style={{ padding: "8px 10px", display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ width: 14, height: 14, borderRadius: "50%", background: FILAMENTS[r.colour]?.hex || "#666", border: "1px solid rgba(255,255,255,0.15)", flexShrink: 0 }} />
+                          <span style={{ color: S.text, fontWeight: 600 }}>{r.colour}</span>
+                          {r.premium && <span style={{ fontSize: 9, color: "#ffd43b", fontWeight: 700 }}>★</span>}
+                        </td>
+                        <td style={{ padding: "8px 10px", color: S.dimmer, fontSize: 11 }}>{r.type}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "center", color: S.muted, fontFamily: S.fontMono }}>{r.rawGrams}g</td>
+                        <td style={{ padding: "8px 10px", textAlign: "center", color: S.text, fontFamily: S.fontMono, fontWeight: 600 }}>{r.totalGrams}g</td>
+                        <td style={{ padding: "8px 10px", textAlign: "center", color: r.spools > 1 ? "#f59f00" : S.muted, fontWeight: r.spools > 1 ? 700 : 400, fontFamily: S.fontMono }}>{r.spools}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "center", color: r.premium ? "#ffd43b" : S.teal, fontWeight: 700, fontFamily: S.fontMono }}>£{r.cost}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: "rgba(132,94,247,0.08)", borderTop: `2px solid ${S.border}` }}>
+                      <td colSpan={2} style={{ padding: "8px 10px", color: S.purple, fontWeight: 700, fontFamily: S.fontHead }}>Total</td>
+                      <td style={{ padding: "8px 10px", textAlign: "center", color: S.dimmer, fontFamily: S.fontMono }}>{rows.reduce((s, r) => s + r.rawGrams, 0)}g</td>
+                      <td style={{ padding: "8px 10px", textAlign: "center", color: S.text, fontWeight: 700, fontFamily: S.fontMono }}>{totalGrams}g</td>
+                      <td style={{ padding: "8px 10px", textAlign: "center", color: S.purple, fontWeight: 700, fontFamily: S.fontMono }}>{totalSpools}</td>
+                      <td style={{ padding: "8px 10px", textAlign: "center", color: S.purple, fontWeight: 700, fontFamily: S.fontMono }}>£{totalCost}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Stock targets list */}
       {filtered.length === 0 ? (
         <div style={{ padding: 40, textAlign: "center", color: S.muted, fontSize: 14 }}>
@@ -2269,8 +2400,8 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
 
       {/* Add/Edit modal */}
       {editModal && (() => {
-        const selCat = editModal._cat || (editModal.productId ? prodMap[editModal.productId]?.category : "") || "";
-        const catProducts = products.filter(p => p.category === selCat).sort((a, b) => a.name.localeCompare(b.name));
+        const selCat = editModal._cat || (editModal.productId ? getProductCategories(prodMap[editModal.productId])[0] : "") || "";
+        const catProducts = products.filter(p => productInCategory(p, selCat)).sort((a, b) => a.name.localeCompare(b.name));
         const selProd = editModal.productId ? prodMap[editModal.productId] : null;
         const availCols = selProd?.colors || [];
         const maxC = selProd?.maxColors || 1;
@@ -2454,7 +2585,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       const prodRows = products.map(p => ({
         "ID": p.id,
         "Name": p.name,
-        "Category": p.category,
+        "Category": getProductCategories(p).join(", "),
         "Price (£)": p.price,
         "Weight (g)": p.grams,
         "Print Time": p.printTime,
@@ -2528,8 +2659,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           "Category": cat,
           "Audience": meta.audience || "",
           "Has Dimensions": meta.hasDimensions ? "Yes" : "No",
-          "Product Count": products.filter(p => p.category === cat).length,
-          "Products": products.filter(p => p.category === cat).map(p => p.name).join(", "),
+          "Product Count": products.filter(p => productInCategory(p, cat)).length,
+          "Products": products.filter(p => productInCategory(p, cat)).map(p => p.name).join(", "),
         };
       });
       const wsCat = XLSX.utils.json_to_sheet(catRows);
@@ -2563,7 +2694,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         const remaining = Math.max(0, (t.targetQty || 0) - (t.onHand || 0));
         return {
           "Product": prod?.name || t.productName || "Unknown",
-          "Category": prod?.category || "",
+          "Category": prod ? getProductCategories(prod).join(", ") : "",
           "Colours": (t.colours || []).join(" + "),
           "Event": t.event || "",
           "Target Qty": t.targetQty || 0,
@@ -2677,7 +2808,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const getProductStatus = p => { const s = p.status || (p.available !== false ? "live" : "paused"); return s === "photo_needed" ? "approved" : s === "removed" ? "paused" : s; };
   const draftCount = products.filter(p => getProductStatus(p) === "draft").length;
   const filteredByStatus = statusFilter === "All" ? products : products.filter(p => getProductStatus(p) === statusFilter);
-  const filteredByCategory = filter === "All" ? filteredByStatus : filteredByStatus.filter(p => p.category === filter);
+  const filteredByCategory = filter === "All" ? filteredByStatus : filteredByStatus.filter(p => productInCategory(p, filter));
   const filtered = !productCreatorFilter ? filteredByCategory : productCreatorFilter === "__none__" ? filteredByCategory.filter(p => !p.creator) : filteredByCategory.filter(p => p.creator === productCreatorFilter);
 
   // Margin/hr relative banding: compute thresholds from filtered products
@@ -2835,7 +2966,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
         {displayCategories.map(cat => {
-          const catCount = cat === "All" ? filteredByStatus.length : filteredByStatus.filter(p => p.category === cat).length;
+          const catCount = cat === "All" ? filteredByStatus.length : filteredByStatus.filter(p => productInCategory(p, cat)).length;
           return (
           <button key={cat} onClick={() => setFilter(cat)} style={{ padding: "7px 14px", borderRadius: 20, border: filter === cat ? `1.5px solid ${S.purple}` : `1px solid ${S.border}`, background: filter === cat ? "rgba(132,94,247,0.1)" : "rgba(255,255,255,0.02)", color: filter === cat ? S.purple : S.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 5 }}>{cat}{catCount > 0 && cat !== "All" && <span style={{ fontSize: 10, opacity: 0.7 }}>{catCount}</span>}</button>
           );
@@ -2898,7 +3029,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 {product.colors.length > 8 && <span style={{ fontSize: 10, color: S.dimmer, alignSelf: "center" }}>+{product.colors.length - 8}</span>}
               </div>
             </div>
-            <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontHead, whiteSpace: "nowrap" }}>{product.category}</span>
+            <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontHead, whiteSpace: "nowrap" }}>{getProductCategories(product).join(", ")}</span>
             <span onClick={(e) => { e.stopPropagation(); setAdminTab("stock"); setStockAddProduct(product); }} title="Add to Car Boot Plan" style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid rgba(0,201,167,0.25)`, background: "rgba(0,201,167,0.06)", color: S.teal, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>📊</span>
             <span style={{ color: S.dimmer, fontSize: 16 }}>›</span>
           </button>
@@ -3431,7 +3562,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {[...categories].sort((a, b) => ((categoryMeta[a] || {}).sortOrder ?? 99) - ((categoryMeta[b] || {}).sortOrder ?? 99)).map((cat, sortIdx, sortedCats) => {
               const idx = categories.indexOf(cat);
-              const count = products ? products.filter(p => p.category === cat).length : 0;
+              const count = products ? products.filter(p => productInCategory(p, cat)).length : 0;
               const isEditing = editingCat === idx;
               const meta = categoryMeta[cat] || { audience: "kids", hasDimensions: false, sortOrder: sortIdx };
               const moveCategory = (dir) => { const swapCat = sortedCats[sortIdx + dir]; if (!swapCat) return; const newMeta = {...categoryMeta}; const curOrder = meta.sortOrder ?? sortIdx; const swapMeta = newMeta[swapCat] || { audience: "kids", hasDimensions: false, sortOrder: sortIdx + dir }; const swapOrder = swapMeta.sortOrder ?? (sortIdx + dir); newMeta[cat] = { ...meta, sortOrder: swapOrder }; newMeta[swapCat] = { ...swapMeta, sortOrder: curOrder }; onSaveCategoryMeta(newMeta); };
@@ -3439,8 +3570,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 12, background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}`, flexWrap: "wrap" }}>
                   {isEditing ? (
                     <>
-                      <input value={editCatName} onChange={e => setEditCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && editCatName.trim()) { const n = editCatName.trim(); const updated = [...categories]; const oldName = updated[idx]; updated[idx] = n; onSaveCategories(updated); if (products) { const renamedProducts = products.map(p => p.category === oldName ? { ...p, category: n } : p); onSave(renamedProducts); } /* migrate meta key */ const newMeta = {...categoryMeta}; if (newMeta[oldName]) { newMeta[n] = newMeta[oldName]; delete newMeta[oldName]; onSaveCategoryMeta(newMeta); } setEditingCat(null); } if (e.key === "Escape") setEditingCat(null); }} autoFocus style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: `1px solid ${S.teal}`, background: "rgba(0,201,167,0.05)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none" }} />
-                      <button onClick={() => { const n = editCatName.trim(); if (n) { const updated = [...categories]; const oldName = updated[idx]; updated[idx] = n; onSaveCategories(updated); if (products) { const renamedProducts = products.map(p => p.category === oldName ? { ...p, category: n } : p); onSave(renamedProducts); } const newMeta = {...categoryMeta}; if (newMeta[oldName]) { newMeta[n] = newMeta[oldName]; delete newMeta[oldName]; onSaveCategoryMeta(newMeta); } setEditingCat(null); } }} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: S.teal, color: "#1a1a2e", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Save</button>
+                      <input value={editCatName} onChange={e => setEditCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && editCatName.trim()) { const n = editCatName.trim(); const updated = [...categories]; const oldName = updated[idx]; updated[idx] = n; onSaveCategories(updated); if (products) { const renamedProducts = products.map(p => { const cats = getProductCategories(p); return cats.includes(oldName) ? { ...p, category: cats.map(c => c === oldName ? n : c) } : p; }); onSave(renamedProducts); } /* migrate meta key */ const newMeta = {...categoryMeta}; if (newMeta[oldName]) { newMeta[n] = newMeta[oldName]; delete newMeta[oldName]; onSaveCategoryMeta(newMeta); } setEditingCat(null); } if (e.key === "Escape") setEditingCat(null); }} autoFocus style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: `1px solid ${S.teal}`, background: "rgba(0,201,167,0.05)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none" }} />
+                      <button onClick={() => { const n = editCatName.trim(); if (n) { const updated = [...categories]; const oldName = updated[idx]; updated[idx] = n; onSaveCategories(updated); if (products) { const renamedProducts = products.map(p => { const cats = getProductCategories(p); return cats.includes(oldName) ? { ...p, category: cats.map(c => c === oldName ? n : c) } : p; }); onSave(renamedProducts); } const newMeta = {...categoryMeta}; if (newMeta[oldName]) { newMeta[n] = newMeta[oldName]; delete newMeta[oldName]; onSaveCategoryMeta(newMeta); } setEditingCat(null); } }} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: S.teal, color: "#1a1a2e", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Save</button>
                       <button onClick={() => setEditingCat(null)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 12, cursor: "pointer" }}>Cancel</button>
                     </>
                   ) : (
@@ -3455,6 +3586,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, audience: meta.audience === "kids" ? "adult" : "kids" }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.audience === "kids" ? "rgba(255,193,7,0.4)" : "rgba(132,94,247,0.4)"}`, background: meta.audience === "kids" ? "rgba(255,193,7,0.1)" : "rgba(132,94,247,0.1)", color: meta.audience === "kids" ? "#ffc107" : S.purple, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.audience === "kids" ? "👶 Kids" : "🧑 Adult"}</button>
                       {/* Dimensions toggle */}
                       <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, hasDimensions: !meta.hasDimensions }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.hasDimensions ? "rgba(0,201,167,0.4)" : S.border}`, background: meta.hasDimensions ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.02)", color: meta.hasDimensions ? S.teal : S.dimmer, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.hasDimensions ? "📐 Dims ON" : "📐 Dims"}</button>
+                      <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, paused: !meta.paused }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.paused ? "rgba(255,107,107,0.4)" : S.border}`, background: meta.paused ? "rgba(255,107,107,0.1)" : "rgba(255,255,255,0.02)", color: meta.paused ? "#ff6b6b" : S.dimmer, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.paused ? "⏸️ Paused" : "⏸️ Pause"}</button>
                       <button onClick={() => { setEditingCat(idx); setEditCatName(cat); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 11, cursor: "pointer", fontFamily: S.fontHead }}>✏️ Rename</button>
                       <button onClick={() => { if (count > 0) { if (!window.confirm(`"${cat}" has ${count} product${count !== 1 ? "s" : ""}. They'll keep their category label but it won't appear in filters. Delete anyway?`)) return; } const newMeta = {...categoryMeta}; delete newMeta[cat]; onSaveCategoryMeta(newMeta); onSaveCategories(categories.filter((_, i) => i !== idx)); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid rgba(255,107,107,0.3)`, background: "transparent", color: "#ff6b6b", fontSize: 11, cursor: "pointer", fontFamily: S.fontHead }}>🗑️ Delete</button>
                     </>
@@ -3722,8 +3854,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                   if (items.length === 0) { alert("Empty array"); return; }
                   const invalid = items.filter((d, i) => !d.name);
                   if (invalid.length > 0) { alert("All items must include a 'name' field"); return; }
-                  const badCats = items.filter(d => d.category && !categories.includes(d.category));
-                  if (badCats.length > 0) { alert("Category mismatch: " + badCats.map(d => '"' + d.category + '"').join(", ") + ". Expected: " + categories.join(", ")); return; }
+                  const badCats = items.filter(d => { const cats = Array.isArray(d.category) ? d.category : [d.category]; return cats.some(c => c && !categories.includes(c)); });
+                  if (badCats.length > 0) { alert("Category mismatch in " + badCats.length + " product(s). Expected: " + categories.join(", ")); return; }
                   setSaving(true);
                   const freshProducts = await loadProducts() || products;
                   let maxId = freshProducts.reduce((m, p) => Math.max(m, p.id), 0);
@@ -3731,7 +3863,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     id: ++maxId,
                     name: data.name || "",
                     price: parseFloat(data.price) || 0,
-                    category: data.category || categories[0] || "Planters",
+                    category: Array.isArray(data.category) ? data.category : [data.category || categories[0] || "Planters"],
                     description: data.description || "",
                     colors: Array.isArray(data.colors) ? (data.colors.includes("all") ? [...ALL_COLORS] : data.colors.filter(c => ALL_COLORS.includes(c))) : ["Matte Charcoal"],
                     maxColors: parseInt(data.maxColors) || 1,
@@ -3937,8 +4069,8 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
   const crossSellSection = (() => {
     if (!products) return null;
     const cartIds = new Set(cart.filter(i => !i.isTip).map(i => i.id));
-    const cartCats = [...new Set(cart.filter(i => !i.isTip).map(i => i.category).filter(Boolean))];
-    const suggestions = (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && cartCats.includes(p.category)).slice(0, 4);
+    const cartCats = [...new Set(cart.filter(i => !i.isTip).flatMap(i => Array.isArray(i.category) ? i.category : [i.category]).filter(Boolean))];
+    const suggestions = (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && getProductCategories(p).some(c => cartCats.includes(c))).slice(0, 4);
     if (suggestions.length === 0) return null;
     return (
       <div style={{ marginTop: 16, background: "rgba(255,255,255,0.02)", border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 12, padding: "14px 16px" }}>
@@ -4354,7 +4486,13 @@ function ElijahsPrintsInner() {
         let updated = prod;
         if (!updated.addedDate) { needsSave = true; updated = { ...updated, addedDate: today }; }
         // Merge "Keyrings" category into "Key Rings"
-        if (updated.category === "Keyrings") { needsSave = true; updated = { ...updated, category: "Key Rings" }; }
+        // Merge "Keyrings" category into "Key Rings" and normalize to array
+        if (typeof updated.category === "string") {
+          if (updated.category === "Keyrings") updated = { ...updated, category: "Key Rings" };
+          needsSave = true; updated = { ...updated, category: [updated.category] };
+        } else if (Array.isArray(updated.category)) {
+          if (updated.category.includes("Keyrings")) { needsSave = true; updated = { ...updated, category: updated.category.map(c => c === "Keyrings" ? "Key Rings" : c) }; }
+        }
         return updated;
       });
       setProducts(enriched);
@@ -4470,7 +4608,7 @@ function ElijahsPrintsInner() {
   const shopProducts = useMemo(() => {
     if (!products) return [];
     let p = products.filter(x => x.available !== false);
-    if (activeCat !== "All") p = p.filter(x => x.category === activeCat);
+    if (activeCat !== "All") p = p.filter(x => productInCategory(x, activeCat));
     if (search.trim()) { const q = search.toLowerCase(); p = p.filter(x => x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)); }
     const badgePriority = { "Premium": 1, "New": 2, "Popular": 3, "Best Seller": 4 };
     p.sort((a, b) => {
@@ -4522,13 +4660,13 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
 const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVer(v => v + 1); await saveCategoryMeta(meta); };
 
    
- const displayCategories = useMemo(() => ["All", ...sortCategoriesByMeta(categories, categoryMeta)], [catVer, categoryMeta]);
+ const displayCategories = useMemo(() => ["All", ...sortCategoriesByMeta(categories.filter(c => !isCategoryPaused(c, categoryMeta)), categoryMeta)], [catVer, categoryMeta]);
 
   const catCounts = useMemo(() => {
     if (!products) return {};
     const avail = products.filter(x => x.available !== false);
     const c = { All: avail.length };
-    categories.forEach(cat => { c[cat] = avail.filter(p => p.category === cat).length; });
+    categories.forEach(cat => { c[cat] = avail.filter(p => productInCategory(p, cat)).length; });
     return c;
   }, [products, catVer]);
   if (!products) return <div style={{ minHeight: "100vh", background: S.dark, display: "flex", alignItems: "center", justifyContent: "center", color: S.teal, fontFamily: S.fontHead, fontSize: 18 }}>Loading...</div>;
