@@ -245,7 +245,7 @@ function getPlateCapacity(category, widthMm, heightMm) {
   const raw = Array.isArray(category) ? category[0] : category;
   const cat = (raw || "").toLowerCase();
   if (cat === "key rings") return 6;
-  if (cat === "clickers") return 3;
+  if (cat === "clickers") return 6;
   if (cat === "dragons") return 1;
   if (cat === "bird feeders") return 1;
   if (cat === "planters" && widthMm && heightMm) {
@@ -259,6 +259,11 @@ function getPlateCapacity(category, widthMm, heightMm) {
   if (cat === "household") return 1;
   if (cat === "fidgets & toys") return 1;
   return 1;
+}
+/* Batch print time per item: full plate takes ~single_time × 1.1, so per item = single × 1.1 / plateCap */
+function getBatchHrsPerItem(singleHrs, plateCap) {
+  if (!singleHrs || plateCap <= 1) return singleHrs || 0;
+  return (singleHrs * 1.1) / plateCap;
 }
 const SHIPPING_OPTIONS = [
   { id: "collection", name: "School Collection", description: "Elijah will drop it off at school — free!", price: 0, icon: "🎒" },
@@ -1823,7 +1828,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
     const hrs = prod ? parseTimeToHrs(prod.printTime) : 0;
     const plateCap = getPlateCapacity(prod?.category, prod?.widthMm, prod?.heightMm);
     const plates = Math.ceil(rem / plateCap);
-    return s + plates * hrs;
+    return s + plates * (plateCap > 1 ? hrs * 1.1 : hrs);
   }, 0);
   const totalRevenue = filtered.reduce((s, t) => s + (t.targetQty || 0) * (t.carBootPrice || 0), 0);
 
@@ -1870,7 +1875,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
 
     for (const t of remaining) {
       if (budget <= 0 || itemBudget <= 0) break;
-      const plateHrs = t.hrs;
+      const plateHrs = t.plateCap > 1 ? t.hrs * 1.1 : t.hrs;
       if (batchMode === "hours" && plateHrs > budget) continue;
       const plates = batchMode === "hours"
         ? Math.min(Math.ceil(t.remaining / t.plateCap), Math.floor(budget / plateHrs))
@@ -2069,13 +2074,14 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
         const byMph = filtered.map(t => {
           const prod = prodMap[t.productId];
           if (!prod?.grams || !prod?.printTime) return null;
-          const hrs = parseTimeToHrs(prod.printTime);
+          const singleHrs = parseTimeToHrs(prod.printTime);
           const plateCap = getPlateCapacity(prod?.category, prod?.widthMm, prod?.heightMm);
+          const batchHrs = getBatchHrsPerItem(singleHrs, plateCap);
           const rem = Math.max(0, (t.targetQty || 0) - (t.onHand || 0));
           const plates = Math.ceil(rem / plateCap);
-          const totalHrs = plates * hrs;
+          const totalHrs = plates * (plateCap > 1 ? singleHrs * 1.1 : singleHrs);
           const unitMargin = (t.carBootPrice || 0) - prod.grams * filCost(t.colours);
-          const mph = hrs > 0 ? unitMargin / hrs : 0;
+          const mph = batchHrs > 0 ? unitMargin / batchHrs : 0;
           return { name: prod.name, mph, totalHrs, category: prod.category, qty: t.targetQty || 0 };
         }).filter(Boolean).sort((a, b) => a.mph - b.mph);
         if (byMph.length >= 3) {
@@ -2355,7 +2361,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
 
                 {/* Row 2: Metadata */}
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, paddingLeft: colArr.length > 0 ? colArr.length * 19 + 5 : 0 }}>
-                  {colArr.join(" + ")} · {t.event}{hrs > 0 ? ` · ${hrs.toFixed(1)}h/print · ×${plateCap}/plate` : ""}
+                  {colArr.join(" + ")} · {t.event}{hrs > 0 ? ` · ${plateCap > 1 ? getBatchHrsPerItem(hrs, plateCap).toFixed(1) + "h/item⚡" : hrs.toFixed(1) + "h/print"} · ×${plateCap}/plate` : ""}
                 </div>
 
                 {/* Row 3: Progress bar + on-hand +/- | CB price +/- | Target qty +/- */}
@@ -2814,7 +2820,9 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   // Margin/hr relative banding: compute thresholds from filtered products
   const marginHrBands = useMemo(() => {
     const margins = filtered.map(p => {
-      const hrs = parseTimeToHrs(p.printTime);
+      const singleHrs = parseTimeToHrs(p.printTime);
+      const plateCap = getPlateCapacity(p.category, p.widthMm, p.heightMm);
+      const hrs = getBatchHrsPerItem(singleHrs, plateCap);
       return hrs > 0 && p.grams > 0 ? (p.price - p.grams * 0.01) / hrs : null;
     }).filter(m => m !== null && m > 0).sort((a, b) => a - b);
     if (margins.length < 3) return { low: 0, high: Infinity };
@@ -3019,7 +3027,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 <span style={{ fontSize: 14, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>{product.name}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{product.price.toFixed(2)}</span>
                 <span style={{ fontSize: 11, color: S.dimmer }}>{product.grams}g</span>
-                {(() => { const hrs = parseTimeToHrs(product.printTime); const hasData = hrs > 0 && product.grams > 0; if (!hasData) return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(136,136,170,0.1)", color: S.dimmer, fontWeight: 700, fontFamily: S.fontMono }}>— /hr</span>; const margin = (product.price - product.grams * 0.01) / hrs; const band = margin >= marginHrBands.high ? "top" : margin >= marginHrBands.low ? "mid" : "low"; const bg = band === "top" ? "rgba(0,201,167,0.1)" : band === "mid" ? "rgba(245,159,0,0.1)" : "rgba(255,107,107,0.1)"; const col = band === "top" ? S.teal : band === "mid" ? "#f59f00" : "#ff6b6b"; return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: bg, color: col, fontWeight: 700, fontFamily: S.fontMono }}>£{margin.toFixed(2)}/hr</span>; })()}
+                {(() => { const singleHrs = parseTimeToHrs(product.printTime); const hasData = singleHrs > 0 && product.grams > 0; if (!hasData) return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(136,136,170,0.1)", color: S.dimmer, fontWeight: 700, fontFamily: S.fontMono }}>— /hr</span>; const plateCap = getPlateCapacity(product.category, product.widthMm, product.heightMm); const hrs = getBatchHrsPerItem(singleHrs, plateCap); const margin = (product.price - product.grams * 0.01) / hrs; const band = margin >= marginHrBands.high ? "top" : margin >= marginHrBands.low ? "mid" : "low"; const bg = band === "top" ? "rgba(0,201,167,0.1)" : band === "mid" ? "rgba(245,159,0,0.1)" : "rgba(255,107,107,0.1)"; const col = band === "top" ? S.teal : band === "mid" ? "#f59f00" : "#ff6b6b"; return <span title={plateCap > 1 ? `Batch: ${plateCap}/plate` : "Single print"} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: bg, color: col, fontWeight: 700, fontFamily: S.fontMono }}>£{margin.toFixed(2)}/hr{plateCap > 1 ? "⚡" : ""}</span>; })()}
                 {autoBadges[product.id] && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: product.premiumOverride ? "rgba(255,212,59,0.15)" : "rgba(0,201,167,0.1)", color: product.premiumOverride ? "#ffd43b" : S.teal, fontWeight: 600, fontFamily: S.fontHead }}>{autoBadges[product.id]}{product.premiumOverride ? " ⭐" : ""}</span>}
                 {(() => { const st = getProductStatus(product); if (st === "live") return null; const col = STATUS_COLORS[st]; return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: `${col}18`, color: col, fontWeight: 700, fontFamily: S.fontHead }}>{STATUS_LABELS[st]}</span>; })()}
                 {product.maxColors > 1 && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(132,94,247,0.1)", color: S.purple, fontWeight: 600 }}>{product.maxColors} colours</span>}
