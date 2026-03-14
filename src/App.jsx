@@ -221,6 +221,15 @@ async function saveOrderQueue(queue) {
   try { await storageSet("order-queue-v1", JSON.stringify(queue)); } catch (e) { console.error("Save order queue failed:", e); }
 }
 
+/* ── Stock Orders (production orders from batch generator) ── */
+async function loadStockOrders() {
+  const r = await storageGet("stock-orders-v1");
+  return r ? JSON.parse(r) : [];
+}
+async function saveStockOrders(orders) {
+  try { await storageSet("stock-orders-v1", JSON.stringify(orders)); } catch (e) { console.error("Save stock orders failed:", e); }
+}
+
 /* ── Print Time Parser (string → decimal hours) ── */
 function parseTimeToHrs(str) {
   if (!str) return 0;
@@ -290,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v115 · 2026-03-11";
+const APP_VERSION = "v116 · 2026-03-14";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1182,7 +1191,7 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
 /* ═══════════════════════════════════════════════
    ORDER BOOK
    ═══════════════════════════════════════════════ */
-function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMeta }) {
+function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMeta, stockOrders = [], onSaveStockOrders, stockTargets = [], onSaveStockTargets }) {
   const [elijahPhoto, setElijahPhoto] = useState(null);
   const [orderQueue, setOrderQueue] = useState([]);
   const [hrsPerDay, setHrsPerDay] = useState(12);
@@ -1205,29 +1214,41 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     e.target.value = "";
   };
 
-  // Sort: use queue order for active orders, despatched at bottom
+  // Sort: merge customer + stock orders, use queue for active, despatched/closed at bottom
   const sorted = useMemo(() => {
-    const active = orders.filter(o => !o.status.despatched);
-    const done = orders.filter(o => o.status.despatched);
+    // Wrap customer orders
+    const customerActive = orders.filter(o => !o.status.despatched).map(o => ({ ...o, _type: "customer" }));
+    const customerDone = orders.filter(o => o.status.despatched).map(o => ({ ...o, _type: "customer" }));
+    // Wrap stock orders
+    const stockActive = stockOrders.filter(o => o.status === "active").map(o => ({ ...o, _type: "stock" }));
+    const stockDone = stockOrders.filter(o => o.status === "complete" || o.status === "closed").map(o => ({ ...o, _type: "stock" }));
 
-    // Sort active by queue position (orders not in queue go at end, sorted by date)
+    const allActive = [...customerActive, ...stockActive];
+    // Sort active by queue position (stock orders default after customer orders if not in queue)
     const queued = [];
-    const unqueued = [];
-    active.forEach(o => {
+    const unqueuedCustomer = [];
+    const unqueuedStock = [];
+    allActive.forEach(o => {
       const pos = orderQueue.indexOf(o.id);
       if (pos >= 0) queued.push({ order: o, pos });
-      else unqueued.push(o);
+      else if (o._type === "customer") unqueuedCustomer.push(o);
+      else unqueuedStock.push(o);
     });
     queued.sort((a, b) => a.pos - b.pos);
-    unqueued.sort((a, b) => new Date(a.date) - new Date(b.date));
+    unqueuedCustomer.sort((a, b) => new Date(a.date || a.createdDate) - new Date(b.date || b.createdDate));
+    unqueuedStock.sort((a, b) => new Date(a.createdDate) - new Date(b.createdDate));
 
-    const sortedActive = [...queued.map(q => q.order), ...unqueued];
-    const sortedDone = [...done].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const sortedActive = [...queued.map(q => q.order), ...unqueuedCustomer, ...unqueuedStock];
+    const sortedDone = [...customerDone, ...stockDone].sort((a, b) => new Date(b.date || b.createdDate) - new Date(a.date || a.createdDate));
     return [...sortedActive, ...sortedDone];
-  }, [orders, orderQueue]);
+  }, [orders, stockOrders, orderQueue]);
 
-  // Get print hours for an order
+  const isDone = (o) => o._type === "customer" ? o.status.despatched : (o.status === "complete" || o.status === "closed");
+  const isProduced = (o) => o._type === "customer" ? o.status.produced : false;
+
+  // Get print hours for an order (customer or stock)
   const getOrderPrintHrs = (order) => {
+    if (order._type === "stock") return order.printTimeHrs || 0;
     return order.items.reduce((sum, item) => {
       if (item.isTip) return sum;
       const prod = products.find(p => p.id === item.id);
@@ -1241,8 +1262,8 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     const estimates = {};
     let cumHrs = 0;
     for (const order of sorted) {
-      if (order.status.despatched) break;
-      if (order.status.produced) {
+      if (isDone(order)) break;
+      if (order._type === "customer" && order.status.produced) {
         estimates[order.id] = { hrsAhead: 0, hrsThis: 0, estDate: null, produced: true };
         continue;
       }
@@ -1266,7 +1287,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 
   // Reorder helpers
   const moveOrder = async (orderId, direction) => {
-    const active = sorted.filter(o => !o.status.despatched);
+    const active = sorted.filter(o => !isDone(o));
     const currentIds = active.map(o => o.id);
     const idx = currentIds.indexOf(orderId);
     if (idx < 0) return;
@@ -1291,7 +1312,60 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     toDispatch: orders.filter(o => o.status.produced && o.status.labelPrinted && !o.status.despatched).length,
     done: orders.filter(o => o.status.despatched).length,
     revenue: orders.reduce((s, o) => s + o.total, 0),
-  }), [orders]);
+    stockActive: stockOrders.filter(o => o.status === "active").length,
+    stockItems: stockOrders.filter(o => o.status === "active").reduce((s, o) => s + o.items.length, 0),
+    stockTicked: stockOrders.filter(o => o.status === "active").reduce((s, o) => s + o.items.filter(i => i.ticked).length, 0),
+  }), [orders, stockOrders]);
+
+  // Stock order: tick/untick item → update on-hand in stock targets
+  const tickStockItem = async (stockOrderId, itemIdx) => {
+    const so = stockOrders.find(o => o.id === stockOrderId);
+    if (!so || so.status !== "active") return;
+    const item = so.items[itemIdx];
+    const wasTicked = item.ticked;
+    const newTicked = !wasTicked;
+
+    // Update the stock order item
+    const updatedItems = so.items.map((it, i) => i === itemIdx ? { ...it, ticked: newTicked } : it);
+    const allTicked = updatedItems.every(it => it.ticked);
+    const updatedOrder = { ...so, items: updatedItems, status: allTicked ? "complete" : "active" };
+    const updatedOrders = stockOrders.map(o => o.id === stockOrderId ? updatedOrder : o);
+    await onSaveStockOrders(updatedOrders);
+
+    // Update on-hand in stock targets
+    if (onSaveStockTargets && stockTargets) {
+      const delta = newTicked ? 1 : -1;
+      const matchIdx = stockTargets.findIndex(t =>
+        t.productId === item.productId &&
+        (t.colours || []).includes(item.colour)
+      );
+      if (matchIdx >= 0) {
+        // Update existing target
+        const updated = stockTargets.map((t, i) => i === matchIdx ? { ...t, onHand: Math.max(0, (t.onHand || 0) + delta) } : t);
+        await onSaveStockTargets(updated);
+      } else if (newTicked) {
+        // Auto-create missing stock target row
+        const newTarget = {
+          id: "st-auto-" + Date.now(),
+          productId: item.productId,
+          productName: item.productName,
+          colours: [item.colour],
+          event: so.event || "car-boot-1",
+          targetQty: 0,
+          onHand: 1,
+          carBootPrice: 0,
+          notes: "Auto-created from stock order",
+        };
+        await onSaveStockTargets([...stockTargets, newTarget]);
+      }
+    }
+  };
+
+  // Close stock order (retain partial progress)
+  const closeStockOrder = async (stockOrderId) => {
+    const updatedOrders = stockOrders.map(o => o.id === stockOrderId ? { ...o, status: "closed" } : o);
+    await onSaveStockOrders(updatedOrders);
+  };
 
   const toggleStatus = async (orderId, field) => {
     const order = orders.find(o => o.id === orderId);
@@ -1531,7 +1605,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     }
   };
 
-  if (orders.length === 0) return (
+  if (orders.length === 0 && stockOrders.length === 0) return (
     <div style={{ textAlign: "center", padding: "80px 24px", color: S.dimmer }}>
       <div style={{ fontSize: 48, marginBottom: 16 }}>📦</div>
       <p style={{ fontSize: 16, fontFamily: S.fontHead, fontWeight: 600 }}>No orders yet</p>
@@ -1542,12 +1616,13 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
   return (
     <div>
       {/* Stats bar */}
-      <div className="ep-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 24 }}>
+      <div className="ep-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 24 }}>
         {[
           { label: "To Make", value: stats.toProduce, color: "#ff6b35", icon: "🔨" },
           { label: "To Label", value: stats.toLabel, color: "#f59f00", icon: "🏷️" },
           { label: "To Send", value: stats.toDispatch, color: S.purple, icon: "📦" },
           { label: "Complete", value: stats.done, color: S.teal, icon: "✅" },
+          { label: "Stock", value: stats.stockActive > 0 ? `${stats.stockTicked}/${stats.stockItems}` : "0", color: "#ff6b35", icon: "🏭" },
           { label: "Revenue", value: `£${stats.revenue.toFixed(2)}`, color: "#ffd43b", icon: "💰" },
         ].map((s, i) => (
           <div key={i} style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
@@ -1654,12 +1729,106 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
       {/* Order rows */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {sorted.map((order, orderIdx) => {
-          const allDone = order.status.despatched;
+          const allDone = isDone(order);
           const est = queueEstimates[order.id];
-          const activeOrders = sorted.filter(o => !o.status.despatched);
+          const activeOrders = sorted.filter(o => !isDone(o));
           const activeIdx = activeOrders.indexOf(order);
           const isFirst = activeIdx === 0;
           const isLast = activeIdx === activeOrders.length - 1;
+
+          /* ── STOCK ORDER CARD ── */
+          if (order._type === "stock") {
+            const tickedCount = order.items.filter(i => i.ticked).length;
+            const totalItems = order.items.length;
+            const pct = totalItems > 0 ? Math.round((tickedCount / totalItems) * 100) : 0;
+            const isClosed = order.status === "closed";
+            const isComplete = order.status === "complete";
+            const isStockDone = isClosed || isComplete;
+            // Group items by product+colour for compact display
+            const grouped = {};
+            order.items.forEach((item, idx) => {
+              const key = `${item.productName}||${item.colour}`;
+              if (!grouped[key]) grouped[key] = { ...item, indices: [idx], tickedCount: item.ticked ? 1 : 0, total: 1 };
+              else { grouped[key].indices.push(idx); grouped[key].total++; if (item.ticked) grouped[key].tickedCount++; }
+            });
+            return (
+              <div key={order.id} style={{
+                background: isStockDone ? "rgba(18,18,42,0.6)" : "rgba(255,107,53,0.04)", border: `1px solid ${isStockDone ? S.border : "rgba(255,107,53,0.25)"}`,
+                borderRadius: 14, padding: "14px 16px", opacity: isStockDone ? 0.45 : 1, transition: "opacity 0.3s",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  {/* Reorder */}
+                  {!isStockDone ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "center", minWidth: 36 }}>
+                      <button onClick={() => moveOrder(order.id, -1)} disabled={isFirst} style={{ width: 28, height: 22, borderRadius: 6, border: `1px solid ${isFirst ? "transparent" : S.border}`, background: "transparent", color: isFirst ? "transparent" : S.muted, fontSize: 12, cursor: isFirst ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>▲</button>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: S.dimmer, fontFamily: S.fontMono }}>{activeIdx + 1}</span>
+                      <button onClick={() => moveOrder(order.id, 1)} disabled={isLast} style={{ width: 28, height: 22, borderRadius: 6, border: `1px solid ${isLast ? "transparent" : S.border}`, background: "transparent", color: isLast ? "transparent" : S.muted, fontSize: 12, cursor: isLast ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>▼</button>
+                    </div>
+                  ) : <div style={{ minWidth: 36, textAlign: "center" }}><span style={{ fontSize: 11, color: S.dimmer }}>✓</span></div>}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, padding: "2px 10px", borderRadius: 8, background: "rgba(255,107,53,0.15)", color: "#ff6b35", fontWeight: 700, fontFamily: S.fontHead }}>🏭 Car Boot Order</span>
+                      {isComplete && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 8, background: "rgba(0,201,167,0.1)", color: S.teal, fontWeight: 600 }}>✓ Complete</span>}
+                      {isClosed && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 8, background: "rgba(255,255,255,0.05)", color: S.dimmer, fontWeight: 600 }}>Closed ({tickedCount}/{totalItems})</span>}
+                      <span style={{ fontSize: 11, color: S.dimmer }}>{formatDate(order.createdDate)}</span>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: S.text, fontFamily: S.fontHead, marginTop: 4 }}>{order.batchLabel}</div>
+                    <div style={{ fontSize: 11, color: S.dimmer, marginTop: 2 }}>{order.event} · {order.printTime}</div>
+                  </div>
+                  {/* Progress */}
+                  <div style={{ textAlign: "center", minWidth: 50 }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: pct === 100 ? S.teal : "#ff6b35", fontFamily: S.fontMono }}>{tickedCount}/{totalItems}</div>
+                    <div style={{ fontSize: 10, color: S.dimmer }}>{pct}%</div>
+                  </div>
+                </div>
+                {/* Progress bar */}
+                <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", marginBottom: 10, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${pct}%`, borderRadius: 2, background: pct === 100 ? S.teal : "#ff6b35", transition: "width 0.3s" }} />
+                </div>
+                {/* Item tick list */}
+                {!isStockDone && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
+                    {Object.values(grouped).map((g, gi) => (
+                      <div key={gi} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: S.text, minWidth: 140 }}>{g.productName}</span>
+                        <span style={{ fontSize: 10, color: S.dimmer, minWidth: 80 }}>{g.colour}</span>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          {g.indices.map(idx => (
+                            <button key={idx} onClick={() => tickStockItem(order.id, idx)}
+                              style={{
+                                width: 26, height: 26, borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                                border: order.items[idx].ticked ? "2px solid #ff6b35" : "2px solid rgba(255,255,255,0.12)",
+                                background: order.items[idx].ticked ? "#ff6b35" : "transparent", transition: "all 0.15s", padding: 0,
+                              }}>
+                              {order.items[idx].ticked ? <span style={{ color: "#fff", fontSize: 13, fontWeight: 800 }}>✓</span> : <span style={{ color: S.dimmer, fontSize: 10 }}>{idx + 1}</span>}
+                            </button>
+                          ))}
+                        </div>
+                        <span style={{ fontSize: 10, color: g.tickedCount === g.total ? S.teal : S.dimmer, fontFamily: S.fontMono }}>{g.tickedCount}/{g.total}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Time estimates for active stock orders */}
+                {est && !isStockDone && est.hrsThis > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>
+                    <span>⏱️ {est.hrsThis.toFixed(1)}h print</span>
+                    {est.hrsAhead > 0 && <span style={{ color: "#f59f00" }}>· {(est.hrsAhead + est.hrsThis).toFixed(1)}h total</span>}
+                    {est.estDate && <span style={{ color: S.muted, background: "rgba(255,255,255,0.04)", padding: "1px 8px", borderRadius: 6 }}>📅 ~{est.estDate.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</span>}
+                  </div>
+                )}
+                {/* Close button */}
+                {!isStockDone && (
+                  <button onClick={() => closeStockOrder(order.id)} style={{
+                    padding: "6px 14px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent",
+                    color: S.dimmer, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead,
+                  }}>✕ Close Order</button>
+                )}
+              </div>
+            );
+          }
+
+          /* ── CUSTOMER ORDER CARD (existing) ── */
           return (
             <div key={order.id} className="ep-order-row" style={{
               background: S.card, border: `1px solid ${S.border}`, borderRadius: 14, padding: "14px 16px",
@@ -1753,13 +1922,14 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 /* ═══════════════════════════════════════════════
    STOCK TAB — Production stock targets & batch generator
    ═══════════════════════════════════════════════ */
-function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addProduct, onClearAddProduct, categoryMeta = {}, orders = [] }) {
+function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addProduct, onClearAddProduct, categoryMeta = {}, orders = [], onSendToOrderBook }) {
   const [eventFilter, setEventFilter] = useState("all");
   const [stockCatFilter, setStockCatFilter] = useState("all");
   const [editModal, setEditModal] = useState(null); // null | { ...target } for add/edit
   const [batchMode, setBatchMode] = useState(null); // null | "hours" | "items"
   const [batchValue, setBatchValue] = useState(4);
   const [batchResults, setBatchResults] = useState(null);
+  const [batchSent, setBatchSent] = useState(false);
   const [sellThrough, setSellThrough] = useState(80); // % expected to sell
   const [openPanels, setOpenPanels] = useState({ margin: false, filament: false }); // collapsible sections
   const togglePanel = (key) => setOpenPanels(prev => ({ ...prev, [key]: !prev[key] }));
@@ -2220,6 +2390,25 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
               </div>
             )
           )}
+          {batchResults && batchResults.length > 0 && onSendToOrderBook && (
+            <button
+              onClick={async () => {
+                const event = eventFilter !== "all" ? eventFilter : (events[0] || "car-boot-1");
+                await onSendToOrderBook(batchResults, event);
+                setBatchSent(true);
+                setTimeout(() => setBatchSent(false), 3000);
+              }}
+              disabled={batchSent}
+              style={{
+                marginTop: 12, padding: "12px 24px", borderRadius: 10, border: "none", cursor: batchSent ? "default" : "pointer",
+                background: batchSent ? "rgba(0,201,167,0.15)" : "linear-gradient(135deg, #ff6b35, #e85d26)",
+                color: batchSent ? S.teal : "#fff", fontSize: 14, fontWeight: 800, fontFamily: S.fontHead, width: "100%",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.3s",
+              }}
+            >
+              {batchSent ? "✓ Sent to Order Book!" : `📦 Send to Order Book (${batchResults.reduce((s, b) => s + b.items, 0)} items)`}
+            </button>
+          )}
         </div>
       )}
 
@@ -2533,6 +2722,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [stockTargets, setStockTargets] = useState([]);
   const [stockLoading, setStockLoading] = useState(true);
   const [stockAddProduct, setStockAddProduct] = useState(null); // product to pre-fill in stock tab
+  const [stockOrders, setStockOrders] = useState([]);
 
   /* ── Load creators from Firebase on mount ── */
   useEffect(() => {
@@ -2555,12 +2745,54 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   /* ── Load stock targets from Firebase on mount ── */
   useEffect(() => {
     loadStockTargets().then(t => { setStockTargets(t); setStockLoading(false); }).catch(() => setStockLoading(false));
+    loadStockOrders().then(o => setStockOrders(o)).catch(() => {});
   }, []);
 
   /* ── Save stock targets helper ── */
   const handleSaveStockTargets = async (updated) => {
     setStockTargets(updated);
     await saveStockTargets(updated);
+  };
+
+  /* ── Save stock orders helper ── */
+  const handleSaveStockOrders = async (updated) => {
+    setStockOrders(updated);
+    await saveStockOrders(updated);
+  };
+
+  /* ── Send batch to Order Book ── */
+  const handleSendToOrderBook = async (batchItems, event) => {
+    // batchItems: array of { targetId, name, colour, plates, items, hrs, plateCap }
+    // Expand each batch row into individual tickable items
+    const allItems = [];
+    batchItems.forEach(b => {
+      for (let i = 0; i < b.items; i++) {
+        allItems.push({
+          productId: stockTargets.find(t => t.id === b.targetId)?.productId || "",
+          productName: b.name,
+          colour: b.colour,
+          ticked: false,
+        });
+      }
+    });
+    const totalHrs = batchItems.reduce((s, b) => s + b.hrs, 0);
+    const label = batchItems.length === 1
+      ? `${batchItems[0].name} × ${batchItems[0].items}`
+      : `${batchItems.length} products · ${allItems.length} items`;
+    const newOrder = {
+      id: "SO-" + Date.now(),
+      type: "stock",
+      event: event || "car-boot-1",
+      batchLabel: label,
+      items: allItems,
+      printTime: totalHrs.toFixed(1) + " hrs",
+      printTimeHrs: totalHrs,
+      status: "active", // active | complete | closed
+      createdDate: new Date().toISOString(),
+    };
+    const updated = [...stockOrders, newOrder];
+    await handleSaveStockOrders(updated);
+    return newOrder.id;
   };
 
   /* ── One-time cleanup: strip orphaned colours no longer in filament library ── */
@@ -2937,7 +3169,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
       {/* Orders tab */}
       {adminTab === "orders" && (
-        <OrderBook orders={orders} onUpdateOrder={onUpdateOrders} products={products} onEditProduct={(product) => setEditing(product)} categoryMeta={categoryMeta} />
+        <OrderBook orders={orders} onUpdateOrder={onUpdateOrders} products={products} onEditProduct={(product) => setEditing(product)} categoryMeta={categoryMeta} stockOrders={stockOrders} onSaveStockOrders={handleSaveStockOrders} stockTargets={stockTargets} onSaveStockTargets={handleSaveStockTargets} />
       )}
 
       {/* Products tab */}
@@ -3840,7 +4072,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       )}
 
       {adminTab === "stock" && (
-        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} addProduct={stockAddProduct} onClearAddProduct={() => setStockAddProduct(null)} categoryMeta={categoryMeta} orders={orders} />
+        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} addProduct={stockAddProduct} onClearAddProduct={() => setStockAddProduct(null)} categoryMeta={categoryMeta} orders={orders} onSendToOrderBook={handleSendToOrderBook} />
       )}
 
       {importingJSON && (
