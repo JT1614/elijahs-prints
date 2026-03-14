@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v116 · 2026-03-14";
+const APP_VERSION = "v117 · 2026-03-14";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -596,6 +596,46 @@ async function sendRequestEmail(request) {
     console.log("📧 Request email sent successfully");
   } catch (e) {
     console.error("📧 Request email send failed:", e);
+  }
+}
+
+async function sendStockOrderEmail(stockOrder) {
+  if (!EMAILJS_CONFIG.enabled) {
+    console.log("📧 Stock order email (demo mode):", stockOrder);
+    return;
+  }
+  try {
+    // Group items by product+colour for a clean summary
+    const grouped = {};
+    stockOrder.items.forEach(item => {
+      const key = `${item.productName} (${item.colour})`;
+      grouped[key] = (grouped[key] || 0) + 1;
+    });
+    const itemsList = Object.entries(grouped).map(([k, v]) => `${v}× ${k}`).join("\n");
+    await fetch("/api/send-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "order",
+        _tok: EMAILJS_CONFIG._tok,
+        templateParams: {
+          to_email: EMAILJS_CONFIG.recipientEmail,
+          order_id: stockOrder.id,
+          customer_name: "🏭 PRODUCTION ORDER — NOT A CUSTOMER",
+          customer_email: "This is a stock build order from the batch generator",
+          customer_phone: "Print these for: " + (stockOrder.event || "stock"),
+          shipping_method: "N/A — Stock for " + (stockOrder.event || "event"),
+          items_list: itemsList,
+          subtotal: stockOrder.items.length + " items to print",
+          shipping_cost: "N/A",
+          total: "Est. " + stockOrder.printTime + " print time",
+          address: "📦 Goes to stock, not to a customer. Check Order Book for tick-off list.",
+        },
+      }),
+    });
+    console.log("📧 Stock order email sent successfully");
+  } catch (e) {
+    console.error("📧 Stock order email failed:", e);
   }
 }
 
@@ -1753,7 +1793,9 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
             });
             return (
               <div key={order.id} style={{
-                background: isStockDone ? "rgba(18,18,42,0.6)" : "rgba(255,107,53,0.04)", border: `1px solid ${isStockDone ? S.border : "rgba(255,107,53,0.25)"}`,
+                background: isStockDone ? "rgba(18,18,42,0.6)" : "rgba(255,107,53,0.08)",
+                border: isStockDone ? `1px solid ${S.border}` : "2px solid rgba(255,107,53,0.4)",
+                borderLeft: isStockDone ? `1px solid ${S.border}` : "5px solid #ff6b35",
                 borderRadius: 14, padding: "14px 16px", opacity: isStockDone ? 0.45 : 1, transition: "opacity 0.3s",
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -1831,7 +1873,8 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
           /* ── CUSTOMER ORDER CARD (existing) ── */
           return (
             <div key={order.id} className="ep-order-row" style={{
-              background: S.card, border: `1px solid ${S.border}`, borderRadius: 14, padding: "14px 16px",
+              background: S.card, border: `1px solid ${S.border}`, borderLeft: allDone ? `1px solid ${S.border}` : `5px solid ${S.teal}`,
+              borderRadius: 14, padding: "14px 16px",
               opacity: allDone ? 0.45 : 1, transition: "opacity 0.3s",
               display: "grid", gridTemplateColumns: "36px 1fr 70px 70px 70px 70px", gap: 8, alignItems: "center",
             }}>
@@ -2792,6 +2835,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
     };
     const updated = [...stockOrders, newOrder];
     await handleSaveStockOrders(updated);
+    sendStockOrderEmail(newOrder);
     return newOrder.id;
   };
 
