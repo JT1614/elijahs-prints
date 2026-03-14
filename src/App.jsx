@@ -290,7 +290,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v113 · 2026-03-11";
+const APP_VERSION = "v115 · 2026-03-11";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -2250,17 +2250,23 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
             filNeeds[c].grams += rem * gramsEach;
           });
         });
-        // Apply waste factor and calculate spools
+        // Apply waste factor and calculate spools (under 250g = use existing stock)
+        const BUY_THRESHOLD = 250;
         const rows = Object.entries(filNeeds)
-          .map(([colour, d]) => ({
-            colour,
-            rawGrams: Math.round(d.grams),
-            totalGrams: Math.round(d.grams * WASTE),
-            spools: Math.ceil((d.grams * WASTE) / SPOOL_GRAMS),
-            premium: d.premium,
-            type: d.type,
-            cost: Math.ceil((d.grams * WASTE) / SPOOL_GRAMS) * (d.premium ? PREM_COST : STD_COST),
-          }))
+          .map(([colour, d]) => {
+            const totalGrams = Math.round(d.grams * WASTE);
+            const needsBuy = totalGrams >= BUY_THRESHOLD;
+            return {
+              colour,
+              rawGrams: Math.round(d.grams),
+              totalGrams,
+              spools: needsBuy ? Math.ceil(totalGrams / SPOOL_GRAMS) : 0,
+              premium: d.premium,
+              type: d.type,
+              cost: needsBuy ? Math.ceil(totalGrams / SPOOL_GRAMS) * (d.premium ? PREM_COST : STD_COST) : 0,
+              fromStock: !needsBuy,
+            };
+          })
           .sort((a, b) => b.totalGrams - a.totalGrams);
         const totalCost = rows.reduce((s, r) => s + r.cost, 0);
         const totalSpools = rows.reduce((s, r) => s + r.spools, 0);
@@ -2268,7 +2274,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
 
         return (
           <div style={{ padding: 20, borderRadius: 16, background: "rgba(132,94,247,0.04)", border: `1px solid rgba(132,94,247,0.2)`, marginBottom: 20 }}>
-            <p style={{ fontSize: 11, color: S.dimmer, marginBottom: 12, fontStyle: "italic" }}>Based on remaining items to print. Assumes zero current filament stock + 10% waste. Buy this much and you'll be back to the same stock level after printing.</p>
+            <p style={{ fontSize: 11, color: S.dimmer, marginBottom: 12, fontStyle: "italic" }}>Based on remaining items to print. Assumes zero current filament stock + 10% waste. Colours under 250g marked "stock" — use existing partial spools.</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 16 }}>
               {[
                 { label: "Colours", value: rows.length, icon: "🎨" },
@@ -2303,8 +2309,8 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
                         <td style={{ padding: "8px 10px", color: S.dimmer, fontSize: 11 }}>{r.type}</td>
                         <td style={{ padding: "8px 10px", textAlign: "center", color: S.muted, fontFamily: S.fontMono }}>{r.rawGrams}g</td>
                         <td style={{ padding: "8px 10px", textAlign: "center", color: S.text, fontFamily: S.fontMono, fontWeight: 600 }}>{r.totalGrams}g</td>
-                        <td style={{ padding: "8px 10px", textAlign: "center", color: r.spools > 1 ? "#f59f00" : S.muted, fontWeight: r.spools > 1 ? 700 : 400, fontFamily: S.fontMono }}>{r.spools}</td>
-                        <td style={{ padding: "8px 10px", textAlign: "center", color: r.premium ? "#ffd43b" : S.teal, fontWeight: 700, fontFamily: S.fontMono }}>£{r.cost}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "center", color: r.fromStock ? S.dimmer : (r.spools > 1 ? "#f59f00" : S.muted), fontWeight: r.spools > 1 ? 700 : 400, fontFamily: S.fontMono }}>{r.fromStock ? "—" : r.spools}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "center", color: r.fromStock ? S.dimmer : (r.premium ? "#ffd43b" : S.teal), fontWeight: 700, fontFamily: S.fontMono }}>{r.fromStock ? "stock" : "£" + r.cost}</td>
                       </tr>
                     ))}
                   </tbody>
