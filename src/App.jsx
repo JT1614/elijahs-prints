@@ -1976,6 +1976,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
   const [sellThrough, setSellThrough] = useState(80); // % expected to sell
   const [openPanels, setOpenPanels] = useState({ margin: false, filament: false }); // collapsible sections
   const [manualOrderModal, setManualOrderModal] = useState(false);
+  const [manualCat, setManualCat] = useState("");
   const [manualProduct, setManualProduct] = useState("");
   const [manualColours, setManualColours] = useState([]);
   const [manualQty, setManualQty] = useState(1);
@@ -2156,6 +2157,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
     setTimeout(() => {
       setManualSent(false);
       setManualOrderModal(false);
+      setManualCat("");
       setManualProduct("");
       setManualColours([]);
       setManualQty(1);
@@ -2813,7 +2815,6 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
 
       {/* ── Manual Production Order Modal ── */}
       {manualOrderModal && (() => {
-        const availProducts = products.filter(p => p.available);
         const selProd = manualProduct ? prodMap[manualProduct] : null;
         const prodColours = selProd ? (selProd.colors || []) : [];
         return (
@@ -2821,11 +2822,24 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
             <div style={{ background: "#1a1a2e", borderRadius: 20, padding: 24, width: "100%", maxWidth: 420, maxHeight: "90vh", overflowY: "auto", border: `1px solid #ff6b35` }} onClick={e => e.stopPropagation()}>
               <div style={{ fontSize: 17, fontWeight: 800, color: "#ff6b35", fontFamily: S.fontHead, marginBottom: 16 }}>🏭 Create Production Order</div>
 
-              <label style={labelStyle}>Product</label>
-              <select value={manualProduct} onChange={e => { setManualProduct(e.target.value); setManualColours([]); }} style={{ ...selectStyle, marginBottom: 14 }}>
-                <option value="">— Select product —</option>
-                {availProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <label style={labelStyle}>Category</label>
+              <select value={manualCat} onChange={e => { setManualCat(e.target.value); setManualProduct(""); setManualColours([]); }} style={{ ...selectStyle, marginBottom: 14 }}>
+                <option value="">— Select category —</option>
+                {sortCategoriesByMeta(categories, categoryMeta).map(c => <option key={c} value={c}>{c}</option>)}
               </select>
+
+              {manualCat && (() => {
+                const catProducts = products.filter(p => p.available && productInCategory(p, manualCat)).sort((a, b) => a.name.localeCompare(b.name));
+                return (
+                  <>
+                    <label style={labelStyle}>Product</label>
+                    <select value={manualProduct} onChange={e => { setManualProduct(e.target.value); setManualColours([]); }} style={{ ...selectStyle, marginBottom: 14 }}>
+                      <option value="">— Select product —</option>
+                      {catProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </>
+                );
+              })()}
 
               {selProd && (
                 <>
