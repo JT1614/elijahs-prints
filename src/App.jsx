@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v118 · 2026-03-15";
+const APP_VERSION = "v120 · 2026-03-15 12:27";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -2144,33 +2144,62 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
     if (!prod) return;
     const hrs = parseTimeToHrs(prod.printTime);
     const plateCap = getPlateCapacity(prod.category, prod?.widthMm, prod?.heightMm);
-    // Build batch items in the same shape as the batch generator
-    const batchItems = manualColours.map(c => {
+    const maxC = prod.maxColors || 1;
+    const isMultiColour = maxC > 1 && manualColours.length > 1;
+
+    let batchItems;
+    if (isMultiColour) {
+      // Multi-colour product: all selected colours make ONE item (e.g. 4-colour keyring)
       const plates = Math.ceil(manualQty / plateCap);
-      const items = manualQty;
       const plateHrs = plateCap > 1 ? hrs * 1.1 : hrs;
-      return { targetId: null, productId: prod.id, name: prod.name, colour: c, plates, items, hrs: plates * plateHrs, plateCap };
-    });
+      batchItems = [{
+        targetId: null, productId: prod.id, name: prod.name,
+        colour: manualColours.join(" + "), plates, items: manualQty,
+        hrs: plates * plateHrs, plateCap,
+      }];
+    } else {
+      // Single-colour product: each colour is a separate variant
+      batchItems = manualColours.map(c => {
+        const plates = Math.ceil(manualQty / plateCap);
+        const items = manualQty;
+        const plateHrs = plateCap > 1 ? hrs * 1.1 : hrs;
+        return { targetId: null, productId: prod.id, name: prod.name, colour: c, plates, items, hrs: plates * plateHrs, plateCap };
+      });
+    }
+
     const event = eventFilter !== "all" ? eventFilter : (events[0] || "car-boot-1");
     await onSendToOrderBook(batchItems, event, manualNotes || null);
 
-    // Auto-create stock targets for any product+colour combos not already in stock tab
-    const missingColours = manualColours.filter(c =>
-      !stockTargets.some(t => String(t.productId) === String(prod.id) && (t.colours || []).includes(c))
-    );
-    if (missingColours.length > 0) {
-      const newTargets = missingColours.map(c => ({
-        id: "st-auto-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
-        productId: prod.id,
-        productName: prod.name,
-        colours: [c],
-        event,
-        targetQty: 0,
-        onHand: 0,
-        carBootPrice: 0,
-        notes: "Auto-created from production order",
-      }));
-      onSave([...stockTargets, ...newTargets]);
+    // Auto-create stock targets for product+colour combos not already in stock tab
+    if (isMultiColour) {
+      // Multi-colour: one stock target with all colours
+      const exists = stockTargets.some(t =>
+        String(t.productId) === String(prod.id) &&
+        manualColours.every(c => (t.colours || []).includes(c))
+      );
+      if (!exists) {
+        onSave([...stockTargets, {
+          id: "st-auto-" + Date.now(),
+          productId: prod.id, productName: prod.name,
+          colours: [...manualColours],
+          event, targetQty: 0, onHand: 0, carBootPrice: 0,
+          notes: "Auto-created from production order",
+        }]);
+      }
+    } else {
+      // Single-colour: one stock target per colour
+      const missingColours = manualColours.filter(c =>
+        !stockTargets.some(t => String(t.productId) === String(prod.id) && (t.colours || []).includes(c))
+      );
+      if (missingColours.length > 0) {
+        const newTargets = missingColours.map(c => ({
+          id: "st-auto-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+          productId: prod.id, productName: prod.name,
+          colours: [c], event, targetQty: 0, onHand: 0, carBootPrice: 0,
+          notes: "Auto-created from production order",
+        }));
+        onSave([...stockTargets, ...newTargets]);
+      }
     }
 
     setManualSent(true);
@@ -2876,7 +2905,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
 
               {selProd && (
                 <>
-                  <label style={labelStyle}>Colour(s)</label>
+                  <label style={labelStyle}>{(selProd.maxColors || 1) > 1 ? `Print colours (${selProd.maxColors} per item)` : "Colour variants"}</label>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
                     {prodColours.map(c => {
                       const fil = FILAMENTS[c];
@@ -2896,23 +2925,34 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
                     <button onClick={() => setManualColours([...prodColours])} style={{ marginBottom: 14, padding: "6px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Select all colours</button>
                   )}
 
-                  <label style={labelStyle}>Quantity per colour</label>
+                  <label style={labelStyle}>{(selProd.maxColors || 1) > 1 && manualColours.length > 1 ? "Quantity" : "Quantity per colour"}</label>
                   <input type="number" min="1" value={manualQty} onChange={e => setManualQty(Math.max(1, parseInt(e.target.value) || 1))} style={{ ...inputStyle, marginBottom: 14 }} />
 
                   <label style={labelStyle}>Notes (optional)</label>
                   <input value={manualNotes} onChange={e => setManualNotes(e.target.value)} placeholder="e.g. Test print — 120cm dragon" style={{ ...inputStyle, marginBottom: 14 }} />
 
                   {/* Summary */}
-                  <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,107,53,0.06)", border: "1px solid rgba(255,107,53,0.2)", marginBottom: 16 }}>
-                    <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>
-                      {manualColours.length} colour{manualColours.length !== 1 ? "s" : ""} × {manualQty} = <strong style={{ color: "#ff6b35" }}>{manualColours.length * manualQty} items</strong> total
-                    </div>
-                    {selProd.printTime && (
-                      <div style={{ fontSize: 11, color: S.dimmer }}>
-                        Est. {(parseTimeToHrs(selProd.printTime) * manualColours.length * manualQty).toFixed(1)}h print time
+                  {(() => {
+                    const maxC = selProd.maxColors || 1;
+                    const isMulti = maxC > 1 && manualColours.length > 1;
+                    const totalItems = isMulti ? manualQty : manualColours.length * manualQty;
+                    const totalHrs = parseTimeToHrs(selProd.printTime) * totalItems;
+                    return (
+                      <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,107,53,0.06)", border: "1px solid rgba(255,107,53,0.2)", marginBottom: 16 }}>
+                        <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>
+                          {isMulti
+                            ? <><strong style={{ color: "#ff6b35" }}>{manualQty} item{manualQty !== 1 ? "s" : ""}</strong> ({manualColours.length}-colour print)</>
+                            : <>{manualColours.length} colour{manualColours.length !== 1 ? "s" : ""} × {manualQty} = <strong style={{ color: "#ff6b35" }}>{totalItems} items</strong> total</>
+                          }
+                        </div>
+                        {selProd.printTime && (
+                          <div style={{ fontSize: 11, color: S.dimmer }}>
+                            Est. {totalHrs.toFixed(1)}h print time
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
 
                   <button
                     onClick={sendManualOrder}
