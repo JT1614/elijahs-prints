@@ -2153,6 +2153,26 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
     });
     const event = eventFilter !== "all" ? eventFilter : (events[0] || "car-boot-1");
     await onSendToOrderBook(batchItems, event, manualNotes || null);
+
+    // Auto-create stock targets for any product+colour combos not already in stock tab
+    const missingColours = manualColours.filter(c =>
+      !stockTargets.some(t => String(t.productId) === String(prod.id) && (t.colours || []).includes(c))
+    );
+    if (missingColours.length > 0) {
+      const newTargets = missingColours.map(c => ({
+        id: "st-auto-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+        productId: prod.id,
+        productName: prod.name,
+        colours: [c],
+        event,
+        targetQty: 0,
+        onHand: 0,
+        carBootPrice: 0,
+        notes: "Auto-created from production order",
+      }));
+      onSave([...stockTargets, ...newTargets]);
+    }
+
     setManualSent(true);
     setTimeout(() => {
       setManualSent(false);
@@ -2647,9 +2667,17 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
             const plateCap = getPlateCapacity(prod?.category, prod?.widthMm, prod?.heightMm);
             const colArr = t.colours || (t.colour ? [t.colour] : []);
             const done = remaining === 0 && (t.targetQty || 0) > 0;
+            // Count in-progress (unticked) items for this row
+            let rowInProg = 0;
+            if (colArr.length <= 1) {
+              colArr.forEach(c => { rowInProg += inProgressMap[`${t.productId}::${c}`] || 0; });
+            } else {
+              rowInProg = Math.max(...colArr.map(c => inProgressMap[`${t.productId}::${c}`] || 0));
+            }
+            const actualRemaining = Math.max(0, remaining - rowInProg);
             return (
               <div key={t.id} style={{ padding: "14px 16px", borderRadius: 14, background: done ? "rgba(0,201,167,0.04)" : "rgba(255,255,255,0.03)", border: `1px solid ${done ? "rgba(0,201,167,0.2)" : S.border}` }}>
-                {/* Row 1: Colour chips + product name + edit/delete */}
+                {/* Row 1: Colour chips + product name + buttons */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                   <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
                     {colArr.map(c => {
@@ -2663,6 +2691,10 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
                     {prod?.name || t.productName || "Unknown"}
                   </span>
                   {done && <span style={{ fontSize: 10, fontWeight: 800, color: S.teal, background: "rgba(0,201,167,0.15)", padding: "2px 8px", borderRadius: 6, fontFamily: S.fontHead, flexShrink: 0 }}>DONE</span>}
+                  {rowInProg > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: "#ff6b35", background: "rgba(255,107,53,0.12)", padding: "2px 6px", borderRadius: 5, fontFamily: S.fontMono, flexShrink: 0 }}>{rowInProg} queued</span>}
+                  {!done && onSendToOrderBook && (
+                    <button onClick={() => { setManualCat(prod ? getProductCategories(prod)[0] || "" : ""); setManualProduct(String(t.productId)); setManualColours([...colArr]); setManualQty(Math.max(1, actualRemaining)); setManualNotes(""); setManualOrderModal(true); }} title="Create Production Order" style={{ ...inlineBtnStyle, width: 30, height: 30, fontSize: 13, borderColor: "rgba(255,107,53,0.3)", color: "#ff6b35" }}>🏭</button>
+                  )}
                   <button onClick={() => setEditModal({ ...t, colours: colArr })} title="Edit" style={{ ...inlineBtnStyle, width: 30, height: 30, fontSize: 13 }}>✏️</button>
                   <button onClick={() => deleteTarget(t.id)} title="Delete" style={{ ...inlineBtnStyle, width: 30, height: 30, fontSize: 13, borderColor: "rgba(220,53,69,0.3)", color: "#dc3545" }}>🗑️</button>
                 </div>
@@ -2670,6 +2702,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
                 {/* Row 2: Metadata */}
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, paddingLeft: colArr.length > 0 ? colArr.length * 19 + 5 : 0 }}>
                   {colArr.join(" + ")} · {t.event}{hrs > 0 ? ` · ${plateCap > 1 ? getBatchHrsPerItem(hrs, plateCap).toFixed(1) + "h/item⚡" : hrs.toFixed(1) + "h/print"} · ×${plateCap}/plate` : ""}
+                  {rowInProg > 0 && <span style={{ color: "#ff6b35" }}> · {rowInProg} in print queue → {actualRemaining} still needed</span>}
                 </div>
 
                 {/* Row 3: Progress bar + on-hand +/- | CB price +/- | Target qty +/- */}
