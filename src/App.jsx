@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v117 · 2026-03-14";
+const APP_VERSION = "v118 · 2026-03-15";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1965,7 +1965,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 /* ═══════════════════════════════════════════════
    STOCK TAB — Production stock targets & batch generator
    ═══════════════════════════════════════════════ */
-function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addProduct, onClearAddProduct, categoryMeta = {}, orders = [], onSendToOrderBook }) {
+function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addProduct, onClearAddProduct, categoryMeta = {}, orders = [], onSendToOrderBook, stockOrders = [] }) {
   const [eventFilter, setEventFilter] = useState("all");
   const [stockCatFilter, setStockCatFilter] = useState("all");
   const [editModal, setEditModal] = useState(null); // null | { ...target } for add/edit
@@ -1975,6 +1975,12 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
   const [batchSent, setBatchSent] = useState(false);
   const [sellThrough, setSellThrough] = useState(80); // % expected to sell
   const [openPanels, setOpenPanels] = useState({ margin: false, filament: false }); // collapsible sections
+  const [manualOrderModal, setManualOrderModal] = useState(false);
+  const [manualProduct, setManualProduct] = useState("");
+  const [manualColours, setManualColours] = useState([]);
+  const [manualQty, setManualQty] = useState(1);
+  const [manualNotes, setManualNotes] = useState("");
+  const [manualSent, setManualSent] = useState(false);
   const togglePanel = (key) => setOpenPanels(prev => ({ ...prev, [key]: !prev[key] }));
 
   // Load sell-through % from Firebase
@@ -2067,16 +2073,38 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
     onSave(stockTargets.filter(t => t.id !== id));
   };
 
+  // Count unticked items in active stock orders per productId+colour
+  const inProgressMap = {};
+  stockOrders.filter(o => o.status === "active").forEach(o => {
+    o.items.forEach(item => {
+      if (!item.ticked) {
+        const key = `${item.productId}::${item.colour}`;
+        inProgressMap[key] = (inProgressMap[key] || 0) + 1;
+      }
+    });
+  });
+
   // Batch generator
   const generateBatch = () => {
     const remaining = filtered
       .map(t => {
-        const rem = Math.max(0, (t.targetQty || 0) - (t.onHand || 0));
+        const baseRem = Math.max(0, (t.targetQty || 0) - (t.onHand || 0));
+        if (baseRem <= 0) return null;
+        // Deduct unticked items already in active stock orders for this product+colour combo
+        const cols = t.colours || [];
+        const colLabel = cols.join(" + ") || "—";
+        let inProg = 0;
+        cols.forEach(c => { inProg += inProgressMap[`${t.productId}::${c}`] || 0; });
+        // For multi-colour targets, use the max across colours (items are per-unit, not per-colour)
+        if (cols.length > 1) {
+          inProg = Math.max(...cols.map(c => inProgressMap[`${t.productId}::${c}`] || 0));
+        }
+        const rem = Math.max(0, baseRem - inProg);
         if (rem <= 0) return null;
         const prod = prodMap[t.productId];
         const hrs = prod ? parseTimeToHrs(prod.printTime) : 1;
         const plateCap = getPlateCapacity(prod?.category, prod?.widthMm, prod?.heightMm);
-        return { ...t, remaining: rem, hrs, plateCap, prodName: prod?.name || t.productName };
+        return { ...t, remaining: rem, inProgress: inProg, baseRemaining: baseRem, hrs, plateCap, prodName: prod?.name || t.productName };
       })
       .filter(Boolean)
       .sort((a, b) => b.remaining - a.remaining);
@@ -2101,6 +2129,38 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
       itemBudget -= items;
     }
     setBatchResults(batches);
+    // Track if any deductions were made for UI note
+    const totalDeducted = remaining.reduce((s, t) => s + (t.inProgress || 0), 0);
+    setBatchDeducted(totalDeducted);
+  };
+
+  const [batchDeducted, setBatchDeducted] = useState(0);
+
+  // Manual production order — send a custom order to the Order Book
+  const sendManualOrder = async () => {
+    if (!manualProduct || manualColours.length === 0 || manualQty < 1) return;
+    const prod = prodMap[manualProduct];
+    if (!prod) return;
+    const hrs = parseTimeToHrs(prod.printTime);
+    const plateCap = getPlateCapacity(prod.category, prod?.widthMm, prod?.heightMm);
+    // Build batch items in the same shape as the batch generator
+    const batchItems = manualColours.map(c => {
+      const plates = Math.ceil(manualQty / plateCap);
+      const items = manualQty;
+      const plateHrs = plateCap > 1 ? hrs * 1.1 : hrs;
+      return { targetId: null, productId: prod.id, name: prod.name, colour: c, plates, items, hrs: plates * plateHrs, plateCap };
+    });
+    const event = eventFilter !== "all" ? eventFilter : (events[0] || "car-boot-1");
+    await onSendToOrderBook(batchItems, event, manualNotes || null);
+    setManualSent(true);
+    setTimeout(() => {
+      setManualSent(false);
+      setManualOrderModal(false);
+      setManualProduct("");
+      setManualColours([]);
+      setManualQty(1);
+      setManualNotes("");
+    }, 1500);
   };
 
   const selectStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "#1a1a2e", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none", boxSizing: "border-box", colorScheme: "dark" };
@@ -2122,6 +2182,11 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
         {stockTargets.length > 0 && (
           <button onClick={() => { setBatchMode(batchMode ? null : "hours"); setBatchResults(null); }} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.teal}`, background: batchMode ? "rgba(0,201,167,0.15)" : "transparent", color: S.teal, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>
             {batchMode ? "✕ Close Batch Generator" : "🖨️ Batch Generator"}
+          </button>
+        )}
+        {onSendToOrderBook && (
+          <button onClick={() => setManualOrderModal(true)} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #ff6b35", background: "transparent", color: "#ff6b35", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>
+            🏭 Production Order
           </button>
         )}
       </div>
@@ -2397,6 +2462,9 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
             <button onClick={generateBatch} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: S.teal, color: "#1a1a2e", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead }}>Generate</button>
           </div>
           <p style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Plate rules: Key Rings ×6, Clickers ×3, Dragons ×1, Planters calculated. Same product + same colour per plate only.</p>
+          {batchResults && batchDeducted > 0 && (
+            <p style={{ fontSize: 11, color: "#ff6b35", marginBottom: 8, fontStyle: "italic" }}>📋 {batchDeducted} item{batchDeducted !== 1 ? "s" : ""} already in active production orders — deducted from batch.</p>
+          )}
           {batchResults && (
             batchResults.length === 0 ? (
               <p style={{ color: S.muted, fontSize: 13 }}>Nothing to print — all targets met!</p>
@@ -2742,6 +2810,82 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
           </div>
         );
       })()}
+
+      {/* ── Manual Production Order Modal ── */}
+      {manualOrderModal && (() => {
+        const availProducts = products.filter(p => p.available);
+        const selProd = manualProduct ? prodMap[manualProduct] : null;
+        const prodColours = selProd ? (selProd.colors || []) : [];
+        return (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setManualOrderModal(false)}>
+            <div style={{ background: "#1a1a2e", borderRadius: 20, padding: 24, width: "100%", maxWidth: 420, maxHeight: "90vh", overflowY: "auto", border: `1px solid #ff6b35` }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#ff6b35", fontFamily: S.fontHead, marginBottom: 16 }}>🏭 Create Production Order</div>
+
+              <label style={labelStyle}>Product</label>
+              <select value={manualProduct} onChange={e => { setManualProduct(e.target.value); setManualColours([]); }} style={{ ...selectStyle, marginBottom: 14 }}>
+                <option value="">— Select product —</option>
+                {availProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+
+              {selProd && (
+                <>
+                  <label style={labelStyle}>Colour(s)</label>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+                    {prodColours.map(c => {
+                      const fil = FILAMENTS[c];
+                      const hex = fil?.hex || "#888";
+                      const isGrad = hex.includes("linear");
+                      const sel = manualColours.includes(c);
+                      return (
+                        <button key={c} onClick={() => setManualColours(sel ? manualColours.filter(x => x !== c) : [...manualColours, c])}
+                          style={{ padding: "4px 10px", borderRadius: 8, border: `2px solid ${sel ? "#ff6b35" : S.border}`, background: sel ? "rgba(255,107,53,0.15)" : "transparent", color: sel ? "#ff6b35" : S.muted, fontSize: 11, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ width: 12, height: 12, borderRadius: 3, display: "inline-block", flexShrink: 0, ...(isGrad ? { background: hex } : { backgroundColor: hex }) }} />
+                          {c}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {manualColours.length === 0 && (
+                    <button onClick={() => setManualColours([...prodColours])} style={{ marginBottom: 14, padding: "6px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Select all colours</button>
+                  )}
+
+                  <label style={labelStyle}>Quantity per colour</label>
+                  <input type="number" min="1" value={manualQty} onChange={e => setManualQty(Math.max(1, parseInt(e.target.value) || 1))} style={{ ...inputStyle, marginBottom: 14 }} />
+
+                  <label style={labelStyle}>Notes (optional)</label>
+                  <input value={manualNotes} onChange={e => setManualNotes(e.target.value)} placeholder="e.g. Test print — 120cm dragon" style={{ ...inputStyle, marginBottom: 14 }} />
+
+                  {/* Summary */}
+                  <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,107,53,0.06)", border: "1px solid rgba(255,107,53,0.2)", marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>
+                      {manualColours.length} colour{manualColours.length !== 1 ? "s" : ""} × {manualQty} = <strong style={{ color: "#ff6b35" }}>{manualColours.length * manualQty} items</strong> total
+                    </div>
+                    {selProd.printTime && (
+                      <div style={{ fontSize: 11, color: S.dimmer }}>
+                        Est. {(parseTimeToHrs(selProd.printTime) * manualColours.length * manualQty).toFixed(1)}h print time
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={sendManualOrder}
+                    disabled={manualColours.length === 0 || manualSent}
+                    style={{
+                      width: "100%", padding: "12px 24px", borderRadius: 10, border: "none", cursor: manualColours.length === 0 || manualSent ? "default" : "pointer",
+                      background: manualSent ? "rgba(0,201,167,0.15)" : manualColours.length === 0 ? "rgba(255,255,255,0.05)" : "linear-gradient(135deg, #ff6b35, #e85d26)",
+                      color: manualSent ? S.teal : manualColours.length === 0 ? S.dimmer : "#fff", fontSize: 14, fontWeight: 800, fontFamily: S.fontHead, transition: "all 0.3s",
+                    }}
+                  >
+                    {manualSent ? "✓ Sent to Order Book!" : "📦 Send to Order Book"}
+                  </button>
+                </>
+              )}
+
+              <button onClick={() => setManualOrderModal(false)} style={{ width: "100%", marginTop: 10, padding: "10px", borderRadius: 10, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -2804,14 +2948,16 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   };
 
   /* ── Send batch to Order Book ── */
-  const handleSendToOrderBook = async (batchItems, event) => {
-    // batchItems: array of { targetId, name, colour, plates, items, hrs, plateCap }
+  const handleSendToOrderBook = async (batchItems, event, notes) => {
+    // batchItems: array of { targetId, name, colour, plates, items, hrs, plateCap, productId? }
     // Expand each batch row into individual tickable items
     const allItems = [];
     batchItems.forEach(b => {
+      // For manual orders, productId comes directly on the batch item; for batch generator, look up from stock targets
+      const pid = b.productId || (b.targetId ? (stockTargets.find(t => t.id === b.targetId)?.productId || "") : "");
       for (let i = 0; i < b.items; i++) {
         allItems.push({
-          productId: stockTargets.find(t => t.id === b.targetId)?.productId || "",
+          productId: pid,
           productName: b.name,
           colour: b.colour,
           ticked: false,
@@ -2819,9 +2965,10 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       }
     });
     const totalHrs = batchItems.reduce((s, b) => s + b.hrs, 0);
-    const label = batchItems.length === 1
+    let label = batchItems.length === 1
       ? `${batchItems[0].name} × ${batchItems[0].items}`
       : `${batchItems.length} products · ${allItems.length} items`;
+    if (notes) label += ` — ${notes}`;
     const newOrder = {
       id: "SO-" + Date.now(),
       type: "stock",
@@ -4116,7 +4263,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       )}
 
       {adminTab === "stock" && (
-        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} addProduct={stockAddProduct} onClearAddProduct={() => setStockAddProduct(null)} categoryMeta={categoryMeta} orders={orders} onSendToOrderBook={handleSendToOrderBook} />
+        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} addProduct={stockAddProduct} onClearAddProduct={() => setStockAddProduct(null)} categoryMeta={categoryMeta} orders={orders} onSendToOrderBook={handleSendToOrderBook} stockOrders={stockOrders} />
       )}
 
       {importingJSON && (
