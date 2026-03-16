@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v122 · 2026-03-16 14:13";
+const APP_VERSION = "v123 · 2026-03-16 16:45";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1837,7 +1837,8 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                   <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
                     {Object.values(grouped).map((g, gi) => (
                       <div key={gi} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: S.text, minWidth: 140 }}>{g.productName}</span>
+                        <span onClick={() => { const prod = products.find(p => p.id === g.productId); if (prod && onEditProduct) onEditProduct(prod); }} style={{ fontSize: 12, fontWeight: 600, color: S.text, minWidth: 140, cursor: "pointer", textDecoration: "underline", textDecorationColor: "rgba(255,255,255,0.15)", textUnderlineOffset: 2 }}>{g.productName}</span>
+                        {(() => { const prod = products.find(p => p.id === g.productId); if (!prod?.sourceUrl) return null; return <a href={prod.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, textDecoration: "none" }} title={`Open: ${prod.sourceUrl}`}>🔗 {prod.creator || "Source"}</a>; })()}
                         <span style={{ fontSize: 10, color: S.dimmer, minWidth: 80 }}>{g.colour}</span>
                         <div style={{ display: "flex", gap: 4 }}>
                           {g.indices.map(idx => (
