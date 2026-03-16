@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v120 · 2026-03-15 12:27";
+const APP_VERSION = "v122 · 2026-03-16 14:07";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1375,9 +1375,14 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     // Update on-hand in stock targets
     if (onSaveStockTargets && stockTargets) {
       const delta = newTicked ? 1 : -1;
+      // Multi-colour items store colour as joined string e.g. "Mandarin Orange + White + Black + Beige"
+      const itemColours = item.colour.includes(" + ") ? item.colour.split(" + ") : [item.colour];
+      const isMultiColour = itemColours.length > 1;
       const matchIdx = stockTargets.findIndex(t =>
         t.productId === item.productId &&
-        (t.colours || []).includes(item.colour)
+        (isMultiColour
+          ? itemColours.every(c => (t.colours || []).includes(c))
+          : (t.colours || []).includes(item.colour))
       );
       if (matchIdx >= 0) {
         // Update existing target
@@ -1389,7 +1394,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
           id: "st-auto-" + Date.now(),
           productId: item.productId,
           productName: item.productName,
-          colours: [item.colour],
+          colours: isMultiColour ? [...itemColours] : [item.colour],
           event: so.event || "car-boot-1",
           targetQty: 0,
           onHand: 1,
@@ -2095,10 +2100,11 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
         const cols = t.colours || [];
         const colLabel = cols.join(" + ") || "—";
         let inProg = 0;
-        cols.forEach(c => { inProg += inProgressMap[`${t.productId}::${c}`] || 0; });
-        // For multi-colour targets, use the max across colours (items are per-unit, not per-colour)
         if (cols.length > 1) {
-          inProg = Math.max(...cols.map(c => inProgressMap[`${t.productId}::${c}`] || 0));
+          // Multi-colour: stock order items store joined string as colour key
+          inProg = inProgressMap[`${t.productId}::${colLabel}`] || 0;
+        } else {
+          cols.forEach(c => { inProg += inProgressMap[`${t.productId}::${c}`] || 0; });
         }
         const rem = Math.max(0, baseRem - inProg);
         if (rem <= 0) return null;
