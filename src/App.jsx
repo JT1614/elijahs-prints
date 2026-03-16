@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v122 · 2026-03-16 14:07";
+const APP_VERSION = "v122 · 2026-03-16 14:13";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -2188,7 +2188,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
           id: "st-auto-" + Date.now(),
           productId: prod.id, productName: prod.name,
           colours: [...manualColours],
-          event, targetQty: 0, onHand: 0, carBootPrice: 0,
+          event, targetQty: manualQty, onHand: 0, carBootPrice: 0,
           notes: "Auto-created from production order",
         }]);
       }
@@ -2201,7 +2201,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
         const newTargets = missingColours.map(c => ({
           id: "st-auto-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
           productId: prod.id, productName: prod.name,
-          colours: [c], event, targetQty: 0, onHand: 0, carBootPrice: 0,
+          colours: [c], event, targetQty: manualQty, onHand: 0, carBootPrice: 0,
           notes: "Auto-created from production order",
         }));
         onSave([...stockTargets, ...newTargets]);
