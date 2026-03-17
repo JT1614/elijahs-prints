@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v128 · 2026-03-17 17:19";
+const APP_VERSION = "v129 · 2026-03-17 22:11";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1681,6 +1681,80 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
           </div>
         ))}
       </div>
+
+      {/* Elijah's £1,000 Milestone Tracker */}
+      {(() => {
+        const rev = stats.revenue;
+        const target = 1000;
+        const pct = Math.min((rev / target) * 100, 100);
+        const milestones = [
+          { amt: 100, label: "First Century!", emoji: "💯" },
+          { amt: 200, label: "Double Century!", emoji: "🔥" },
+          { amt: 300, label: "Hat Trick Hundred", emoji: "🎩" },
+          { amt: 400, label: "Halfway to Half!", emoji: "⚡" },
+          { amt: 500, label: "HALF WAY!", emoji: "🎯" },
+          { amt: 600, label: "Past the Peak", emoji: "🏔️" },
+          { amt: 700, label: "Lucky Seven", emoji: "🍀" },
+          { amt: 800, label: "The Final Push", emoji: "💪" },
+          { amt: 900, label: "SO CLOSE!", emoji: "😱" },
+          { amt: 1000, label: "LEGEND STATUS!", emoji: "👑" },
+        ];
+        const next = milestones.find(m => m.amt > rev);
+        const achieved = milestones.filter(m => m.amt <= rev);
+        const toGo = next ? (next.amt - rev) : 0;
+        return (
+          <div style={{ marginBottom: 20, borderRadius: 14, border: `1px solid ${S.border}`, background: rev >= target ? "linear-gradient(135deg, rgba(255,215,0,0.08), rgba(0,201,167,0.08))" : S.card, padding: "16px 18px", position: "relative", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 18 }}>{rev >= target ? "👑" : "🚀"}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>Elijah's £1,000 Goal</span>
+              </div>
+              <span style={{ fontSize: 22, fontWeight: 800, color: S.teal, fontFamily: S.fontMono }}>£{rev.toFixed(2)}</span>
+            </div>
+            {/* Progress bar */}
+            <div style={{ height: 22, borderRadius: 11, backgroundColor: "rgba(255,255,255,0.06)", border: `1px solid ${S.border}`, overflow: "hidden", position: "relative", marginBottom: 8 }}>
+              <div style={{
+                height: "100%", borderRadius: 10,
+                background: rev >= target ? "linear-gradient(90deg, #00c9a7, #ffd700)" : "linear-gradient(90deg, #00c9a7, #00e5be)",
+                width: `${Math.max(pct, 1.5)}%`,
+                transition: "width 0.8s cubic-bezier(0.4, 0, 0.2, 1)",
+                boxShadow: "0 0 12px rgba(0, 201, 167, 0.35)",
+                display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 8,
+              }}>
+                {pct > 12 && <span style={{ fontSize: 11, fontWeight: 800, color: "#0d0d1a", fontFamily: S.fontMono }}>{pct.toFixed(0)}%</span>}
+              </div>
+              {pct <= 12 && <span style={{ position: "absolute", left: `${Math.max(pct, 1.5) + 2}%`, top: "50%", transform: "translateY(-50%)", fontSize: 11, fontWeight: 800, color: S.teal, fontFamily: S.fontMono }}>{pct.toFixed(0)}%</span>}
+              {/* Milestone markers */}
+              {[250, 500, 750].map(v => (
+                <div key={v} style={{ position: "absolute", left: `${(v / target) * 100}%`, top: 0, bottom: 0, width: 1, backgroundColor: "rgba(255,255,255,0.12)" }} />
+              ))}
+            </div>
+            {/* Bottom row: milestone dots + next milestone */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+                {milestones.map((m, i) => (
+                  <div key={i} title={`£${m.amt} — ${m.label}`} style={{
+                    width: 18, height: 18, borderRadius: "50%", fontSize: 10, display: "flex",
+                    alignItems: "center", justifyContent: "center",
+                    backgroundColor: m.amt <= rev ? "rgba(0,201,167,0.2)" : "rgba(255,255,255,0.04)",
+                    border: m.amt <= rev ? "1.5px solid rgba(0,201,167,0.5)" : `1.5px solid ${S.border}`,
+                    cursor: "default",
+                  }}>{m.amt <= rev ? "✓" : ""}</div>
+                ))}
+              </div>
+              {next ? (
+                <div style={{ textAlign: "right" }}>
+                  <span style={{ fontSize: 11, color: S.dimmer }}>Next: </span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: S.muted }}>{next.emoji} £{next.amt} — </span>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: S.teal, fontFamily: S.fontMono }}>£{toGo.toFixed(2)} to go</span>
+                </div>
+              ) : (
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#ffd700" }}>👑 LEGEND STATUS!</span>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Print capacity setting */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "10px 16px", borderRadius: 12, background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}` }}>
