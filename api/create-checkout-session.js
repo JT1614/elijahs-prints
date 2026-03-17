@@ -1,18 +1,15 @@
 // Vercel Serverless Function — creates a Stripe Checkout Session
 // This file goes in: elijahs-prints/api/create-checkout-session.js
-
 import Stripe from "stripe";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 export default async function handler(req, res) {
-  // Only allow POST requests
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
-
   try {
-    const { items, shipping, customerEmail, customerName, stripeFee } = req.body;
+    const { items, shipping, customerEmail, customerName, stripeFee, orderData } = req.body;
 
     // Build line items for Stripe
     const lineItems = items.map((item) => ({
@@ -24,7 +21,7 @@ export default async function handler(req, res) {
             ? `Colour: ${item.selectedColors.join(" + ")}`
             : undefined,
         },
-        unit_amount: Math.round(item.price * 100), // Stripe uses pence
+        unit_amount: Math.round(item.price * 100),
       },
       quantity: item.qty,
     }));
@@ -53,23 +50,34 @@ export default async function handler(req, res) {
       });
     }
 
-    // Determine the base URL (works for both custom domain and Vercel URL)
+    // Store full order data as chunked metadata (values limited to 500 chars each)
+    const metadata = {
+      customer_name: customerName,
+      shipping_method: shipping?.name || "Collection",
+      shipping_id: shipping?.id || "collection",
+    };
+
+    if (orderData) {
+      const orderJson = JSON.stringify(orderData);
+      const CHUNK_SIZE = 490;
+      const numChunks = Math.ceil(orderJson.length / CHUNK_SIZE);
+      metadata.order_chunks = String(numChunks);
+      for (let i = 0; i < numChunks; i++) {
+        metadata[`order_data_${i}`] = orderJson.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      }
+    }
+
     const origin =
       req.headers.origin ||
       req.headers.referer?.replace(/\/$/, "") ||
       "https://etprintworld.com";
 
-    // Create Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
       customer_email: customerEmail,
       line_items: lineItems,
-      metadata: {
-        customer_name: customerName,
-        shipping_method: shipping?.name || "Collection",
-        shipping_id: shipping?.id || "collection",
-      },
+      metadata,
       success_url: `${origin}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}?payment=cancelled`,
     });
@@ -77,8 +85,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ url: session.url });
   } catch (error) {
     console.error("Stripe session error:", error);
-    return res
-      .status(500)
-      .json({ error: error.message || "Failed to create checkout session" });
+    return res.status(500).json({ error: error.message || "Failed to create checkout session" });
   }
-};
+}
