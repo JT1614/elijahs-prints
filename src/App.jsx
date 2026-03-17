@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v123 · 2026-03-16 16:45";
+const APP_VERSION = "v124 · 2026-03-17 10:44";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1264,7 +1264,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     const stockDone = stockOrders.filter(o => o.status === "complete" || o.status === "closed").map(o => ({ ...o, _type: "stock" }));
 
     const allActive = [...customerActive, ...stockActive];
-    // Sort active by queue position (stock orders default after customer orders if not in queue)
+    // Sort active by queue position (unqueued customer orders ALWAYS above queue and stock by default)
     const queued = [];
     const unqueuedCustomer = [];
     const unqueuedStock = [];
@@ -1278,7 +1278,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     unqueuedCustomer.sort((a, b) => new Date(a.date || a.createdDate) - new Date(b.date || b.createdDate));
     unqueuedStock.sort((a, b) => new Date(a.createdDate) - new Date(b.createdDate));
 
-    const sortedActive = [...queued.map(q => q.order), ...unqueuedCustomer, ...unqueuedStock];
+    const sortedActive = [...unqueuedCustomer, ...queued.map(q => q.order), ...unqueuedStock];
     const sortedDone = [...customerDone, ...stockDone].sort((a, b) => new Date(b.date || b.createdDate) - new Date(a.date || a.createdDate));
     return [...sortedActive, ...sortedDone];
   }, [orders, stockOrders, orderQueue]);
@@ -5084,6 +5084,7 @@ function ElijahsPrintsInner() {
     if (payment === "success") {
       const pending = localStorage.getItem("ep_pending_order");
       if (pending) {
+        (async () => {
         try {
           const orderData = JSON.parse(pending);
           // Guard: reject orders older than 30 minutes (stale/replayed)
@@ -5119,12 +5120,20 @@ function ElijahsPrintsInner() {
               ? { paid: true, produced: true, labelPrinted: true, despatched: true }
               : { paid: true, produced: false, labelPrinted: false, despatched: false },
           };
-          addOrder(order).catch(e => console.error("Order save failed:", e));
-          sendOrderEmail(order);
-          setOrders(prev => [...prev, order]);
-          setStripeSuccess(order);
-          localStorage.removeItem("ep_pending_order");
+          // CRITICAL: await the save — if it fails, keep pending order in localStorage for retry
+          try {
+            await addOrder(order);
+            sendOrderEmail(order);
+            setOrders(prev => [...prev, order]);
+            setStripeSuccess(order);
+            localStorage.removeItem("ep_pending_order");
+          } catch (e) {
+            console.error("Order save failed — keeping pending order for retry:", e);
+            // Don't remove from localStorage — will retry on next page load
+            setStripeSuccess(order); // still show confirmation to customer
+          }
         } catch (e) { console.error("Failed to process Stripe return:", e); }
+        })();
       }
       window.history.replaceState({}, "", window.location.pathname);
     } else if (payment === "cancelled") {
