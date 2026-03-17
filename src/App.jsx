@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v126 · 2026-03-17 16:30";
+const APP_VERSION = "v128 · 2026-03-17 17:19";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1264,21 +1264,25 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     const stockDone = stockOrders.filter(o => o.status === "complete" || o.status === "closed").map(o => ({ ...o, _type: "stock" }));
 
     const allActive = [...customerActive, ...stockActive];
-    // Sort active by queue position (unqueued customer orders ALWAYS above queue and stock by default)
-    const queued = [];
+    // Sort active: queued customers → unqueued customers (oldest first) → queued stock → unqueued stock (oldest first)
+    const queuedCustomer = [];
+    const queuedStock = [];
     const unqueuedCustomer = [];
     const unqueuedStock = [];
     allActive.forEach(o => {
       const pos = orderQueue.indexOf(o.id);
-      if (pos >= 0) queued.push({ order: o, pos });
-      else if (o._type === "customer") unqueuedCustomer.push(o);
+      if (pos >= 0) {
+        if (o._type === "customer") queuedCustomer.push({ order: o, pos });
+        else queuedStock.push({ order: o, pos });
+      } else if (o._type === "customer") unqueuedCustomer.push(o);
       else unqueuedStock.push(o);
     });
-    queued.sort((a, b) => a.pos - b.pos);
+    queuedCustomer.sort((a, b) => a.pos - b.pos);
+    queuedStock.sort((a, b) => a.pos - b.pos);
     unqueuedCustomer.sort((a, b) => new Date(a.date || a.createdDate) - new Date(b.date || b.createdDate));
     unqueuedStock.sort((a, b) => new Date(a.createdDate) - new Date(b.createdDate));
 
-    const sortedActive = [...unqueuedCustomer, ...queued.map(q => q.order), ...unqueuedStock];
+    const sortedActive = [...queuedCustomer.map(q => q.order), ...unqueuedCustomer, ...queuedStock.map(q => q.order), ...unqueuedStock];
     const sortedDone = [...customerDone, ...stockDone].sort((a, b) => new Date(b.date || b.createdDate) - new Date(a.date || a.createdDate));
     return [...sortedActive, ...sortedDone];
   }, [orders, stockOrders, orderQueue]);
