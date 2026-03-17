@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v124 · 2026-03-17 10:44";
+const APP_VERSION = "v125 · 2026-03-17 15:53";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -478,7 +478,7 @@ async function sendOrderEmail(order) {
   }
   try {
     const itemsList = order.items.map(i =>
-      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`
     ).join("\n");
     const address = order.shipping.id === "collection"
       ? "🎒 School collection"
@@ -513,7 +513,7 @@ async function sendShippedEmail(order) {
   if (!EMAILJS_CONFIG.enabled) return;
   try {
     const itemsList = order.items.map(i =>
-      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`
     ).join("\n");
     const isCollection = order.shipping?.id === "collection";
     await fetch("/api/send-email", {
@@ -544,7 +544,7 @@ async function sendMadeEmail(order) {
   if (!EMAILJS_CONFIG.enabled) return;
   try {
     const itemsList = order.items.map(i =>
-      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`
     ).join("\n");
     await fetch("/api/send-email", {
       method: "POST",
@@ -1494,7 +1494,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     const isPostal = order.shipping?.id !== "collection";
 
     // Items list
-    const itemsList = order.items.filter(i => !i.isTip).map(i => `${i.qty}× ${i.name} (${i.selectedColors.join(" + ")})`).join("\n");
+    const itemsList = order.items.filter(i => !i.isTip).map(i => `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`).join("\n");
     const tipItem = order.items.find(i => i.isTip);
     const orderDate = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
@@ -1913,7 +1913,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                       ) : (<>
                         <span style={{ fontWeight: 600, color: S.text }}>{item.qty}×</span>
                         <span onClick={() => { const prod = products.find(p => p.id === item.id); if (prod && onEditProduct) onEditProduct(prod); }} style={{ cursor: "pointer", color: S.text, textDecoration: "underline", textDecorationColor: "rgba(255,255,255,0.15)", textUnderlineOffset: 2 }}>{item.name}</span>
-                        <span style={{ fontSize: 10, color: S.dimmer }}>({item.selectedColors.join(" + ")})</span>
+                        <span style={{ fontSize: 10, color: S.dimmer }}>({(item.selectedColors || []).join(" + ")})</span>
                         {(() => { const prod = products.find(p => p.id === item.id); if (!prod?.sourceUrl) return null; return <a href={prod.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2, textDecoration: "none" }} title={`Open: ${prod.sourceUrl}`}>🔗 {prod.creator || "Source"}</a>; })()}
                       </>)}
                     </div>
@@ -4702,7 +4702,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
               <div style={{ width: 32, height: 32, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: item.isTip ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {item.isTip ? <span style={{ fontSize: 16 }}>🧡</span> : item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 14, opacity: 0.4 }}>📷</span>}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: item.isTip ? S.teal : S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>{!item.isTip && <div style={{ fontSize: 10, color: S.dimmer }}>{item.selectedColors.join(" + ")} × {item.qty}</div>}</div>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: item.isTip ? S.teal : S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>{!item.isTip && <div style={{ fontSize: 10, color: S.dimmer }}>{(item.selectedColors || []).join(" + ")} × {item.qty}</div>}</div>
               <span style={{ fontSize: 12, fontWeight: 700, color: item.isTip ? S.teal : S.text, fontFamily: S.fontMono }}>£{(item.price * item.qty).toFixed(2)}</span>
             </div>
           ))}
