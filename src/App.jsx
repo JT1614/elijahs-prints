@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v125 · 2026-03-17 15:53";
+const APP_VERSION = "v126 · 2026-03-17 16:30";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -4522,13 +4522,16 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
     setProcessing(true);
     
     if (USE_STRIPE) {
-      // Generate a unique nonce to prevent replay attacks
+      // Generate order ID and nonce before redirect
+      const orderId = "EP-" + Date.now().toString(36).toUpperCase();
       const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-      // Save pending order to localStorage so we can complete it after Stripe redirect
+      const orderItems = cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}) }));
+      // Save pending order to localStorage (backup in case webhook is delayed)
       const pendingOrder = {
+        orderId,
         customer: { ...form },
         shipping: { id: shipping.id, name: shipping.name },
-        items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}) })),
+        items: orderItems,
         subtotal, shippingCost, stripeFee, total,
         _nonce: nonce,
         _created: Date.now(),
@@ -4540,11 +4543,19 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            items: pendingOrder.items,
+            items: orderItems,
             shipping: { id: shipping.id, name: shipping.name, price: shippingCost },
             customerEmail: form.email,
             customerName: form.name,
             stripeFee,
+            // Full order data for webhook to create order server-side
+            orderData: {
+              orderId,
+              customer: { ...form },
+              shipping: { id: shipping.id, name: shipping.name },
+              items: orderItems,
+              subtotal, shippingCost, stripeFee, total,
+            },
           }),
         });
         const data = await resp.json();
@@ -5110,27 +5121,50 @@ function ElijahsPrintsInner() {
             return;
           }
           // Clean internal fields before saving
-          const { _nonce, _created, ...cleanData } = orderData;
+          const { _nonce, _created, orderId: pregenId, ...cleanData } = orderData;
+          const orderId = pregenId || "EP-" + Date.now().toString(36).toUpperCase();
           const isTipOnly = cleanData.items && cleanData.items.length > 0 && cleanData.items.every(i => i.isTip);
-          const order = {
-            id: "EP-" + Date.now().toString(36).toUpperCase(),
-            date: new Date().toISOString(),
-            ...cleanData,
-            status: isTipOnly
-              ? { paid: true, produced: true, labelPrinted: true, despatched: true }
-              : { paid: true, produced: false, labelPrinted: false, despatched: false },
-          };
-          // CRITICAL: await the save — if it fails, keep pending order in localStorage for retry
-          try {
-            await addOrder(order);
-            sendOrderEmail(order);
-            setOrders(prev => [...prev, order]);
-            setStripeSuccess(order);
-            localStorage.removeItem("ep_pending_order");
-          } catch (e) {
-            console.error("Order save failed — keeping pending order for retry:", e);
-            // Don't remove from localStorage — will retry on next page load
-            setStripeSuccess(order); // still show confirmation to customer
+
+          // Check if webhook already created this order in Firebase
+          let webhookHandled = false;
+          if (USE_FIREBASE && pregenId) {
+            try {
+              const { db, doc, getDoc } = await getFirebase();
+              const snap = await getDoc(doc(db, "orders", pregenId));
+              if (snap.exists()) {
+                console.log("✅ Webhook already created order", pregenId, "— skipping client-side save");
+                const existingOrder = snap.data();
+                setOrders(prev => prev.some(o => o.id === pregenId) ? prev : [...prev, existingOrder]);
+                setStripeSuccess(existingOrder);
+                localStorage.removeItem("ep_pending_order");
+                webhookHandled = true;
+              }
+            } catch (e) {
+              console.warn("Could not check for webhook order — will create client-side:", e);
+            }
+          }
+
+          // Fallback: create order client-side if webhook hasn't fired yet
+          if (!webhookHandled) {
+            const order = {
+              id: orderId,
+              date: new Date().toISOString(),
+              ...cleanData,
+              status: isTipOnly
+                ? { paid: true, produced: true, labelPrinted: true, despatched: true }
+                : { paid: true, produced: false, labelPrinted: false, despatched: false },
+              _createdBy: "client-fallback",
+            };
+            try {
+              await addOrder(order);
+              sendOrderEmail(order);
+              setOrders(prev => [...prev, order]);
+              setStripeSuccess(order);
+              localStorage.removeItem("ep_pending_order");
+            } catch (e) {
+              console.error("Order save failed — keeping pending order for retry:", e);
+              setStripeSuccess(order);
+            }
           }
         } catch (e) { console.error("Failed to process Stripe return:", e); }
         })();
