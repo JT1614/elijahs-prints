@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v133 · 2026-03-25 15:02";
+const APP_VERSION = "v134 · 2026-03-25 17:49";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -783,6 +783,56 @@ function generateBoxLabelHTML(labelProducts, copies = 2) {
       | <button onclick="window.print()" style="padding:8px 24px;background:#00c9a7;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Print</button>
     </div>
     ${pages}
+  </body></html>`;
+}
+
+function generateColourDotsHTML(filaments, filamentKeys) {
+  const COLS = 9, ROWS = 13, TOTAL = 117;
+  const sorted = [...filamentKeys].sort((a, b) => (filaments[a]?.sortOrder || 999) - (filaments[b]?.sortOrder || 999));
+  const standard = sorted.filter(k => !filaments[k]?.premium);
+  const premium = sorted.filter(k => filaments[k]?.premium);
+  const dotsPerStandard = Math.max(1, Math.floor((TOTAL * 0.7) / (standard.length || 1)));
+  const dotsPerPremium = Math.max(1, Math.floor((TOTAL * 0.3) / (premium.length || 1)));
+  let dots = [];
+  standard.forEach(k => { for (let i = 0; i < dotsPerStandard; i++) dots.push(k); });
+  premium.forEach(k => { for (let i = 0; i < dotsPerPremium; i++) dots.push(k); });
+  let fillIdx = 0;
+  while (dots.length < TOTAL) { dots.push(sorted[fillIdx % sorted.length]); fillIdx++; }
+  dots = dots.slice(0, TOTAL);
+
+  let circles = "";
+  dots.forEach((key, idx) => {
+    const f = filaments[key] || {};
+    const hex = f.hex || "#ccc";
+    const isPremium = !!f.premium;
+    const col = idx % COLS;
+    const row = Math.floor(idx / COLS);
+    const left = 11.5 + col * 21;
+    const top = 13 + row * 21;
+    const starHTML = isPremium ? `<svg viewBox="0 0 24 24" style="position:absolute;bottom:1mm;right:1mm;width:7mm;height:7mm;filter:drop-shadow(0 0 0.5px rgba(0,0,0,0.3))"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26" fill="#FFD700" stroke="#B8860B" stroke-width="1"/></svg>` : "";
+    circles += `<div style="position:absolute;left:${left}mm;top:${top}mm;width:21mm;height:21mm;border-radius:50%;background:${hex};border:0.3px solid #ccc;box-sizing:border-box">${starHTML}</div>`;
+  });
+
+  let legend = sorted.map(k => {
+    const f = filaments[k] || {};
+    const hex = f.hex || "#ccc";
+    const star = f.premium ? " ★" : "";
+    const count = dots.filter(d => d === k).length;
+    return `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 8px"><span style="width:12px;height:12px;border-radius:50%;background:${hex};border:1px solid #ccc;display:inline-block;flex-shrink:0"></span><span style="font-size:10px">${k}${star} (${count})</span></span>`;
+  }).join("");
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Colour Dots</title>
+    <style>@page{size:A4 portrait;margin:0}@media print{body{margin:0}.no-print{display:none!important}}body{margin:0;font-family:-apple-system,sans-serif}</style>
+  </head><body>
+    <div class="no-print" style="padding:16px;text-align:center;background:#f5f5f5;border-bottom:1px solid #ddd">
+      <strong>Colour Dots</strong> - ${dots.length} dots, ${sorted.length} colours
+      | Print at <strong>Actual Size / 100%</strong> on Canon MX535 with LP117/19R sheet
+      | <button onclick="window.print()" style="padding:8px 24px;background:#00c9a7;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Print</button>
+      <div style="margin-top:8px;line-height:2">${legend}</div>
+    </div>
+    <div style="width:210mm;height:297mm;position:relative;box-sizing:border-box">
+      ${circles}
+    </div>
   </body></html>`;
 }
 
@@ -3824,6 +3874,17 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           <p style={{ fontSize: 13, color: S.muted, marginBottom: 20, lineHeight: 1.6 }}>
             Manage your filament library. Every colour here is automatically available on <strong style={{ color: S.text }}>all products</strong>.
           </p>
+
+          {/* Print Colour Dots button */}
+          <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+            <Tooltip position="bottom" text="Generate a printable A4 sheet of colour dots for Label Planet LP117/19R 19mm circle stickers. Dots are oversized for alignment tolerance. Premium colours get a gold star (bottom-right).">
+              <button onClick={() => {
+                const w = window.open("", "_blank");
+                w.document.write(generateColourDotsHTML(FILAMENTS, ALL_COLORS));
+                w.document.close();
+              }} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.08)", color: "#f59e0b", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>🟡 Print Colour Dots ({ALL_COLORS.length} colours)</button>
+            </Tooltip>
+          </div>
 
           {/* Filament Scanner — inline panel */}
           <div style={{ marginBottom: 24, borderRadius: 16, border: `1px solid ${scannerOpen ? "rgba(132,94,247,0.3)" : S.border}`, background: scannerOpen ? "rgba(132,94,247,0.03)" : S.card, overflow: "hidden", transition: "all 0.3s" }}>
