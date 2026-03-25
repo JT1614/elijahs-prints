@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v135 · 2026-03-25 17:58";
+const APP_VERSION = "v136 · 2026-03-25 22:05";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -397,11 +397,36 @@ const SEED_PRODUCTS = [
 async function loadProducts() {
   try {
     const r = await storageGet("products-v2");
+    if (r) { _productsLoadedAt = new Date().toISOString(); }
     return r ? JSON.parse(r) : null;
   } catch { return null; }
 }
+let _productsLoadedAt = null; // tracks when this tab loaded products — used for freshness guard
+
 async function saveProducts(products) {
-  try { await storageSet("products-v2", JSON.stringify(products)); } catch (e) { console.error("Save failed:", e); }
+  // Freshness guard: before overwriting, check if Firestore has been updated by another tab
+  if (USE_FIREBASE && _productsLoadedAt) {
+    try {
+      const { db, doc, getDoc } = await getFirebase();
+      const snap = await getDoc(doc(db, "shop", "products-v2"));
+      if (snap.exists()) {
+        const firestoreUpdatedAt = snap.data().updatedAt;
+        if (firestoreUpdatedAt && firestoreUpdatedAt > _productsLoadedAt) {
+          console.warn("⚠️ FRESHNESS GUARD: Firestore products were updated by another tab/device at", firestoreUpdatedAt, "— this tab loaded at", _productsLoadedAt, ". Reloading fresh data instead of overwriting.");
+          // Reload fresh data instead of overwriting
+          const fresh = snap.data().value ? JSON.parse(snap.data().value) : null;
+          if (fresh) {
+            _productsLoadedAt = new Date().toISOString();
+            return fresh; // caller should use this to update state
+          }
+        }
+      }
+    } catch (e) { console.warn("Freshness check failed, saving anyway:", e); }
+  }
+  try {
+    await storageSet("products-v2", JSON.stringify(products));
+    _productsLoadedAt = new Date().toISOString(); // update our timestamp after successful save
+  } catch (e) { console.error("❌ Save failed:", e); alert("⚠️ Product save failed! Check your connection and try again."); }
 }
 
 /* ═══════════════════════════════════════════════
@@ -1107,7 +1132,7 @@ function CrossSellCard({ product, onAddToCart }) {
 /* ═══════════════════════════════════════════════
    ADMIN: Product Editor Modal
    ═══════════════════════════════════════════════ */
-function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = [], categoryMeta = {} }) {
+function ProductEditor({ product, onSave, onAutoSave, onDelete, onCancel, isNew, creators = [], categoryMeta = {} }) {
   const [p, setP] = useState({ ...product });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const set = (key, val) => setP(prev => ({ ...prev, [key]: val }));
@@ -1237,13 +1262,19 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
                     set("labelDrawing", imageData);
                     const url = await uploadLabelDrawing(p.id || Date.now(), imageData);
                     if (url !== imageData) set("labelDrawing", url);
+                    // Auto-save: persist drawing URL to Firestore immediately (don't wait for Save button)
+                    if (onAutoSave) {
+                      const updatedProduct = { ...p, labelDrawing: url !== imageData ? url : imageData };
+                      onAutoSave(updatedProduct);
+                      console.log("✅ Label drawing auto-saved for", p.name);
+                    }
                   } catch(err) { console.error("Label drawing upload failed:", err); }
                   e.target.value = "";
                 }} />
               </label>
               <div style={{ flex: 1 }}>
                 {p.labelDrawing && (
-                  <button onClick={() => { deleteLabelDrawing(p.id); set("labelDrawing", ""); }} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, marginBottom: 8 }}>✕ Remove drawing</button>
+                  <button onClick={() => { deleteLabelDrawing(p.id); set("labelDrawing", ""); if (onAutoSave) { onAutoSave({ ...p, labelDrawing: "" }); console.log("✅ Label drawing removal auto-saved for", p.name); } }} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, marginBottom: 8 }}>✕ Remove drawing</button>
                 )}
                 <p style={{ fontSize: 11, color: S.dimmer, lineHeight: 1.5, margin: 0 }}>
                   {p.labelDrawing ? "Line drawing uploaded. Used for box labels. Click image to replace." : "Upload a black line drawing (PNG) for kraft box labels. Generate in ChatGPT from a product photo."}
@@ -3360,8 +3391,10 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       if (filtered.length === (p.colors || []).length) return p;
       return { ...p, colors: filtered.length > 0 ? filtered : ["Matte Charcoal"] };
     });
-    onSave(cleaned);
-    console.log("🧹 Cleaned orphaned filament colours from products");
+    // NOTE: removed auto-save here. Colour cleanup applies in-memory only.
+    // Stale tabs would overwrite the entire product list if this saved on mount.
+    // Products will be saved correctly next time any product is explicitly edited.
+    console.log("🧹 Cleaned orphaned filament colours from products (in-memory only — not saved to prevent stale tab overwrite)");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Export Data to Excel ── */
@@ -3670,6 +3703,14 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
     await onSave(next);
     setEditing(null); setAddingNew(false); setSaving(false);
     setSavedMsg("Saved!"); setTimeout(() => setSavedMsg(""), 2000);
+  };
+
+  // Auto-save: update a single product in the list and save to Firestore
+  // without closing the editor (used for drawing uploads, drawing deletes)
+  const handleAutoSaveProduct = async (updated) => {
+    const next = products.map(p => p.id === updated.id ? updated : p);
+    await onSave(next);
+    setSavedMsg("Auto-saved!"); setTimeout(() => setSavedMsg(""), 2000);
   };
 
   const handleDelete = async (id) => {
@@ -4967,6 +5008,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           product={addingNew ? newProduct : { ...editing, _autoBadge: autoBadges[editing?.id] || null }}
           isNew={addingNew}
           onSave={handleSaveProduct}
+          onAutoSave={handleAutoSaveProduct}
           onDelete={handleDelete}
           onCancel={() => { setEditing(null); setAddingNew(false); }}
           creators={creators}
@@ -5575,7 +5617,10 @@ function ElijahsPrintsInner() {
         return updated;
       });
       setProducts(enriched);
-      if (needsSave) saveProducts(enriched);
+      // NOTE: removed auto-save here. Enrichment runs in-memory only.
+      // Previously, any tab that loaded (including stale mobile tabs) would
+      // save the ENTIRE product list back to Firestore, overwriting changes
+      // made by other tabs. This caused loss of 47 line drawings on 25 Mar.
     });
     loadOrders().then(o => setOrders(o || []));
     loadFilaments().then(f => {
@@ -5751,7 +5796,17 @@ function ElijahsPrintsInner() {
   };
   const removeTip = () => setCart(cart.filter(i => !i.isTip));
   const currentTip = cart.find(i => i.isTip);
-  const handleSaveProducts = async (p) => { setProducts(p); await saveProducts(p); };
+  const handleSaveProducts = async (p) => {
+    const freshData = await saveProducts(p);
+    if (freshData) {
+      // Freshness guard triggered — Firestore had newer data from another tab
+      console.warn("⚠️ Using fresh data from Firestore instead of stale local data");
+      setProducts(freshData);
+      alert("⚠️ Another device updated the product data. Your changes were NOT saved to avoid overwriting. The page has been refreshed with the latest data — please re-apply your changes.");
+    } else {
+      setProducts(p);
+    }
+  };
 
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
     const order = orders.find(o => o.id === orderId);
