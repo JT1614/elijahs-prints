@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v132 · 2026-03-25 14:52";
+const APP_VERSION = "v133 · 2026-03-25 15:02";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -4725,7 +4725,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                           for (const p of selected) {
                             try {
                               const safeName = p.name.replace(/[<>&"'/\\:*?|]/g, "").trim();
-                              const resp = await fetch(p.img);
+                              const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(p.img)}`;
+                              const resp = await fetch(proxyUrl);
                               const blob = await resp.blob();
                               const ext = blob.type === "image/png" ? "png" : blob.type === "image/gif" ? "gif" : "jpg";
                               const fileHandle = await dirHandle.getFileHandle(`${safeName}.${ext}`, { create: true });
@@ -4749,7 +4750,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                         const p = selected[i];
                         try {
                           const safeName = p.name.replace(/[<>&"'/\\:*?|]/g, "").trim();
-                          const resp = await fetch(p.img);
+                          const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(p.img)}`;
+                          const resp = await fetch(proxyUrl);
                           const blob = await resp.blob();
                           const ext = blob.type === "image/png" ? "png" : blob.type === "image/gif" ? "gif" : "jpg";
                           const url = URL.createObjectURL(blob);
