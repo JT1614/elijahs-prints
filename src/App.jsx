@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v137 · 2026-03-25 22:26";
+const APP_VERSION = "v138 · 2026-03-25 22:31";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -397,35 +397,13 @@ const SEED_PRODUCTS = [
 async function loadProducts() {
   try {
     const r = await storageGet("products-v2");
-    if (r) { _productsLoadedAt = new Date().toISOString(); }
     return r ? JSON.parse(r) : null;
   } catch { return null; }
 }
-let _productsLoadedAt = null; // tracks when this tab loaded products — used for freshness guard
 
 async function saveProducts(products) {
-  // Freshness guard: before overwriting, check if Firestore has been updated by another tab
-  if (USE_FIREBASE && _productsLoadedAt) {
-    try {
-      const { db, doc, getDoc } = await getFirebase();
-      const snap = await getDoc(doc(db, "shop", "products-v2"));
-      if (snap.exists()) {
-        const firestoreUpdatedAt = snap.data().updatedAt;
-        if (firestoreUpdatedAt && firestoreUpdatedAt > _productsLoadedAt) {
-          console.warn("⚠️ FRESHNESS GUARD: Firestore products were updated by another tab/device at", firestoreUpdatedAt, "— this tab loaded at", _productsLoadedAt, ". Reloading fresh data instead of overwriting.");
-          // Reload fresh data instead of overwriting
-          const fresh = snap.data().value ? JSON.parse(snap.data().value) : null;
-          if (fresh) {
-            _productsLoadedAt = new Date().toISOString();
-            return fresh; // caller should use this to update state
-          }
-        }
-      }
-    } catch (e) { console.warn("Freshness check failed, saving anyway:", e); }
-  }
   try {
     await storageSet("products-v2", JSON.stringify(products));
-    _productsLoadedAt = new Date().toISOString(); // update our timestamp after successful save
   } catch (e) { console.error("❌ Save failed:", e); alert("⚠️ Product save failed! Check your connection and try again."); }
 }
 
@@ -5808,17 +5786,7 @@ function ElijahsPrintsInner() {
   };
   const removeTip = () => setCart(cart.filter(i => !i.isTip));
   const currentTip = cart.find(i => i.isTip);
-  const handleSaveProducts = async (p) => {
-    const freshData = await saveProducts(p);
-    if (freshData) {
-      // Freshness guard triggered — Firestore had newer data from another tab
-      console.warn("⚠️ Using fresh data from Firestore instead of stale local data");
-      setProducts(freshData);
-      alert("⚠️ Another device updated the product data. Your changes were NOT saved to avoid overwriting. The page has been refreshed with the latest data — please re-apply your changes.");
-    } else {
-      setProducts(p);
-    }
-  };
+  const handleSaveProducts = async (p) => { setProducts(p); await saveProducts(p); };
 
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
     const order = orders.find(o => o.id === orderId);
