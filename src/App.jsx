@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v131 · 2026-03-25 14:44";
+const APP_VERSION = "v132 · 2026-03-25 14:52";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -4686,7 +4686,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
               <h3 style={{ fontSize: 18, fontWeight: 800, fontFamily: S.fontHead, color: S.text, margin: 0 }}>📷 Download Photos for Line Drawings</h3>
               <button onClick={() => setShowPhotoDownload(false)} style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`, color: "#aaa", width: 36, height: 36, borderRadius: "50%", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
             </div>
-            <div style={{ fontSize: 11, color: S.dimmer, marginBottom: 12 }}>Select products to download photos for. Files will be named after the product for easy matching when uploading line drawings back.</div>
+            <div style={{ fontSize: 11, color: S.dimmer, marginBottom: 12 }}>Select products then hit Download All. You'll pick a folder and all photos save automatically — named after each product.</div>
             {(() => {
               const needDrawing = products.filter(p => productUsesBoxLabels(p, categoryMeta) && !p.labelDrawing && p.img);
               const allSelected = needDrawing.length > 0 && needDrawing.every(p => photoDownloadSelected[p.id]);
@@ -4713,29 +4713,60 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
                     <span style={{ fontSize: 12, color: S.muted }}>{selectedCount} selected</span>
-                    <button onClick={() => {
+                    <button onClick={async () => {
                       const selected = needDrawing.filter(p => photoDownloadSelected[p.id]);
                       if (selected.length === 0) return;
-                      const photoCards = selected.map(p => {
-                        const safeName = p.name.replace(/[<>&"'/\\]/g, "");
-                        return `<div style="display:inline-block;margin:16px;text-align:center;vertical-align:top">
-                          <img src="${p.img}" style="max-width:300px;max-height:300px;border:1px solid #ddd;border-radius:8px" crossorigin="anonymous" />
-                          <div style="margin-top:8px;font-weight:700;font-size:14px">${safeName}</div>
-                          <div style="margin-top:4px;font-size:12px;color:#888">${getProductCategories(p).join(", ")}</div>
-                          <button onclick="(async()=>{try{const r=await fetch('${p.img}');const b=await r.blob();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='${safeName.replace(/'/g, "\\'")}.jpg';a.click();URL.revokeObjectURL(u)}catch(e){window.open('${p.img}')}})()" style="margin-top:8px;padding:6px 16px;background:#845ef7;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px">💾 Save as ${safeName.length > 25 ? safeName.slice(0, 22) + "..." : safeName}.jpg</button>
-                        </div>`;
-                      }).join("");
-                      const w = window.open("", "_blank");
-                      w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Product Photos for Line Drawings</title>
-                        <style>body{font-family:-apple-system,sans-serif;padding:24px;background:#fafafa}h1{font-size:20px;margin-bottom:4px}.hint{font-size:13px;color:#888;margin-bottom:24px}</style>
-                        </head><body>
-                        <h1>Product Photos for Line Drawings</h1>
-                        <p class="hint">${selected.length} products. Click Save on each to download with the product name as filename.</p>
-                        <div>${photoCards}</div>
-                        </body></html>`);
-                      w.document.close();
+
+                      // Try File System Access API (folder picker) first
+                      if (window.showDirectoryPicker) {
+                        try {
+                          const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+                          let done = 0;
+                          for (const p of selected) {
+                            try {
+                              const safeName = p.name.replace(/[<>&"'/\\:*?|]/g, "").trim();
+                              const resp = await fetch(p.img);
+                              const blob = await resp.blob();
+                              const ext = blob.type === "image/png" ? "png" : blob.type === "image/gif" ? "gif" : "jpg";
+                              const fileHandle = await dirHandle.getFileHandle(`${safeName}.${ext}`, { create: true });
+                              const writable = await fileHandle.createWritable();
+                              await writable.write(blob);
+                              await writable.close();
+                              done++;
+                            } catch (err) { console.error(`Failed to save ${p.name}:`, err); }
+                          }
+                          alert(`Done! ${done} of ${selected.length} photos saved.`);
+                          setShowPhotoDownload(false);
+                          return;
+                        } catch (err) {
+                          if (err.name === "AbortError") return; // user cancelled folder picker
+                          console.warn("Folder picker failed, falling back:", err);
+                        }
+                      }
+
+                      // Fallback: sequential auto-downloads to default Downloads folder
+                      for (let i = 0; i < selected.length; i++) {
+                        const p = selected[i];
+                        try {
+                          const safeName = p.name.replace(/[<>&"'/\\:*?|]/g, "").trim();
+                          const resp = await fetch(p.img);
+                          const blob = await resp.blob();
+                          const ext = blob.type === "image/png" ? "png" : blob.type === "image/gif" ? "gif" : "jpg";
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `${safeName}.${ext}`;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          URL.revokeObjectURL(url);
+                          // Small delay between downloads to prevent browser throttling
+                          if (i < selected.length - 1) await new Promise(r => setTimeout(r, 300));
+                        } catch (err) { console.error(`Failed to download ${p.name}:`, err); }
+                      }
+                      alert(`Done! ${selected.length} photos downloaded.`);
                       setShowPhotoDownload(false);
-                    }} disabled={selectedCount === 0} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: selectedCount > 0 ? `linear-gradient(135deg, ${S.purple}, #6c3ce0)` : "rgba(255,255,255,0.05)", color: selectedCount > 0 ? "#fff" : S.dimmer, fontSize: 14, fontWeight: 800, cursor: selectedCount > 0 ? "pointer" : "default", fontFamily: S.fontHead }}>📷 Open Photos</button>
+                    }} disabled={selectedCount === 0} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: selectedCount > 0 ? `linear-gradient(135deg, ${S.purple}, #6c3ce0)` : "rgba(255,255,255,0.05)", color: selectedCount > 0 ? "#fff" : S.dimmer, fontSize: 14, fontWeight: 800, cursor: selectedCount > 0 ? "pointer" : "default", fontFamily: S.fontHead }}>📂 Download All ({selectedCount})</button>
                   </div>
                 </>
               );
