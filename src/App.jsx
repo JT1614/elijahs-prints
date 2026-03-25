@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v134 · 2026-03-25 17:49";
+const APP_VERSION = "v135 · 2026-03-25 17:58";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -789,16 +789,16 @@ function generateBoxLabelHTML(labelProducts, copies = 2) {
 function generateColourDotsHTML(filaments, filamentKeys) {
   const COLS = 9, ROWS = 13, TOTAL = 117;
   const sorted = [...filamentKeys].sort((a, b) => (filaments[a]?.sortOrder || 999) - (filaments[b]?.sortOrder || 999));
-  const standard = sorted.filter(k => !filaments[k]?.premium);
-  const premium = sorted.filter(k => filaments[k]?.premium);
-  const dotsPerStandard = Math.max(1, Math.floor((TOTAL * 0.7) / (standard.length || 1)));
-  const dotsPerPremium = Math.max(1, Math.floor((TOTAL * 0.3) / (premium.length || 1)));
+  const n = sorted.length;
+  if (n === 0) return "";
+  const dotsEach = Math.floor(TOTAL / n);
+  let remainder = TOTAL % n;
   let dots = [];
-  standard.forEach(k => { for (let i = 0; i < dotsPerStandard; i++) dots.push(k); });
-  premium.forEach(k => { for (let i = 0; i < dotsPerPremium; i++) dots.push(k); });
-  let fillIdx = 0;
-  while (dots.length < TOTAL) { dots.push(sorted[fillIdx % sorted.length]); fillIdx++; }
-  dots = dots.slice(0, TOTAL);
+  sorted.forEach(k => {
+    const count = dotsEach + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder--;
+    for (let i = 0; i < count; i++) dots.push(k);
+  });
 
   let circles = "";
   dots.forEach((key, idx) => {
@@ -3534,6 +3534,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [batchLabelSelected, setBatchLabelSelected] = useState({});
   const [showPhotoDownload, setShowPhotoDownload] = useState(false);
   const [photoDownloadSelected, setPhotoDownloadSelected] = useState({});
+  const [showCustomDots, setShowCustomDots] = useState(false);
+  const [customDotsSelected, setCustomDotsSelected] = useState({});
   const [importText, setImportText] = useState("");
   const [migratingImages, setMigratingImages] = useState(false);
   const [migrationMsg, setMigrationMsg] = useState("");
@@ -3883,6 +3885,9 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 w.document.write(generateColourDotsHTML(FILAMENTS, ALL_COLORS));
                 w.document.close();
               }} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.08)", color: "#f59e0b", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>🟡 Print Colour Dots ({ALL_COLORS.length} colours)</button>
+            </Tooltip>
+            <Tooltip position="bottom" text="Pick specific colours and get equal numbers of each filling the full sheet (117 dots).">
+              <button onClick={() => { setCustomDotsSelected({}); setShowCustomDots(true); }} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.teal, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>🎨 Custom Sheet</button>
             </Tooltip>
           </div>
 
@@ -4734,6 +4739,66 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 }
               }} style={{ padding: "10px 28px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, boxShadow: "0 4px 16px rgba(0,201,167,0.25)" }}>Import Product(s)</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Colour Dots Modal */}
+      {showCustomDots && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div onClick={() => setShowCustomDots(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }} />
+          <div style={{ position: "relative", width: "min(520px, 100%)", maxHeight: "85vh", overflow: "auto", background: "#151530", border: `1px solid ${S.border}`, borderRadius: 20, padding: 32 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 800, fontFamily: S.fontHead, color: S.text, margin: 0 }}>🎨 Custom Colour Dot Sheet</h3>
+              <button onClick={() => setShowCustomDots(false)} style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`, color: "#aaa", width: 36, height: 36, borderRadius: "50%", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+            </div>
+            <div style={{ fontSize: 11, color: S.dimmer, marginBottom: 12 }}>Pick the colours you need. 117 dots will be split equally across your selection.</div>
+            {(() => {
+              const sorted = [...ALL_COLORS].sort((a, b) => (FILAMENTS[a]?.sortOrder || 999) - (FILAMENTS[b]?.sortOrder || 999));
+              const selectedCount = Object.values(customDotsSelected).filter(Boolean).length;
+              const dotsEach = selectedCount > 0 ? Math.floor(117 / selectedCount) : 0;
+              const remainder = selectedCount > 0 ? 117 % selectedCount : 0;
+              return (
+                <>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                    <button onClick={() => {
+                      if (selectedCount === sorted.length) { setCustomDotsSelected({}); }
+                      else { const sel = {}; sorted.forEach(k => { sel[k] = true; }); setCustomDotsSelected(sel); }
+                    }} style={{ fontSize: 11, color: S.teal, cursor: "pointer", background: "none", border: "none", fontFamily: S.fontHead, fontWeight: 600, padding: 0 }}>
+                      {selectedCount === sorted.length ? "Deselect all" : "Select all"}
+                    </button>
+                    {selectedCount > 0 && <span style={{ fontSize: 11, color: S.muted }}>— {dotsEach} each{remainder > 0 ? ` (+1 on first ${remainder})` : ""} = 117 dots</span>}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 350, overflowY: "auto" }}>
+                    {sorted.map(k => {
+                      const f = FILAMENTS[k] || {};
+                      const hex = f.hex || "#ccc";
+                      const isGradient = hex.includes("gradient");
+                      return (
+                        <label key={k} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 12px", borderRadius: 8, background: customDotsSelected[k] ? "rgba(0,201,167,0.06)" : "rgba(255,255,255,0.02)", border: `1px solid ${customDotsSelected[k] ? "rgba(0,201,167,0.25)" : S.border}`, cursor: "pointer" }}>
+                          <input type="checkbox" checked={!!customDotsSelected[k]} onChange={() => setCustomDotsSelected(prev => ({ ...prev, [k]: !prev[k] }))} />
+                          <div style={{ width: 20, height: 20, borderRadius: "50%", background: isGradient ? hex : hex, border: "1px solid rgba(255,255,255,0.15)", flexShrink: 0 }} />
+                          <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: S.text, fontFamily: S.fontHead }}>{k}</span>
+                          {f.premium && <span style={{ fontSize: 10, color: "#FFD700" }}>★</span>}
+                          <span style={{ fontSize: 11, color: S.dimmer }}>{f.type}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                    <span style={{ fontSize: 12, color: S.muted }}>{selectedCount} colour{selectedCount !== 1 ? "s" : ""} selected</span>
+                    <button onClick={() => {
+                      const chosen = ALL_COLORS.filter(k => customDotsSelected[k]);
+                      if (chosen.length === 0) return;
+                      const w = window.open("", "_blank");
+                      w.document.write(generateColourDotsHTML(FILAMENTS, chosen));
+                      w.document.close();
+                      setShowCustomDots(false);
+                    }} disabled={selectedCount === 0} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: selectedCount > 0 ? `linear-gradient(135deg, ${S.teal}, #00a88a)` : "rgba(255,255,255,0.05)", color: selectedCount > 0 ? "#1a1a2e" : S.dimmer, fontSize: 14, fontWeight: 800, cursor: selectedCount > 0 ? "pointer" : "default", fontFamily: S.fontHead }}>🖨️ Print ({selectedCount > 0 ? `${dotsEach}${remainder > 0 ? "+" : ""} each` : "..."})</button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
