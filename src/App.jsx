@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v130 · 2026-03-25 12:17";
+const APP_VERSION = "v131 · 2026-03-25 14:44";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -733,6 +733,13 @@ async function deleteLabelDrawing(productId) {
   }
 }
 
+function productUsesBoxLabels(product, categoryMeta) {
+  // Per-product override takes priority, then falls back to category setting
+  if (product.useBoxPackaging === true) return true;
+  if (product.useBoxPackaging === false) return false;
+  return getProductCategories(product).some(c => (categoryMeta[c] || {}).hasBoxLabels);
+}
+
 function generateBoxLabelHTML(labelProducts, copies = 2) {
   const sheetsPerProduct = Math.ceil(copies / 2);
   let pages = "";
@@ -1145,8 +1152,15 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
           <textarea style={{ ...inputStyle, height: 64, resize: "vertical" }} value={p.description} onChange={e => set("description", e.target.value)} />
         </div>
 
-        {/* Label Drawing — only shown when any selected category has hasBoxLabels enabled */}
-        {getProductCategories(p).some(c => (categoryMeta[c] || {}).hasBoxLabels) && (
+        {/* Box Packaging override — shows for products where category doesn't have hasBoxLabels (e.g. premium dragons) */}
+        {!getProductCategories(p).some(c => (categoryMeta[c] || {}).hasBoxLabels) && (
+          <div style={{ ...sectionStyle, marginBottom: 12 }}>
+            <button onClick={() => set("useBoxPackaging", !p.useBoxPackaging)} style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${p.useBoxPackaging ? "rgba(245,158,11,0.4)" : S.border}`, background: p.useBoxPackaging ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.02)", color: p.useBoxPackaging ? "#f59e0b" : S.dimmer, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{p.useBoxPackaging ? "📦 Box Packaging ON — uses kraft box + label" : "📦 Enable Box Packaging"}</button>
+          </div>
+        )}
+
+        {/* Label Drawing — shown when product uses box labels (category or per-product override) */}
+        {productUsesBoxLabels(p, categoryMeta) && (
           <div style={sectionStyle}>
             <label style={labelStyle}>Box Label Drawing</label>
             <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
@@ -3468,6 +3482,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [showBatchLabels, setShowBatchLabels] = useState(false);
   const [batchLabelCopies, setBatchLabelCopies] = useState(2);
   const [batchLabelSelected, setBatchLabelSelected] = useState({});
+  const [showPhotoDownload, setShowPhotoDownload] = useState(false);
+  const [photoDownloadSelected, setPhotoDownloadSelected] = useState({});
   const [importText, setImportText] = useState("");
   const [migratingImages, setMigratingImages] = useState(false);
   const [migrationMsg, setMigrationMsg] = useState("");
@@ -3686,11 +3702,20 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             <button onClick={() => { setImportText(""); setImportingJSON(true); }} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.teal, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>📋 Import JSON</button>
           </Tooltip>
           {(() => {
-            const labelReady = products.filter(p => p.labelDrawing && getProductCategories(p).some(c => (categoryMeta[c] || {}).hasBoxLabels));
+            const labelReady = products.filter(p => p.labelDrawing && productUsesBoxLabels(p, categoryMeta));
             if (labelReady.length === 0) return null;
             return (
               <Tooltip position="bottom" text={`Print box labels for products that have a line drawing uploaded. ${labelReady.length} product${labelReady.length !== 1 ? "s" : ""} ready.`}>
                 <button onClick={() => setShowBatchLabels(true)} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.08)", color: "#f59e0b", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>🏷️ Print Box Labels ({labelReady.length})</button>
+              </Tooltip>
+            );
+          })()}
+          {(() => {
+            const needDrawing = products.filter(p => productUsesBoxLabels(p, categoryMeta) && !p.labelDrawing && p.img);
+            if (needDrawing.length === 0) return null;
+            return (
+              <Tooltip position="bottom" text={`Download product photos for line drawing conversion in ChatGPT. ${needDrawing.length} product${needDrawing.length !== 1 ? "s" : ""} need drawings.`}>
+                <button onClick={() => { setPhotoDownloadSelected({}); setShowPhotoDownload(true); }} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(132,94,247,0.3)", background: "rgba(132,94,247,0.08)", color: S.purple, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>📷 Download Photos ({needDrawing.length})</button>
               </Tooltip>
             );
           })()}
@@ -3733,7 +3758,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         const noDesc = live.filter(p => !p.description || p.description.trim().length < 5);
         const zeroPrice = live.filter(p => !p.price || p.price <= 0);
         const noColours = live.filter(p => !p.colors || p.colors.length === 0);
-        const noLabelDrawing = live.filter(p => getProductCategories(p).some(c => (categoryMeta[c] || {}).hasBoxLabels) && !p.labelDrawing);
+        const noLabelDrawing = live.filter(p => productUsesBoxLabels(p, categoryMeta) && !p.labelDrawing);
         const issues = [
           noPhoto.length > 0 && { icon: "📷", label: `${noPhoto.length} missing photo`, color: "#ff6b6b" },
           zeroPrice.length > 0 && { icon: "💰", label: `${zeroPrice.length} with £0 price`, color: "#ff6b6b" },
@@ -3774,7 +3799,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 {autoBadges[product.id] && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: product.premiumOverride ? "rgba(255,212,59,0.15)" : "rgba(0,201,167,0.1)", color: product.premiumOverride ? "#ffd43b" : S.teal, fontWeight: 600, fontFamily: S.fontHead }}>{autoBadges[product.id]}{product.premiumOverride ? " ⭐" : ""}</span>}
                 {(() => { const st = getProductStatus(product); if (st === "live") return null; const col = STATUS_COLORS[st]; return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: `${col}18`, color: col, fontWeight: 700, fontFamily: S.fontHead }}>{STATUS_LABELS[st]}</span>; })()}
                 {product.maxColors > 1 && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(132,94,247,0.1)", color: S.purple, fontWeight: 600 }}>{product.maxColors} colours</span>}
-                {getProductCategories(product).some(c => (categoryMeta[c] || {}).hasBoxLabels) && (
+                {productUsesBoxLabels(product, categoryMeta) && (
                   <Tooltip position="top" text={product.labelDrawing ? "Line drawing uploaded — box label ready to print ✅" : "No line drawing yet — upload in product editor to enable box labels"}>
                     <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: product.labelDrawing ? "rgba(245,158,11,0.1)" : "rgba(255,107,107,0.1)", color: product.labelDrawing ? "#f59e0b" : "#ff6b6b", fontWeight: 700, fontFamily: S.fontHead }}>{product.labelDrawing ? "🏷️ Label" : "🏷️ ✕"}</span>
                   </Tooltip>
@@ -4652,6 +4677,73 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         </div>
       )}
 
+      {/* Photo Download Modal */}
+      {showPhotoDownload && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div onClick={() => setShowPhotoDownload(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }} />
+          <div style={{ position: "relative", width: "min(520px, 100%)", maxHeight: "85vh", overflow: "auto", background: "#151530", border: `1px solid ${S.border}`, borderRadius: 20, padding: 32 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 800, fontFamily: S.fontHead, color: S.text, margin: 0 }}>📷 Download Photos for Line Drawings</h3>
+              <button onClick={() => setShowPhotoDownload(false)} style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`, color: "#aaa", width: 36, height: 36, borderRadius: "50%", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+            </div>
+            <div style={{ fontSize: 11, color: S.dimmer, marginBottom: 12 }}>Select products to download photos for. Files will be named after the product for easy matching when uploading line drawings back.</div>
+            {(() => {
+              const needDrawing = products.filter(p => productUsesBoxLabels(p, categoryMeta) && !p.labelDrawing && p.img);
+              const allSelected = needDrawing.length > 0 && needDrawing.every(p => photoDownloadSelected[p.id]);
+              const selectedCount = Object.values(photoDownloadSelected).filter(Boolean).length;
+              return (
+                <>
+                  <div style={{ marginBottom: 8 }}>
+                    <button onClick={() => {
+                      if (allSelected) { setPhotoDownloadSelected({}); }
+                      else { const sel = {}; needDrawing.forEach(p => { sel[p.id] = true; }); setPhotoDownloadSelected(sel); }
+                    }} style={{ fontSize: 11, color: S.teal, cursor: "pointer", background: "none", border: "none", fontFamily: S.fontHead, fontWeight: 600, padding: 0 }}>
+                      {allSelected ? "Deselect all" : `Select all (${needDrawing.length})`}
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 300, overflowY: "auto" }}>
+                    {needDrawing.map(p => (
+                      <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 10, background: photoDownloadSelected[p.id] ? "rgba(132,94,247,0.06)" : "rgba(255,255,255,0.02)", border: `1px solid ${photoDownloadSelected[p.id] ? "rgba(132,94,247,0.25)" : S.border}`, cursor: "pointer" }}>
+                        <input type="checkbox" checked={!!photoDownloadSelected[p.id]} onChange={() => setPhotoDownloadSelected(prev => ({ ...prev, [p.id]: !prev[p.id] }))} />
+                        {p.img && <img src={p.img} alt="" style={{ width: 32, height: 32, objectFit: "cover", borderRadius: 4, border: `1px solid ${S.border}` }} />}
+                        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: S.text, fontFamily: S.fontHead }}>{p.name}</span>
+                        <span style={{ fontSize: 11, color: S.dimmer }}>{getProductCategories(p).join(", ")}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                    <span style={{ fontSize: 12, color: S.muted }}>{selectedCount} selected</span>
+                    <button onClick={() => {
+                      const selected = needDrawing.filter(p => photoDownloadSelected[p.id]);
+                      if (selected.length === 0) return;
+                      const photoCards = selected.map(p => {
+                        const safeName = p.name.replace(/[<>&"'/\\]/g, "");
+                        return `<div style="display:inline-block;margin:16px;text-align:center;vertical-align:top">
+                          <img src="${p.img}" style="max-width:300px;max-height:300px;border:1px solid #ddd;border-radius:8px" crossorigin="anonymous" />
+                          <div style="margin-top:8px;font-weight:700;font-size:14px">${safeName}</div>
+                          <div style="margin-top:4px;font-size:12px;color:#888">${getProductCategories(p).join(", ")}</div>
+                          <button onclick="(async()=>{try{const r=await fetch('${p.img}');const b=await r.blob();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='${safeName.replace(/'/g, "\\'")}.jpg';a.click();URL.revokeObjectURL(u)}catch(e){window.open('${p.img}')}})()" style="margin-top:8px;padding:6px 16px;background:#845ef7;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px">💾 Save as ${safeName.length > 25 ? safeName.slice(0, 22) + "..." : safeName}.jpg</button>
+                        </div>`;
+                      }).join("");
+                      const w = window.open("", "_blank");
+                      w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Product Photos for Line Drawings</title>
+                        <style>body{font-family:-apple-system,sans-serif;padding:24px;background:#fafafa}h1{font-size:20px;margin-bottom:4px}.hint{font-size:13px;color:#888;margin-bottom:24px}</style>
+                        </head><body>
+                        <h1>Product Photos for Line Drawings</h1>
+                        <p class="hint">${selected.length} products. Click Save on each to download with the product name as filename.</p>
+                        <div>${photoCards}</div>
+                        </body></html>`);
+                      w.document.close();
+                      setShowPhotoDownload(false);
+                    }} disabled={selectedCount === 0} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: selectedCount > 0 ? `linear-gradient(135deg, ${S.purple}, #6c3ce0)` : "rgba(255,255,255,0.05)", color: selectedCount > 0 ? "#fff" : S.dimmer, fontSize: 14, fontWeight: 800, cursor: selectedCount > 0 ? "pointer" : "default", fontFamily: S.fontHead }}>📷 Open Photos</button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
       {/* Batch Box Labels Modal */}
       {showBatchLabels && (
         <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -4669,7 +4761,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             </div>
             <div style={{ fontSize: 11, color: S.dimmer, marginBottom: 12 }}>Select products to include. Only products with a line drawing are shown.</div>
             {(() => {
-              const labelReady = products.filter(p => p.labelDrawing && getProductCategories(p).some(c => (categoryMeta[c] || {}).hasBoxLabels));
+              const labelReady = products.filter(p => p.labelDrawing && productUsesBoxLabels(p, categoryMeta));
               const allSelected = labelReady.length > 0 && labelReady.every(p => batchLabelSelected[p.id]);
               return (
                 <>
