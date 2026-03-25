@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v136 · 2026-03-25 22:05";
+const APP_VERSION = "v137 · 2026-03-25 22:26";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1259,16 +1259,28 @@ function ProductEditor({ product, onSave, onAutoSave, onDelete, onCancel, isNew,
                   if (!file) return;
                   try {
                     const imageData = await compressImage(file, 800, 0.9);
+                    // Show preview immediately but DON'T save base64 to product record
                     set("labelDrawing", imageData);
+                    // Upload to Firebase Storage first — only proceed if successful
                     const url = await uploadLabelDrawing(p.id || Date.now(), imageData);
-                    if (url !== imageData) set("labelDrawing", url);
-                    // Auto-save: persist drawing URL to Firestore immediately (don't wait for Save button)
-                    if (onAutoSave) {
-                      const updatedProduct = { ...p, labelDrawing: url !== imageData ? url : imageData };
-                      onAutoSave(updatedProduct);
-                      console.log("✅ Label drawing auto-saved for", p.name);
+                    if (url === imageData) {
+                      // Storage upload failed (returned base64 unchanged) — revert and warn
+                      set("labelDrawing", p.labelDrawing || "");
+                      alert("⚠️ Drawing upload to Firebase Storage failed. Check Firebase Storage rules allow authenticated writes to label-drawings/. Drawing was NOT saved.");
+                      console.error("❌ Storage upload returned base64 — Firebase Storage rules likely blocking writes");
+                    } else {
+                      // Storage upload succeeded — save the URL (never base64)
+                      set("labelDrawing", url);
+                      if (onAutoSave) {
+                        onAutoSave({ ...p, labelDrawing: url });
+                        console.log("✅ Label drawing auto-saved for", p.name);
+                      }
                     }
-                  } catch(err) { console.error("Label drawing upload failed:", err); }
+                  } catch(err) {
+                    console.error("Label drawing upload failed:", err);
+                    set("labelDrawing", p.labelDrawing || "");
+                    alert("⚠️ Drawing upload failed: " + (err.message || err));
+                  }
                   e.target.value = "";
                 }} />
               </label>
