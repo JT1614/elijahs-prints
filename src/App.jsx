@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v129 · 2026-03-17 22:11";
+const APP_VERSION = "v130 · 2026-03-25 12:17";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -706,6 +706,79 @@ async function deleteProductImage(productId) {
   }
 }
 
+async function uploadLabelDrawing(productId, dataURL) {
+  if (!USE_FIREBASE) return dataURL;
+  try {
+    const { storage, ref, uploadBytes, getDownloadURL } = await getFirebase();
+    const blob = dataURLtoBlob(dataURL);
+    const ext = "png";
+    const imageRef = ref(storage, `label-drawings/${productId}.${ext}`);
+    await uploadBytes(imageRef, blob, { contentType: "image/png" });
+    return await getDownloadURL(imageRef);
+  } catch (e) {
+    console.error("Label drawing upload failed:", e);
+    return dataURL;
+  }
+}
+
+async function deleteLabelDrawing(productId) {
+  if (!USE_FIREBASE) return;
+  try {
+    const { storage, ref, deleteObject } = await getFirebase();
+    for (const ext of ["png", "jpg"]) {
+      try { await deleteObject(ref(storage, `label-drawings/${productId}.${ext}`)); } catch (_) {}
+    }
+  } catch (e) {
+    console.error("Label drawing delete failed (may not exist):", e);
+  }
+}
+
+function generateBoxLabelHTML(labelProducts, copies = 2) {
+  const sheetsPerProduct = Math.ceil(copies / 2);
+  let pages = "";
+  labelProducts.forEach(p => {
+    for (let s = 0; s < sheetsPerProduct; s++) {
+      const labelsOnSheet = Math.min(2, copies - s * 2);
+      let labels = "";
+      for (let l = 0; l < labelsOnSheet; l++) {
+        const nameLen = (p.name || "").length;
+        const nameFontSize = nameLen > 20 ? "20pt" : nameLen > 16 ? "22pt" : "28pt";
+        const subtitleHTML = p.labelSubtitle ? `<div style="font-size:13pt; color:#333; font-weight:400; margin-top:2px; font-family:'DM Sans',Helvetica,sans-serif;">${p.labelSubtitle}</div>` : "";
+        labels += `<div style="width:140mm; height:140mm; box-sizing:border-box; padding:8mm 8mm 6mm 8mm; position:relative; display:flex; flex-direction:column; align-items:center; overflow:hidden;">
+            <div style="width:100%; display:flex; align-items:flex-start; justify-content:center; position:relative; margin-bottom:4mm;">
+              <div style="text-align:center; flex:1;">
+                <div style="font-size:${nameFontSize}; font-weight:800; color:#1a1a1a; font-family:'DM Sans',Helvetica,sans-serif; line-height:1.1;">${p.name || ""}</div>
+                ${subtitleHTML}
+              </div>
+              <div style="width:19mm; height:19mm; border-radius:50%; background:#aaa; flex-shrink:0; margin-left:3mm;"></div>
+            </div>
+            <div style="flex:1; display:flex; align-items:center; justify-content:center; width:100%; overflow:hidden;">
+              ${p.labelDrawing ? `<img src="${p.labelDrawing}" style="max-width:100%; max-height:100%; object-fit:contain;" crossorigin="anonymous" />` : `<div style="width:80mm; height:80mm; border:2px dashed #ccc; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#999; font-size:14pt;">No drawing</div>`}
+            </div>
+            <div style="font-size:16pt; font-weight:700; color:#555; font-family:'DM Sans',Helvetica,sans-serif; margin-top:4mm;">etprintworld.com</div>
+          </div>`;
+      }
+      pages += `<div style="width:210mm; height:297mm; position:relative; page-break-after:always; box-sizing:border-box;">
+          <div style="position:absolute; left:35mm; top:7mm; display:flex; flex-direction:column; gap:3mm;">
+            ${labels}
+          </div>
+        </div>`;
+    }
+  });
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Box Labels</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700;800&display=swap" rel="stylesheet">
+    <style>@page{size:A4 portrait;margin:0}@media print{body{margin:0}.no-print{display:none!important}}body{margin:0;font-family:'DM Sans',Helvetica,sans-serif}</style>
+  </head><body>
+    <div class="no-print" style="padding:16px;text-align:center;background:#f5f5f5;border-bottom:1px solid #ddd">
+      <strong>Box Labels</strong> - ${labelProducts.length} product${labelProducts.length !== 1 ? "s" : ""}, ${copies} labels each
+      | Print at <strong>Actual Size / 100%</strong> on Canon MX535 with kraft label stock
+      | <button onclick="window.print()" style="padding:8px 24px;background:#00c9a7;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Print</button>
+    </div>
+    ${pages}
+  </body></html>`;
+}
+
 /* ═══════════════════════════════════════════════
    SHARED COMPONENTS
    ═══════════════════════════════════════════════ */
@@ -1071,6 +1144,61 @@ function ProductEditor({ product, onSave, onDelete, onCancel, isNew, creators = 
           <label style={labelStyle}>Description</label>
           <textarea style={{ ...inputStyle, height: 64, resize: "vertical" }} value={p.description} onChange={e => set("description", e.target.value)} />
         </div>
+
+        {/* Label Drawing — only shown when any selected category has hasBoxLabels enabled */}
+        {getProductCategories(p).some(c => (categoryMeta[c] || {}).hasBoxLabels) && (
+          <div style={sectionStyle}>
+            <label style={labelStyle}>Box Label Drawing</label>
+            <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+              <label style={{
+                width: 120, height: 120, borderRadius: 14, cursor: "pointer", flexShrink: 0, overflow: "hidden",
+                border: `2px dashed ${p.labelDrawing ? "transparent" : "rgba(245,158,11,0.3)"}`,
+                background: p.labelDrawing ? "none" : "rgba(245,158,11,0.04)",
+                display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 4,
+                transition: "all 0.2s", position: "relative",
+              }}>
+                {p.labelDrawing ? (
+                  <img src={p.labelDrawing} alt="Label drawing" style={{ width: "100%", height: "100%", objectFit: "contain", padding: 4 }} />
+                ) : (
+                  <>
+                    <span style={{ fontSize: 28, opacity: 0.4 }}>🏷️</span>
+                    <span style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontHead, textAlign: "center" }}>Upload drawing</span>
+                  </>
+                )}
+                <input type="file" accept="image/*" style={{ display: "none" }} onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const imageData = await compressImage(file, 800, 0.9);
+                    set("labelDrawing", imageData);
+                    const url = await uploadLabelDrawing(p.id || Date.now(), imageData);
+                    if (url !== imageData) set("labelDrawing", url);
+                  } catch(err) { console.error("Label drawing upload failed:", err); }
+                  e.target.value = "";
+                }} />
+              </label>
+              <div style={{ flex: 1 }}>
+                {p.labelDrawing && (
+                  <button onClick={() => { deleteLabelDrawing(p.id); set("labelDrawing", ""); }} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, marginBottom: 8 }}>✕ Remove drawing</button>
+                )}
+                <p style={{ fontSize: 11, color: S.dimmer, lineHeight: 1.5, margin: 0 }}>
+                  {p.labelDrawing ? "Line drawing uploaded. Used for box labels. Click image to replace." : "Upload a black line drawing (PNG) for kraft box labels. Generate in ChatGPT from a product photo."}
+                </p>
+                <div style={{ marginTop: 8 }}>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px" }}>Label Subtitle (optional)</label>
+                  <input style={{ width: "100%", padding: "6px 10px", borderRadius: 6, fontSize: 12, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontFamily: S.font, outline: "none", boxSizing: "border-box", marginTop: 2, colorScheme: "dark" }} value={p.labelSubtitle || ""} onChange={e => set("labelSubtitle", e.target.value)} placeholder="e.g. Long Articulated Dragon (127cm)" />
+                </div>
+                {p.labelDrawing && (
+                  <button onClick={() => {
+                    const w = window.open("", "_blank");
+                    w.document.write(generateBoxLabelHTML([p], 2));
+                    w.document.close();
+                  }} style={{ marginTop: 8, padding: "6px 14px", borderRadius: 8, border: `1px solid rgba(245,158,11,0.3)`, background: "rgba(245,158,11,0.08)", color: "#f59e0b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>🏷️ Print Box Label (×2)</button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Dimensions — only shown when any selected category has hasDimensions enabled */}
         {getProductCategories(p).some(c => (categoryMeta[c] || {}).hasDimensions) && (
@@ -3337,6 +3465,9 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [editingCat, setEditingCat] = useState(null);
   const [editCatName, setEditCatName] = useState("");
   const [importingJSON, setImportingJSON] = useState(false);
+  const [showBatchLabels, setShowBatchLabels] = useState(false);
+  const [batchLabelCopies, setBatchLabelCopies] = useState(2);
+  const [batchLabelSelected, setBatchLabelSelected] = useState({});
   const [importText, setImportText] = useState("");
   const [migratingImages, setMigratingImages] = useState(false);
   const [migrationMsg, setMigrationMsg] = useState("");
@@ -3554,6 +3685,15 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           <Tooltip position="bottom" text="Paste a JSON block or array generated by Claude to import one or many products.<br/><br/><strong>Process:</strong> Claude generates JSON → copy it → click here → paste → Import Product(s) → then upload photos in the product editor.">
             <button onClick={() => { setImportText(""); setImportingJSON(true); }} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.teal, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>📋 Import JSON</button>
           </Tooltip>
+          {(() => {
+            const labelReady = products.filter(p => p.labelDrawing && getProductCategories(p).some(c => (categoryMeta[c] || {}).hasBoxLabels));
+            if (labelReady.length === 0) return null;
+            return (
+              <Tooltip position="bottom" text={`Print box labels for products that have a line drawing uploaded. ${labelReady.length} product${labelReady.length !== 1 ? "s" : ""} ready.`}>
+                <button onClick={() => setShowBatchLabels(true)} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.08)", color: "#f59e0b", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>🏷️ Print Box Labels ({labelReady.length})</button>
+              </Tooltip>
+            );
+          })()}
           <Tooltip position="bottom" text="Manually create a new product from scratch. Use <strong>Import JSON</strong> instead if Claude has generated a product for you — it's much faster.">
             <button onClick={() => setAddingNew(true)} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.purple}, #6c3ce0)`, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, boxShadow: "0 4px 16px rgba(132,94,247,0.3)" }}>+ Add Product</button>
           </Tooltip>
@@ -3593,6 +3733,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         const noDesc = live.filter(p => !p.description || p.description.trim().length < 5);
         const zeroPrice = live.filter(p => !p.price || p.price <= 0);
         const noColours = live.filter(p => !p.colors || p.colors.length === 0);
+        const noLabelDrawing = live.filter(p => getProductCategories(p).some(c => (categoryMeta[c] || {}).hasBoxLabels) && !p.labelDrawing);
         const issues = [
           noPhoto.length > 0 && { icon: "📷", label: `${noPhoto.length} missing photo`, color: "#ff6b6b" },
           zeroPrice.length > 0 && { icon: "💰", label: `${zeroPrice.length} with £0 price`, color: "#ff6b6b" },
@@ -3600,6 +3741,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           noPrintTime.length > 0 && { icon: "⏱️", label: `${noPrintTime.length} missing print time`, color: "#f59f00" },
           noCreator.length > 0 && { icon: "👤", label: `${noCreator.length} missing creator`, color: "#f59f00" },
           noGrams.length > 0 && { icon: "⚖️", label: `${noGrams.length} missing weight`, color: "#f59f00" },
+          noLabelDrawing.length > 0 && { icon: "🏷️", label: `${noLabelDrawing.length} missing label drawing`, color: "#f59e0b" },
           noDesc.length > 0 && { icon: "📝", label: `${noDesc.length} missing description`, color: S.dimmer },
           noColours.length > 0 && { icon: "🎨", label: `${noColours.length} no colours assigned`, color: "#f59f00" },
         ].filter(Boolean);
@@ -3632,6 +3774,11 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 {autoBadges[product.id] && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: product.premiumOverride ? "rgba(255,212,59,0.15)" : "rgba(0,201,167,0.1)", color: product.premiumOverride ? "#ffd43b" : S.teal, fontWeight: 600, fontFamily: S.fontHead }}>{autoBadges[product.id]}{product.premiumOverride ? " ⭐" : ""}</span>}
                 {(() => { const st = getProductStatus(product); if (st === "live") return null; const col = STATUS_COLORS[st]; return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: `${col}18`, color: col, fontWeight: 700, fontFamily: S.fontHead }}>{STATUS_LABELS[st]}</span>; })()}
                 {product.maxColors > 1 && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(132,94,247,0.1)", color: S.purple, fontWeight: 600 }}>{product.maxColors} colours</span>}
+                {getProductCategories(product).some(c => (categoryMeta[c] || {}).hasBoxLabels) && (
+                  <Tooltip position="top" text={product.labelDrawing ? "Line drawing uploaded — box label ready to print ✅" : "No line drawing yet — upload in product editor to enable box labels"}>
+                    <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: product.labelDrawing ? "rgba(245,158,11,0.1)" : "rgba(255,107,107,0.1)", color: product.labelDrawing ? "#f59e0b" : "#ff6b6b", fontWeight: 700, fontFamily: S.fontHead }}>{product.labelDrawing ? "🏷️ Label" : "🏷️ ✕"}</span>
+                  </Tooltip>
+                )}
               </div>
               <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
                 {product.colors.slice(0, 8).map((c, i) => <div key={i} style={{ width: 12, height: 12, borderRadius: "50%", background: FILAMENTS[c]?.hex || "#666", border: "1px solid rgba(255,255,255,0.1)" }} />)}
@@ -4160,12 +4307,12 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 {adminTab === "categories" && (
         <div style={{ background: S.card, borderRadius: 16, padding: 24, border: `1px solid ${S.border}` }}>
           <p style={{ fontSize: 13, color: S.muted, marginBottom: 20 }}>
-            Manage your product categories. Use ▲▼ to reorder — the shop page updates to match. Each category can be tagged as Kids or Adult (used for label printing) and optionally require product dimensions.
+            Manage your product categories. Use ▲▼ to reorder — the shop page updates to match. Each category can be tagged as Kids or Adult (used for label printing), optionally require product dimensions, and enable kraft box labels for packaging.
           </p>
           {/* Add new category */}
           <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-            <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder="New category name" onKeyDown={e => { if (e.key === "Enter" && newCatName.trim()) { const n = newCatName.trim(); if (!categories.includes(n)) { onSaveCategories([...categories, n]); const newMeta = {...categoryMeta}; newMeta[n] = { audience: "kids", hasDimensions: false, sortOrder: categories.length }; onSaveCategoryMeta(newMeta); setNewCatName(""); } }}} style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.03)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none" }} />
-            <button onClick={() => { const n = newCatName.trim(); if (n && !categories.includes(n)) { onSaveCategories([...categories, n]); const newMeta = {...categoryMeta}; newMeta[n] = { audience: "kids", hasDimensions: false, sortOrder: categories.length }; onSaveCategoryMeta(newMeta); setNewCatName(""); } }} disabled={!newCatName.trim() || categories.includes(newCatName.trim())} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: newCatName.trim() && !categories.includes(newCatName.trim()) ? `linear-gradient(135deg, ${S.teal}, #00b894)` : "rgba(255,255,255,0.05)", color: newCatName.trim() && !categories.includes(newCatName.trim()) ? "#1a1a2e" : S.dimmer, fontSize: 14, fontWeight: 700, cursor: newCatName.trim() ? "pointer" : "default", fontFamily: S.fontHead }}>+ Add</button>
+            <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder="New category name" onKeyDown={e => { if (e.key === "Enter" && newCatName.trim()) { const n = newCatName.trim(); if (!categories.includes(n)) { onSaveCategories([...categories, n]); const newMeta = {...categoryMeta}; newMeta[n] = { audience: "kids", hasDimensions: false, hasBoxLabels: false, sortOrder: categories.length }; onSaveCategoryMeta(newMeta); setNewCatName(""); } }}} style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.03)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none" }} />
+            <button onClick={() => { const n = newCatName.trim(); if (n && !categories.includes(n)) { onSaveCategories([...categories, n]); const newMeta = {...categoryMeta}; newMeta[n] = { audience: "kids", hasDimensions: false, hasBoxLabels: false, sortOrder: categories.length }; onSaveCategoryMeta(newMeta); setNewCatName(""); } }} disabled={!newCatName.trim() || categories.includes(newCatName.trim())} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: newCatName.trim() && !categories.includes(newCatName.trim()) ? `linear-gradient(135deg, ${S.teal}, #00b894)` : "rgba(255,255,255,0.05)", color: newCatName.trim() && !categories.includes(newCatName.trim()) ? "#1a1a2e" : S.dimmer, fontSize: 14, fontWeight: 700, cursor: newCatName.trim() ? "pointer" : "default", fontFamily: S.fontHead }}>+ Add</button>
           </div>
           {/* Category list */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -4195,6 +4342,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, audience: meta.audience === "kids" ? "adult" : "kids" }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.audience === "kids" ? "rgba(255,193,7,0.4)" : "rgba(132,94,247,0.4)"}`, background: meta.audience === "kids" ? "rgba(255,193,7,0.1)" : "rgba(132,94,247,0.1)", color: meta.audience === "kids" ? "#ffc107" : S.purple, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.audience === "kids" ? "👶 Kids" : "🧑 Adult"}</button>
                       {/* Dimensions toggle */}
                       <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, hasDimensions: !meta.hasDimensions }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.hasDimensions ? "rgba(0,201,167,0.4)" : S.border}`, background: meta.hasDimensions ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.02)", color: meta.hasDimensions ? S.teal : S.dimmer, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.hasDimensions ? "📐 Dims ON" : "📐 Dims"}</button>
+                      {/* Box Labels toggle */}
+                      <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, hasBoxLabels: !meta.hasBoxLabels }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.hasBoxLabels ? "rgba(245,158,11,0.4)" : S.border}`, background: meta.hasBoxLabels ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.02)", color: meta.hasBoxLabels ? "#f59e0b" : S.dimmer, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.hasBoxLabels ? "🏷️ Labels ON" : "🏷️ Labels"}</button>
                       <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, paused: !meta.paused }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.paused ? "rgba(255,107,107,0.4)" : S.border}`, background: meta.paused ? "rgba(255,107,107,0.1)" : "rgba(255,255,255,0.02)", color: meta.paused ? "#ff6b6b" : S.dimmer, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.paused ? "⏸️ Paused" : "⏸️ Pause"}</button>
                       <button onClick={() => { setEditingCat(idx); setEditCatName(cat); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 11, cursor: "pointer", fontFamily: S.fontHead }}>✏️ Rename</button>
                       <button onClick={() => { if (count > 0) { if (!window.confirm(`"${cat}" has ${count} product${count !== 1 ? "s" : ""}. They'll keep their category label but it won't appear in filters. Delete anyway?`)) return; } const newMeta = {...categoryMeta}; delete newMeta[cat]; onSaveCategoryMeta(newMeta); onSaveCategories(categories.filter((_, i) => i !== idx)); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid rgba(255,107,107,0.3)`, background: "transparent", color: "#ff6b6b", fontSize: 11, cursor: "pointer", fontFamily: S.fontHead }}>🗑️ Delete</button>
@@ -4499,6 +4648,65 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                 }
               }} style={{ padding: "10px 28px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, boxShadow: "0 4px 16px rgba(0,201,167,0.25)" }}>Import Product(s)</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Box Labels Modal */}
+      {showBatchLabels && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div onClick={() => setShowBatchLabels(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }} />
+          <div style={{ position: "relative", width: "min(520px, 100%)", maxHeight: "85vh", overflow: "auto", background: "#151530", border: `1px solid ${S.border}`, borderRadius: 20, padding: 32 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 800, fontFamily: S.fontHead, color: S.text, margin: 0 }}>🏷️ Print Box Labels</h3>
+              <button onClick={() => setShowBatchLabels(false)} style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`, color: "#aaa", width: 36, height: 36, borderRadius: "50%", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+            </div>
+            <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 12, color: S.muted, fontFamily: S.fontHead }}>Labels per product:</span>
+              {[2, 4, 6].map(n => (
+                <button key={n} onClick={() => setBatchLabelCopies(n)} style={{ padding: "6px 14px", borderRadius: 8, border: batchLabelCopies === n ? "1.5px solid #f59e0b" : `1px solid ${S.border}`, background: batchLabelCopies === n ? "rgba(245,158,11,0.12)" : "transparent", color: batchLabelCopies === n ? "#f59e0b" : S.muted, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>×{n}</button>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: S.dimmer, marginBottom: 12 }}>Select products to include. Only products with a line drawing are shown.</div>
+            {(() => {
+              const labelReady = products.filter(p => p.labelDrawing && getProductCategories(p).some(c => (categoryMeta[c] || {}).hasBoxLabels));
+              const allSelected = labelReady.length > 0 && labelReady.every(p => batchLabelSelected[p.id]);
+              return (
+                <>
+                  <div style={{ marginBottom: 8 }}>
+                    <button onClick={() => {
+                      if (allSelected) { setBatchLabelSelected({}); }
+                      else { const sel = {}; labelReady.forEach(p => { sel[p.id] = true; }); setBatchLabelSelected(sel); }
+                    }} style={{ fontSize: 11, color: S.teal, cursor: "pointer", background: "none", border: "none", fontFamily: S.fontHead, fontWeight: 600, padding: 0 }}>
+                      {allSelected ? "Deselect all" : "Select all"}
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 300, overflowY: "auto" }}>
+                    {labelReady.map(p => (
+                      <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 10, background: batchLabelSelected[p.id] ? "rgba(245,158,11,0.06)" : "rgba(255,255,255,0.02)", border: `1px solid ${batchLabelSelected[p.id] ? "rgba(245,158,11,0.25)" : S.border}`, cursor: "pointer" }}>
+                        <input type="checkbox" checked={!!batchLabelSelected[p.id]} onChange={() => setBatchLabelSelected(prev => ({ ...prev, [p.id]: !prev[p.id] }))} />
+                        {p.labelDrawing && <img src={p.labelDrawing} alt="" style={{ width: 32, height: 32, objectFit: "contain", borderRadius: 4, background: "rgba(255,255,255,0.06)" }} />}
+                        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: S.text, fontFamily: S.fontHead }}>{p.name}</span>
+                        <span style={{ fontSize: 11, color: S.dimmer }}>{getProductCategories(p).join(", ")}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                    <span style={{ fontSize: 12, color: S.muted }}>
+                      {Object.values(batchLabelSelected).filter(Boolean).length} selected → {Math.ceil(Object.values(batchLabelSelected).filter(Boolean).length * batchLabelCopies / 2)} A4 sheet{Math.ceil(Object.values(batchLabelSelected).filter(Boolean).length * batchLabelCopies / 2) !== 1 ? "s" : ""}
+                    </span>
+                    <button onClick={() => {
+                      const selected = labelReady.filter(p => batchLabelSelected[p.id]);
+                      if (selected.length === 0) return;
+                      const w = window.open("", "_blank");
+                      w.document.write(generateBoxLabelHTML(selected, batchLabelCopies));
+                      w.document.close();
+                      setShowBatchLabels(false);
+                    }} disabled={Object.values(batchLabelSelected).filter(Boolean).length === 0} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: Object.values(batchLabelSelected).filter(Boolean).length > 0 ? "linear-gradient(135deg, #f59e0b, #d97706)" : "rgba(255,255,255,0.05)", color: Object.values(batchLabelSelected).filter(Boolean).length > 0 ? "#1a1a2e" : S.dimmer, fontSize: 14, fontWeight: 800, cursor: Object.values(batchLabelSelected).filter(Boolean).length > 0 ? "pointer" : "default", fontFamily: S.fontHead }}>🖨️ Print</button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
