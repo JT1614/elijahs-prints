@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 
 /* ═══════════════════════════════════════════════
    CONSTANTS
@@ -3331,7 +3331,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   }, []);
 
   /* ── Auto-save pricing config when overrides or band layers change ── */
-  const pricingConfigRef = React.useRef({ overrides: {}, bandLayers: {} });
+  const pricingConfigRef = useRef({ overrides: {}, bandLayers: {} });
   useEffect(() => {
     // Skip initial mount (empty objects)
     const isInitial = Object.keys(pricingLayerOverrides).length === 0 && Object.keys(pricingBandLayers).length === 0;
