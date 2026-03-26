@@ -3323,6 +3323,10 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
     })();
   }, []);
 
+  /* ── Pricing config state ── */
+  const [pricingLayerOverrides, setPricingLayerOverrides] = useState({});
+  const [pricingBandLayers, setPricingBandLayers] = useState({});
+
   /* ── Load stock targets from Firebase on mount ── */
   useEffect(() => {
     loadStockTargets().then(t => { setStockTargets(t); setStockLoading(false); }).catch(() => setStockLoading(false));
@@ -3611,8 +3615,6 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [photoDownloadSelected, setPhotoDownloadSelected] = useState({});
   const [showCustomDots, setShowCustomDots] = useState(false);
   const [customDotsSelected, setCustomDotsSelected] = useState({});
-  const [pricingLayerOverrides, setPricingLayerOverrides] = useState({});
-  const [pricingBandLayers, setPricingBandLayers] = useState({});
   const [importText, setImportText] = useState("");
   const [migratingImages, setMigratingImages] = useState(false);
   const [migrationMsg, setMigrationMsg] = useState("");
