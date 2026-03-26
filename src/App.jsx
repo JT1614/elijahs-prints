@@ -299,7 +299,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v138 · 2026-03-25 22:31";
+const APP_VERSION = "v139 · 2026-03-26 07:32";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -3387,7 +3387,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
     console.log("🧹 Cleaned orphaned filament colours from products (in-memory only — not saved to prevent stale tab overwrite)");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── Export Data to Excel ── */
+  /* ── Export Data to Excel (dynamic — exports ALL fields automatically) ── */
   const exportData = async () => {
     setExporting(true);
     try {
@@ -3403,134 +3403,163 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       const XLSX = window.XLSX;
       const wb = XLSX.utils.book_new();
 
-      /* Products tab */
-      const prodRows = products.map(p => ({
-        "ID": p.id,
-        "Name": p.name,
-        "Category": getProductCategories(p).join(", "),
-        "Price (£)": p.price,
-        "Weight (g)": p.grams,
-        "Print Time": p.printTime,
-        "Description": p.description,
-        "Available": p.available ? "Yes" : "No",
-        "Status": p.status || "live",
-        "Max Colours": p.maxColors,
-        "Colours": (p.colors || []).join(", "),
-        "Badge": p.badge || "",
-        "Creator": p.creator || "",
-        "Photo Source": p.photoSource || "",
-        "Creator Licence": p.creatorLicence || "",
-        "Source URL": p.sourceUrl || "",
-        "Added Date": p.addedDate || "",
-        "Width (mm)": p.widthMm || "",
-        "Height (mm)": p.heightMm || "",
-        "Volume (W×H)": (p.widthMm && p.heightMm) ? p.widthMm * p.heightMm : "",
-        "Size": getPlanterSize(p),
-      }));
-      const wsProd = XLSX.utils.json_to_sheet(prodRows);
-      wsProd["!cols"] = [
-        { wch: 8 }, { wch: 28 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 12 },
-        { wch: 50 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 60 }, { wch: 12 },
-        { wch: 20 }, { wch: 14 }, { wch: 40 },
-        { wch: 30 }, { wch: 50 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 10 },
-      ];
-      XLSX.utils.book_append_sheet(wb, wsProd, "Products");
+      /* ── Helpers ── */
+      // Format any value for Excel output
+      const fmtVal = (v) => {
+        if (v === null || v === undefined) return "";
+        if (typeof v === "boolean") return v ? "Yes" : "No";
+        if (Array.isArray(v)) return v.join(", ");
+        if (v instanceof Date) return v.toLocaleDateString("en-GB");
+        if (typeof v === "object") return JSON.stringify(v);
+        return v;
+      };
+      // Collect all keys from array of objects, in preferred order then alphabetical remainder
+      const orderedKeys = (arr, preferred = []) => {
+        const all = new Set();
+        arr.forEach(obj => { if (obj && typeof obj === "object") Object.keys(obj).forEach(k => all.add(k)); });
+        const ordered = preferred.filter(k => all.has(k));
+        const rest = [...all].filter(k => !preferred.includes(k)).sort();
+        return [...ordered, ...rest];
+      };
+      // Make a header name from a camelCase or snake_case key
+      const autoHeader = (key, headerMap = {}) => {
+        if (headerMap[key]) return headerMap[key];
+        return key.replace(/([A-Z])/g, " $1").replace(/[_-]/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim();
+      };
+      // Build sheet from rows with auto column widths
+      const buildSheet = (rows, keys, headerMap = {}) => {
+        const headers = keys.map(k => autoHeader(k, headerMap));
+        const data = [headers, ...rows.map(r => keys.map(k => fmtVal(r[k])))];
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        ws["!cols"] = keys.map((k, i) => {
+          const hLen = headers[i].length;
+          const maxData = rows.reduce((mx, r) => Math.max(mx, String(fmtVal(r[k]) || "").length), 0);
+          return { wch: Math.min(Math.max(hLen + 2, maxData + 2, 8), 60) };
+        });
+        return ws;
+      };
 
-      /* Orders tab */
-      const orderRows = orders.map(o => ({
-        "Order ID": o.id,
-        "Date": o.date ? new Date(o.date).toLocaleDateString("en-GB") : "",
-        "Customer": o.customer?.name || "",
-        "Email": o.customer?.email || "",
-        "Phone": o.customer?.phone || "",
-        "Address": [o.customer?.address1, o.customer?.address2, o.customer?.city, o.customer?.county, o.customer?.postcode].filter(Boolean).join(", "),
-        "Shipping": o.shipping?.name || "",
-        "Items": (o.items || []).map(i => `${i.qty}x ${i.name} (${(i.selectedColors || []).join("/")})`).join("; "),
-        "Total (£)": o.total,
-        "Paid": o.status?.paid ? "Yes" : "No",
-        "Produced": o.status?.produced ? "Yes" : "No",
-        "Label Printed": o.status?.labelPrinted ? "Yes" : "No",
-        "Despatched": o.status?.despatched ? "Yes" : "No",
+      /* ── Products tab ── */
+      const PROD_PREFERRED = ["id","name","category","price","grams","printTime","description","available","status","maxColors","colors","badge","creator","photoSource","creatorLicence","sourceUrl","addedDate","widthMm","heightMm","labelDrawing","labelSubtitle","useBoxPackaging","img"];
+      const PROD_HEADERS = { id:"ID", name:"Name", price:"Price (£)", grams:"Weight (g)", printTime:"Print Time", description:"Description", available:"Available", status:"Status", maxColors:"Max Colours", colors:"Colours", badge:"Badge", creator:"Creator", photoSource:"Photo Source", creatorLicence:"Creator Licence", sourceUrl:"Source URL", addedDate:"Added Date", widthMm:"Width (mm)", heightMm:"Height (mm)", labelDrawing:"Label Drawing", labelSubtitle:"Label Subtitle", useBoxPackaging:"Box Packaging Override", img:"Image URL", category:"Category (raw)" };
+      // Build enriched product rows with computed columns
+      const prodData = products.map(p => ({
+        ...p,
+        _categoryNames: getProductCategories(p).join(", "),
+        _volume: (p.widthMm && p.heightMm) ? p.widthMm * p.heightMm : "",
+        _planterSize: getPlanterSize(p),
+        _dragonSize: getDragonSize(p),
+        _hasLabelDrawing: !!p.labelDrawing,
+        _usesBoxLabels: productUsesBoxLabels(p, categoryMeta),
+        // Flatten category to string for readability
+        category: getProductCategories(p).join(", "),
+        available: !!p.available,
+        labelDrawing: p.labelDrawing ? "Yes" : "No",
+        useBoxPackaging: p.useBoxPackaging === true ? "Yes" : p.useBoxPackaging === false ? "No" : "",
       }));
-      const wsOrd = XLSX.utils.json_to_sheet(orderRows);
-      wsOrd["!cols"] = [
-        { wch: 14 }, { wch: 12 }, { wch: 20 }, { wch: 28 }, { wch: 16 }, { wch: 50 },
-        { wch: 22 }, { wch: 60 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 12 },
-      ];
-      XLSX.utils.book_append_sheet(wb, wsOrd, "Orders");
+      const prodComputedKeys = ["_categoryNames","_volume","_planterSize","_dragonSize","_hasLabelDrawing","_usesBoxLabels"];
+      const PROD_COMPUTED_HEADERS = { _categoryNames:"Category Names", _volume:"Volume (W×H)", _planterSize:"Planter Size", _dragonSize:"Dragon Size", _hasLabelDrawing:"Has Label Drawing", _usesBoxLabels:"Uses Box Labels" };
+      const prodRawKeys = orderedKeys(products, PROD_PREFERRED);
+      const prodAllKeys = [...prodRawKeys, ...prodComputedKeys];
+      const prodHeaderMap = { ...PROD_HEADERS, ...PROD_COMPUTED_HEADERS };
+      XLSX.utils.book_append_sheet(wb, buildSheet(prodData, prodAllKeys, prodHeaderMap), "Products");
 
-      /* Colours tab */
-      const colourRows = ALL_COLORS.map(name => {
-        const f = FILAMENTS[name];
-        return {
-          "Colour Name": name,
-          "Hex": f?.hex || "",
-          "Type": f?.type || "",
-          "Premium": f?.premium ? "Yes" : "No",
-          "Used By Products": products.filter(p => (p.colors || []).includes(name)).length,
-        };
+      /* ── Orders tab ── */
+      // Flatten nested order objects
+      const orderData = orders.map(o => {
+        const flat = { id: o.id };
+        // Date
+        flat.date = o.date ? new Date(o.date).toLocaleDateString("en-GB") : "";
+        // Flatten customer
+        if (o.customer && typeof o.customer === "object") {
+          Object.entries(o.customer).forEach(([k, v]) => { flat["customer_" + k] = v; });
+        }
+        flat.customer_fullAddress = [o.customer?.address1, o.customer?.address2, o.customer?.city, o.customer?.county, o.customer?.postcode].filter(Boolean).join(", ");
+        // Flatten shipping
+        if (o.shipping && typeof o.shipping === "object") {
+          Object.entries(o.shipping).forEach(([k, v]) => { flat["shipping_" + k] = v; });
+        }
+        // Items summary
+        flat.items = (o.items || []).map(i => `${i.qty}x ${i.name} (${(i.selectedColors || []).join("/")})`).join("; ");
+        flat.itemCount = (o.items || []).reduce((s, i) => s + (i.qty || 1), 0);
+        // Total
+        flat.total = o.total;
+        // Flatten status
+        if (o.status && typeof o.status === "object") {
+          Object.entries(o.status).forEach(([k, v]) => { flat["status_" + k] = v; });
+        }
+        // Copy any remaining top-level keys not yet captured
+        Object.keys(o).forEach(k => {
+          if (!["id","date","customer","shipping","items","total","status"].includes(k) && flat[k] === undefined) {
+            flat[k] = o[k];
+          }
+        });
+        return flat;
       });
-      const wsCol = XLSX.utils.json_to_sheet(colourRows);
-      wsCol["!cols"] = [{ wch: 22 }, { wch: 50 }, { wch: 18 }, { wch: 10 }, { wch: 18 }];
-      XLSX.utils.book_append_sheet(wb, wsCol, "Colours");
+      const ORD_PREFERRED = ["id","date","customer_name","customer_email","customer_phone","customer_fullAddress","shipping_name","shipping_price","items","itemCount","total","status_paid","status_produced","status_labelPrinted","status_despatched"];
+      const ORD_HEADERS = { id:"Order ID", date:"Date", customer_name:"Customer", customer_email:"Email", customer_phone:"Phone", customer_fullAddress:"Address", shipping_name:"Shipping", shipping_price:"Shipping Price (£)", items:"Items", itemCount:"Item Count", total:"Total (£)", status_paid:"Paid", status_produced:"Produced", status_labelPrinted:"Label Printed", status_despatched:"Despatched", customer_address1:"Address 1", customer_address2:"Address 2", customer_city:"City", customer_county:"County", customer_postcode:"Postcode" };
+      const ordKeys = orderedKeys(orderData, ORD_PREFERRED);
+      XLSX.utils.book_append_sheet(wb, buildSheet(orderData, ordKeys, ORD_HEADERS), "Orders");
 
-      /* Categories tab */
-      const catRows = categories.map(cat => {
+      /* ── Colours tab ── */
+      const colourData = ALL_COLORS.map(name => {
+        const f = FILAMENTS[name] || {};
+        const row = { name, ...f };
+        row._usedByProducts = products.filter(p => (p.colors || []).includes(name)).length;
+        return row;
+      });
+      const COL_PREFERRED = ["name","hex","type","premium","sortOrder"];
+      const COL_HEADERS = { name:"Colour Name", hex:"Hex", type:"Type", premium:"Premium", sortOrder:"Sort Order", _usedByProducts:"Used By Products" };
+      const colKeys = [...orderedKeys(colourData, COL_PREFERRED), "_usedByProducts"];
+      XLSX.utils.book_append_sheet(wb, buildSheet(colourData, [...new Set(colKeys)], COL_HEADERS), "Colours");
+
+      /* ── Categories tab ── */
+      const catData = categories.map(cat => {
         const meta = categoryMeta[cat] || {};
         return {
-          "Category": cat,
-          "Audience": meta.audience || "",
-          "Has Dimensions": meta.hasDimensions ? "Yes" : "No",
-          "Product Count": products.filter(p => productInCategory(p, cat)).length,
-          "Products": products.filter(p => productInCategory(p, cat)).map(p => p.name).join(", "),
+          category: cat,
+          ...meta,
+          _productCount: products.filter(p => productInCategory(p, cat)).length,
+          _products: products.filter(p => productInCategory(p, cat)).map(p => p.name).join(", "),
         };
       });
-      const wsCat = XLSX.utils.json_to_sheet(catRows);
-      wsCat["!cols"] = [{ wch: 20 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 80 }];
-      XLSX.utils.book_append_sheet(wb, wsCat, "Categories");
+      const CAT_PREFERRED = ["category","audience","hasDimensions","hasBoxLabels","sortOrder"];
+      const CAT_HEADERS = { category:"Category", audience:"Audience", hasDimensions:"Has Dimensions", hasBoxLabels:"Has Box Labels", sortOrder:"Sort Order", _productCount:"Product Count", _products:"Products" };
+      const catKeys = [...orderedKeys(catData, CAT_PREFERRED), "_productCount", "_products"];
+      XLSX.utils.book_append_sheet(wb, buildSheet(catData, [...new Set(catKeys)], CAT_HEADERS), "Categories");
 
-      /* Creators tab */
-      const creatorRows = creators.map(c => {
-        const activeProds = products.filter(p => p.available && p.creator === c.name);
+      /* ── Creators tab ── */
+      const creatorData = creators.map(c => {
         const allProds = products.filter(p => p.creator === c.name);
+        const activeProds = allProds.filter(p => p.available);
         return {
-          "Name": c.name || "",
-          "Platform": c.platform || "",
-          "Profile URL": c.profileUrl || "",
-          "Licence Status": c.licenceStatus || "",
-          "Monthly Cost (£)": c.monthlyCost || 0,
-          "Photo Rights": c.photoRights === "included" ? "Included" : "Own needed",
-          "Action Required": c.actionRequired || "",
-          "Active Products": activeProds.length,
-          "Total Products": allProds.length,
-          "Product Names": allProds.map(p => p.name).join(", "),
+          ...c,
+          _activeProducts: activeProds.length,
+          _totalProducts: allProds.length,
+          _productNames: allProds.map(p => p.name).join(", "),
         };
       });
-      const wsCre = XLSX.utils.json_to_sheet(creatorRows);
-      wsCre["!cols"] = [{ wch: 22 }, { wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 30 }, { wch: 14 }, { wch: 14 }, { wch: 50 }];
-      XLSX.utils.book_append_sheet(wb, wsCre, "Creators");
+      const CRE_PREFERRED = ["name","platform","profileUrl","licenceStatus","monthlyCost","photoRights","actionRequired"];
+      const CRE_HEADERS = { name:"Name", platform:"Platform", profileUrl:"Profile URL", licenceStatus:"Licence Status", monthlyCost:"Monthly Cost (£)", photoRights:"Photo Rights", actionRequired:"Action Required", _activeProducts:"Active Products", _totalProducts:"Total Products", _productNames:"Product Names" };
+      const creKeys = [...orderedKeys(creatorData, CRE_PREFERRED), "_activeProducts", "_totalProducts", "_productNames"];
+      XLSX.utils.book_append_sheet(wb, buildSheet(creatorData, [...new Set(creKeys)], CRE_HEADERS), "Creators");
 
-      /* Stock Targets tab */
-      const stockRows = stockTargets.map(t => {
+      /* ── Stock Targets tab ── */
+      const stockData = stockTargets.map(t => {
         const prod = products.find(p => p.id === t.productId);
-        const remaining = Math.max(0, (t.targetQty || 0) - (t.onHand || 0));
         return {
-          "Product": prod?.name || t.productName || "Unknown",
-          "Category": prod ? getProductCategories(prod).join(", ") : "",
-          "Colours": (t.colours || []).join(" + "),
-          "Event": t.event || "",
-          "Target Qty": t.targetQty || 0,
-          "On Hand": t.onHand || 0,
-          "Remaining": remaining,
-          "CB Price (£)": t.carBootPrice || 0,
-          "Web Price (£)": prod?.price || 0,
-          "Print Time": prod?.printTime || "",
-          "Notes": t.notes || "",
+          ...t,
+          _productName: prod?.name || t.productName || "Unknown",
+          _category: prod ? getProductCategories(prod).join(", ") : "",
+          _remaining: Math.max(0, (t.targetQty || 0) - (t.onHand || 0)),
+          _webPrice: prod?.price || 0,
+          _printTime: prod?.printTime || "",
         };
       });
-      const wsStock = XLSX.utils.json_to_sheet(stockRows);
-      wsStock["!cols"] = [{ wch: 28 }, { wch: 16 }, { wch: 30 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 30 }];
-      XLSX.utils.book_append_sheet(wb, wsStock, "Stock");
+      const STK_PREFERRED = ["productId","productName","_productName","_category","colours","event","targetQty","onHand","_remaining","carBootPrice","_webPrice","_printTime","notes"];
+      const STK_HEADERS = { productId:"Product ID", productName:"Product Name (stored)", _productName:"Product Name", _category:"Category", colours:"Colours", event:"Event", targetQty:"Target Qty", onHand:"On Hand", _remaining:"Remaining", carBootPrice:"CB Price (£)", _webPrice:"Web Price (£)", _printTime:"Print Time", notes:"Notes" };
+      const stkKeys = orderedKeys(stockData, STK_PREFERRED);
+      XLSX.utils.book_append_sheet(wb, buildSheet(stockData, stkKeys, STK_HEADERS), "Stock");
 
       /* Download */
       const date = new Date().toISOString().slice(0, 10);
@@ -3720,7 +3749,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {savedMsg && <span style={{ color: S.teal, fontWeight: 700, fontFamily: S.fontHead, fontSize: 14 }}>✓ {savedMsg}</span>}
-          <Tooltip position="bottom" text="Downloads a full Excel spreadsheet (.xlsx) with six tabs: Products, Orders, Colours, Categories, Creators, and Stock.<br/><br/>Useful for records, the licence audit tracker, or sharing data with Claude for analysis.">
+          <Tooltip position="bottom" text="Downloads a full Excel spreadsheet (.xlsx) with six tabs: Products, Orders, Colours, Categories, Creators, and Stock.<br/><br/>Exports ALL fields automatically — new product fields are included without code changes.<br/><br/>Useful for records, the licence audit tracker, or sharing data with Claude for analysis.">
             <button onClick={exportData} disabled={exporting} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 14, fontWeight: 700, cursor: exporting ? "wait" : "pointer", fontFamily: S.fontHead, opacity: exporting ? 0.5 : 1 }}>{exporting ? "⏳ Exporting…" : "📊 Export Data"}</button>
           </Tooltip>
           <span style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono, opacity: 0.6 }}>{APP_VERSION}</span>
