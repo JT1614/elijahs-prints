@@ -308,7 +308,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v141 · 2026-03-26 09:05";
+const APP_VERSION = "v142 · 2026-03-26 10:43";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -3589,6 +3589,102 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       const STK_HEADERS = { productId:"Product ID", productName:"Product Name (stored)", _productName:"Product Name", _category:"Category", colours:"Colours", event:"Event", targetQty:"Target Qty", onHand:"On Hand", _remaining:"Remaining", carBootPrice:"CB Price (£)", _webPrice:"Web Price (£)", _printTime:"Print Time", notes:"Notes" };
       const stkKeys = orderedKeys(stockData, STK_PREFERRED);
       XLSX.utils.book_append_sheet(wb, buildSheet(stockData, stkKeys, STK_HEADERS), "Stock");
+
+      /* ── Pricing Review tab ── */
+      (() => {
+        const P_MARGIN = 0.40;
+        const P_PKG = 0.96;
+        const pCalcL1 = (g) => (g * 0.01) / (1 - P_MARGIN);
+        const pCalcL3 = (g) => Math.ceil((((g * 0.01 + P_PKG) / (1 - P_MARGIN)) + 0.50) * 2) / 2;
+        const pRoundHalf = (v) => Math.ceil(v * 2) / 2;
+        const P_PLANTER = { Small: 3, Medium: 4, Large: 5.50, Wall: 6, Signature: 7.50 };
+        const P_DRAGON = { Small: 2.50, Medium: 5, Large: 7.50, Premium: 10 };
+        const pClickerTier = (g) => g >= 100 ? 3.50 : g >= 50 ? 2.50 : 1.50;
+        const pKeyringTier = (p) => (p.price || 0) >= 1 ? 1.00 : 0.75;
+        const pGetL2 = (p, cats, tier) => {
+          if (cats.includes("Planters")) return P_PLANTER[tier] || 4;
+          if (cats.includes("Dragons")) return P_DRAGON[tier] || 5;
+          if (cats.includes("Clickers")) return pClickerTier(p.grams || 0);
+          if (cats.includes("Key Rings")) return pKeyringTier(p);
+          return pRoundHalf(pCalcL1(p.grams || 0) * 1.3);
+        };
+        const pDefaultBandLayer = (bk) => {
+          if (bk.startsWith("planters-") || bk.startsWith("household-") || bk.startsWith("bird-")) return "L3";
+          return "L2";
+        };
+        const pGetBandLayer = (bk) => pricingBandLayers[bk] || pDefaultBandLayer(bk);
+        const pGetHouseholdTier = (p) => { const g = p.grams || 0; if (g < 100) return "Entry"; if (g <= 200) return "Mid"; return "Premium"; };
+
+        const pricingRows = [];
+        const allP = products.filter(p => p.grams > 0);
+
+        const addSection = (name, filterFn, tierFn, boxed, bandPrefix, isBatch) => {
+          const prods = allP.filter(filterFn);
+          prods.forEach(p => {
+            const cats = getProductCategories(p);
+            const tier = tierFn(p) || "Standard";
+            const bandKey = `${bandPrefix}-${tier.toLowerCase().replace(/\s+/g, "-")}`;
+            const layer = pGetBandLayer(bandKey);
+            const g = p.grams || 0;
+            const l1 = pRoundHalf(pCalcL1(g));
+            const l2 = pGetL2(p, cats, tier);
+            const l3 = pCalcL3(g);
+            const hasOverride = pricingLayerOverrides[p.id] !== undefined;
+            let draft;
+            if (hasOverride) { draft = pricingLayerOverrides[p.id]; }
+            else if (layer === "L1") { draft = l1; }
+            else if (layer === "L3") { draft = l3; }
+            else { draft = l2; }
+            const current = p.price || 0;
+            const diff = draft - current;
+            const pctChg = current > 0 ? (diff / current * 100) : 0;
+            const margin = draft > 0 ? ((draft - g * 0.01 - (boxed ? P_PKG : 0)) / draft * 100) : 0;
+            const hrs = parseTimeToHrs(p.printTime);
+            let perHr = "";
+            if (hrs > 0) {
+              const effectiveHrs = isBatch ? (hrs * 1.5 / 5) : hrs;
+              perHr = ((draft - g * 0.01) / effectiveHrs);
+            }
+            pricingRows.push({
+              name: p.name,
+              section: name,
+              tier: tier,
+              category: cats.join(", "),
+              grams: g,
+              boxed: boxed ? "Yes" : "No",
+              currentPrice: current,
+              l1Floor: Math.round(l1 * 100) / 100,
+              l2Value: Math.round(l2 * 100) / 100,
+              l3Premium: Math.round(l3 * 100) / 100,
+              activeBand: layer,
+              override: hasOverride ? "Yes" : "",
+              draftPrice: Math.round(draft * 100) / 100,
+              change: Math.round(diff * 100) / 100,
+              changePct: Math.round(pctChg * 10) / 10,
+              marginPct: Math.round(margin * 10) / 10,
+              perHour: perHr !== "" ? Math.round(perHr * 100) / 100 : "",
+            });
+          });
+        };
+
+        addSection("Planters", p => productInCategory(p, "Planters"), p => getPlanterSize(p) || "Medium", true, "planters", false);
+        addSection("Household", p => productInCategory(p, "Household"), p => pGetHouseholdTier(p), true, "household", false);
+        addSection("Bird Feeders", p => productInCategory(p, "Bird Feeders"), () => "Standard", true, "bird", false);
+        addSection("Dragons", p => productInCategory(p, "Dragons"), p => getDragonSize(p) || "Medium", false, "dragons", false);
+        addSection("Kids", p => {
+          const c = getProductCategories(p);
+          return c.some(x => ["Key Rings", "Clickers", "Fidgets & Toys"].includes(x)) && !c.includes("Dragons");
+        }, p => {
+          const c = getProductCategories(p);
+          if (c.includes("Key Rings")) return "Key Rings";
+          if (c.includes("Clickers")) return "Clickers";
+          return "Fidgets";
+        }, false, "kids", true);
+
+        const PRC_KEYS = ["name","section","tier","category","grams","boxed","currentPrice","l1Floor","l2Value","l3Premium","activeBand","override","draftPrice","change","changePct","marginPct","perHour"];
+        const PRC_HEADERS = { name:"Product", section:"Section", tier:"Tier", category:"Category", grams:"Weight (g)", boxed:"Boxed", currentPrice:"Current Price (£)", l1Floor:"L1 Floor (£)", l2Value:"L2 Value (£)", l3Premium:"L3 Premium (£)", activeBand:"Active Layer", override:"Override?", draftPrice:"Draft Price (£)", change:"Change (£)", changePct:"Change (%)", marginPct:"Margin (%)", perHour:"£/hr" };
+        XLSX.utils.book_append_sheet(wb, buildSheet(pricingRows, PRC_KEYS, PRC_HEADERS), "Pricing Review");
+      })();
 
       /* Download */
       const date = new Date().toISOString().slice(0, 10);
