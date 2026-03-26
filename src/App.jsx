@@ -308,7 +308,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v142 · 2026-03-26 10:43";
+const APP_VERSION = "v143 · 2026-03-26 17:30";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1998,11 +1998,21 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
             padding: "10px 20px", borderRadius: 10, border: "none", cursor: "pointer",
             background: "linear-gradient(135deg, #f59f00, #f08c00)", color: "#1a1a2e",
             fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 8,
-          }}>🏷️ Print All Labels ({stats.toLabel})</button>
+          }}>🏷️ Print Labels ({stats.toLabel})</button>
         )}
         {stats.toLabel > 0 && (
-          <span style={{ fontSize: 11, color: S.dimmer }}>Prints one sheet per order — {stats.toLabel} {stats.toLabel === 1 ? "sheet" : "sheets"} total</span>
+          <span style={{ fontSize: 11, color: S.dimmer }}>Shipping labels — {stats.toLabel} {stats.toLabel === 1 ? "sheet" : "sheets"}</span>
         )}
+        {(() => {
+          const boxOrders = sorted.filter(o => o.status.produced && !o.status.despatched && (o.items || []).some(i => !i.isTip && (() => { const prod = products.find(p => p.id === i.id); return prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing; })()));
+          if (boxOrders.length === 0) return null;
+          const totalBoxLabels = boxOrders.reduce((sum, o) => sum + (o.items || []).filter(i => !i.isTip).reduce((s, i) => { const prod = products.find(p => p.id === i.id); return s + (prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing ? (i.qty || 1) : 0); }, 0), 0);
+          return <button onClick={() => {
+            const allBoxProducts = [];
+            boxOrders.forEach(o => { (o.items || []).filter(i => !i.isTip).forEach(i => { const prod = products.find(p => p.id === i.id); if (prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing) { for (let q = 0; q < (i.qty || 1); q++) allBoxProducts.push(prod); } }); });
+            if (allBoxProducts.length > 0) { const w = window.open("", "_blank"); w.document.write(generateBoxLabelHTML(allBoxProducts, 1)); w.document.close(); }
+          }} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(16,185,129,0.3)", cursor: "pointer", background: "rgba(16,185,129,0.08)", color: "#10b981", fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 8 }}>📦 Print Box Labels ({totalBoxLabels})</button>;
+        })()}
         <button onClick={() => {
           const testOrder = {
             id: "EP-TEST123",
@@ -2247,6 +2257,16 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                 <Checkbox checked={order.status.produced} onChange={() => toggleStatus(order.id, "produced")} color="#ff6b35" />
                 <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#ff6b35", fontWeight: 600, fontFamily: S.fontHead }}>Made</span>
               </div>
+              {(() => { const boxItems = (order.items || []).filter(i => !i.isTip && (() => { const prod = products.find(p => p.id === i.id); return prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing; })()); if (boxItems.length === 0) return null; const totalQty = boxItems.reduce((s, i) => s + (i.qty || 1), 0); return (
+              <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
+                <Tooltip position="left" text={`Print ${totalQty} box label${totalQty !== 1 ? "s" : ""} for kraft packaging.<br/><br/>Opens a print-ready page for 140mm kraft labels.`}>
+                <button onClick={() => { const boxProds = []; (order.items || []).filter(i => !i.isTip).forEach(i => { const prod = products.find(p => p.id === i.id); if (prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing) { for (let q = 0; q < (i.qty || 1); q++) boxProds.push(prod); } }); if (boxProds.length > 0) { const w = window.open("", "_blank"); w.document.write(generateBoxLabelHTML(boxProds, 1)); w.document.close(); } }} title="Print box labels" style={{
+                  width: 22, height: 22, borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                  border: "2px solid rgba(16,185,129,0.4)", background: "rgba(16,185,129,0.1)", transition: "all 0.2s", flexShrink: 0, padding: 0, fontSize: 11,
+                }}>📦</button>
+                </Tooltip>
+                <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#10b981", fontWeight: 600, fontFamily: S.fontHead }}>Box</span>
+              </div>); })()}
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Tooltip position="left" text="Prints an Avery J8165 label sheet (8 labels/A4) on your Canon MX535.<br/><br/>Opens a print-ready page automatically. Also marks the order as Label Printed.">
                 <button onClick={() => printLabels(order)} title="Print label sheet" style={{
