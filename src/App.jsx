@@ -308,7 +308,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v140 · 2026-03-26 08:19";
+const APP_VERSION = "v141 · 2026-03-26 09:05";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -2199,6 +2199,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                   <span style={{ fontSize: 12, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>{order.id}</span>
                   <span style={{ fontSize: 11, color: S.dimmer }}>{formatDate(order.date)}</span>
                   <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 8, background: order.shipping.id === "collection" ? "rgba(0,201,167,0.1)" : "rgba(132,94,247,0.1)", color: order.shipping.id === "collection" ? S.teal : S.purple, fontWeight: 600, fontFamily: S.fontHead }}>{order.shipping.id === "collection" ? "🎒 Collection" : `📦 ${order.shipping.name}`}</span>
+                  {(() => { const hasBox = (order.items || []).some(i => !i.isTip && (() => { const prod = products.find(p => p.id === i.id); return prod && productUsesBoxLabels(prod, categoryMeta); })()); return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, fontWeight: 700, fontFamily: S.fontHead, background: hasBox ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.04)", color: hasBox ? "#10b981" : S.dimmer }}>{hasBox ? "📦 Box packaging" : "📬 Bag only"}</span>; })()}
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: S.text, fontFamily: S.fontHead, marginBottom: 2 }}>{order.customer.name}</div>
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>{order.customer.email}{order.customer.phone ? ` · ${order.customer.phone}` : ""}</div>
@@ -2215,6 +2216,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                         <span onClick={() => { const prod = products.find(p => p.id === item.id); if (prod && onEditProduct) onEditProduct(prod); }} style={{ cursor: "pointer", color: S.text, textDecoration: "underline", textDecorationColor: "rgba(255,255,255,0.15)", textUnderlineOffset: 2 }}>{item.name}</span>
                         <span style={{ fontSize: 10, color: S.dimmer }}>({(item.selectedColors || []).join(" + ")})</span>
                         {(() => { const prod = products.find(p => p.id === item.id); if (!prod?.sourceUrl) return null; return <a href={prod.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2, textDecoration: "none" }} title={`Open: ${prod.sourceUrl}`}>🔗 {prod.creator || "Source"}</a>; })()}
+                        {(() => { const prod = products.find(p => p.id === item.id); if (!prod) return null; const isBox = productUsesBoxLabels(prod, categoryMeta); return <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, marginLeft: 2, fontWeight: 700, background: isBox ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.04)", color: isBox ? "#10b981" : S.dimmer }}>{isBox ? "📦 Box" : "📬 Bag"}</span>; })()}
                       </>)}
                     </div>
                   ))}
