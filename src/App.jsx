@@ -230,6 +230,15 @@ async function saveStockOrders(orders) {
   try { await storageSet("stock-orders-v1", JSON.stringify(orders)); } catch (e) { console.error("Save stock orders failed:", e); }
 }
 
+/* ── Pricing Config (draft pricing — persists across sessions until Applied) ── */
+async function loadPricingConfig() {
+  const r = await storageGet("pricing-config-v1");
+  return r ? JSON.parse(r) : { overrides: {}, bandLayers: {} };
+}
+async function savePricingConfig(config) {
+  try { await storageSet("pricing-config-v1", JSON.stringify(config)); } catch (e) { console.error("Save pricing config failed:", e); }
+}
+
 /* ── Print Time Parser (string → decimal hours) ── */
 function parseTimeToHrs(str) {
   if (!str) return 0;
@@ -3318,7 +3327,21 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   useEffect(() => {
     loadStockTargets().then(t => { setStockTargets(t); setStockLoading(false); }).catch(() => setStockLoading(false));
     loadStockOrders().then(o => setStockOrders(o)).catch(() => {});
+    loadPricingConfig().then(c => { setPricingLayerOverrides(c.overrides || {}); setPricingBandLayers(c.bandLayers || {}); }).catch(() => {});
   }, []);
+
+  /* ── Auto-save pricing config when overrides or band layers change ── */
+  const pricingConfigRef = React.useRef({ overrides: {}, bandLayers: {} });
+  useEffect(() => {
+    // Skip initial mount (empty objects)
+    const isInitial = Object.keys(pricingLayerOverrides).length === 0 && Object.keys(pricingBandLayers).length === 0;
+    const prev = pricingConfigRef.current;
+    const changed = JSON.stringify(prev.overrides) !== JSON.stringify(pricingLayerOverrides) || JSON.stringify(prev.bandLayers) !== JSON.stringify(pricingBandLayers);
+    if (!isInitial || changed) {
+      pricingConfigRef.current = { overrides: pricingLayerOverrides, bandLayers: pricingBandLayers };
+      if (changed) savePricingConfig({ overrides: pricingLayerOverrides, bandLayers: pricingBandLayers });
+    }
+  }, [pricingLayerOverrides, pricingBandLayers]);
 
   /* ── Save stock targets helper ── */
   const handleSaveStockTargets = async (updated) => {
@@ -4897,6 +4920,12 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             const updatedProducts = products.map(p => priceMap[p.id] !== undefined ? { ...p, price: priceMap[p.id] } : p);
             await saveProducts(updatedProducts);
             setProducts(updatedProducts);
+            // Clear overrides for applied products (they're now committed)
+            setPricingLayerOverrides(prev => {
+              const cleaned = { ...prev };
+              updates.forEach(u => { delete cleaned[u.id]; });
+              return cleaned;
+            });
             setSavedMsg(`${section.name} prices updated!`); setTimeout(() => setSavedMsg(""), 3000);
           } catch (err) { alert("Save failed: " + err.message); }
         };
@@ -5031,7 +5060,13 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
                               return (
                                 <tr key={p.id} style={{ background: idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)", borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
-                                  <td style={{ padding: "5px 8px", color: S.text, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</td>
+                                  <td style={{ padding: "5px 8px", color: S.text, fontWeight: 600, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {p.name}
+                                    {productUsesBoxLabels(p, categoryMeta)
+                                      ? <span style={{ marginLeft: 6, fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "rgba(16,185,129,0.12)", color: "#10b981", fontWeight: 700 }}>📦 Box</span>
+                                      : <span style={{ marginLeft: 6, fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "rgba(255,255,255,0.04)", color: S.dimmer, fontWeight: 600 }}>📬 Bag</span>
+                                    }
+                                  </td>
                                   <td style={{ padding: "5px 6px", textAlign: "right", color: S.dimmer, fontFamily: S.fontMono }}>{g}</td>
                                   <td style={{ padding: "5px 6px", textAlign: "right", fontFamily: S.fontMono, color: activeLayer === "L1" ? "#6b7280" : "rgba(107,114,128,0.4)", background: activeLayer === "L1" ? "rgba(107,114,128,0.06)" : "transparent" }}>£{l1.toFixed(2)}</td>
                                   <td style={{ padding: "5px 6px", textAlign: "right", fontFamily: S.fontMono, color: activeLayer === "L2" ? "#3b82f6" : "rgba(59,130,246,0.4)", background: activeLayer === "L2" ? "rgba(59,130,246,0.06)" : "transparent" }}>£{l2.toFixed(2)}</td>
