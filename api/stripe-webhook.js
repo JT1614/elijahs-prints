@@ -93,7 +93,7 @@ async function sendEmailNotification(order) {
         type: "order",
         _tok: "ep_email_2026_s3cure",
         templateParams: {
-          to_email: "johnianthompson@outlook.com, etprintworld@outlook.com",
+          to_email: "johnianthompson78@outlook.com, etprintworld@outlook.com",
           order_id: order.id,
           customer_name: order.customer.name,
           customer_email: order.customer.email,
