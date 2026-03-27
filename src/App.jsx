@@ -471,7 +471,7 @@ async function updateOrderStatus(orderId, status) {
           4) Replace the IDs below
    ═══════════════════════════════════════════════ */
 const EMAILJS_CONFIG = {
-  recipientEmail: "johnianthompson@outlook.com, etprintworld@outlook.com",
+  recipientEmail: "johnianthompson78@outlook.com, etprintworld@outlook.com",
   enabled: true,
   // Credentials moved server-side to /api/send-email — no longer exposed in frontend
   _tok: "ep_email_2026_s3cure",  // Must match EMAIL_API_TOKEN in Vercel env vars
