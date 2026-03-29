@@ -308,7 +308,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v143 · 2026-03-26 17:30";
+const APP_VERSION = "v144 · 2026-03-29 00:00";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -832,15 +832,10 @@ function generateColourDotsHTML(filaments, filamentKeys) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Colour Dots</title>
     <style>@page{size:A4 portrait;margin:0}@media print{body{margin:0}.no-print{display:none!important}}body{margin:0;font-family:-apple-system,sans-serif}</style>
   </head><body>
-    <div class="no-print" style="padding:16px;text-align:center;background:#f5f5f5;border-bottom:1px solid #ddd">
-      <strong>Colour Dots</strong> - ${dots.length} dots, ${sorted.length} colours
-      | Print at <strong>Actual Size / 100%</strong> on Canon MX535 with LP117/19R sheet
-      | <button onclick="window.print()" style="padding:8px 24px;background:#00c9a7;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Print</button>
-      <div style="margin-top:8px;line-height:2">${legend}</div>
-    </div>
     <div style="width:210mm;height:297mm;position:relative;box-sizing:border-box">
       ${circles}
     </div>
+    <script>window.onload = () => { window.print(); }</script>
   </body></html>`;
 }
 
