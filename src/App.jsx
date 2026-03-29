@@ -789,12 +789,8 @@ function generateBoxLabelHTML(labelProducts, copies = 2) {
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700;800&display=swap" rel="stylesheet">
     <style>@page{size:A4 portrait;margin:0}@media print{body{margin:0}.no-print{display:none!important}}body{margin:0;font-family:'DM Sans',Helvetica,sans-serif}</style>
   </head><body>
-    <div class="no-print" style="padding:16px;text-align:center;background:#f5f5f5;border-bottom:1px solid #ddd">
-      <strong>Box Labels</strong> - ${labelProducts.length} product${labelProducts.length !== 1 ? "s" : ""}, ${copies} labels each
-      | Print at <strong>Actual Size / 100%</strong> on Canon MX535 with kraft label stock
-      | <button onclick="window.print()" style="padding:8px 24px;background:#00c9a7;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">Print</button>
-    </div>
     ${pages}
+    <script>window.onload = () => { window.print(); }</script>
   </body></html>`;
 }
 
@@ -2010,7 +2006,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
           return <button onClick={() => {
             const allBoxProducts = [];
             boxOrders.forEach(o => { (o.items || []).filter(i => !i.isTip).forEach(i => { const prod = products.find(p => p.id === i.id); if (prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing) { for (let q = 0; q < (i.qty || 1); q++) allBoxProducts.push(prod); } }); });
-            if (allBoxProducts.length > 0) { const w = window.open("", "_blank"); w.document.write(generateBoxLabelHTML(allBoxProducts, 1)); w.document.close(); }
+            if (allBoxProducts.length > 0) { const w = window.open("", "_blank"); w.document.write(generateBoxLabelHTML(allBoxProducts, 2)); w.document.close(); }
           }} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(16,185,129,0.3)", cursor: "pointer", background: "rgba(16,185,129,0.08)", color: "#10b981", fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 8 }}>📦 Print Box Labels ({totalBoxLabels})</button>;
         })()}
         <button onClick={() => {
@@ -2260,7 +2256,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
               {(() => { const boxItems = (order.items || []).filter(i => !i.isTip && (() => { const prod = products.find(p => p.id === i.id); return prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing; })()); if (boxItems.length === 0) return null; const totalQty = boxItems.reduce((s, i) => s + (i.qty || 1), 0); return (
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Tooltip position="left" text={`Print ${totalQty} box label${totalQty !== 1 ? "s" : ""} for kraft packaging.<br/><br/>Opens a print-ready page for 140mm kraft labels.`}>
-                <button onClick={() => { const boxProds = []; (order.items || []).filter(i => !i.isTip).forEach(i => { const prod = products.find(p => p.id === i.id); if (prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing) { for (let q = 0; q < (i.qty || 1); q++) boxProds.push(prod); } }); if (boxProds.length > 0) { const w = window.open("", "_blank"); w.document.write(generateBoxLabelHTML(boxProds, 1)); w.document.close(); } }} title="Print box labels" style={{
+                <button onClick={() => { const boxProds = []; (order.items || []).filter(i => !i.isTip).forEach(i => { const prod = products.find(p => p.id === i.id); if (prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing) { for (let q = 0; q < (i.qty || 1); q++) boxProds.push(prod); } }); if (boxProds.length > 0) { const w = window.open("", "_blank"); w.document.write(generateBoxLabelHTML(boxProds, 2)); w.document.close(); } }} title="Print box labels" style={{
                   width: 22, height: 22, borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                   border: "2px solid rgba(16,185,129,0.4)", background: "rgba(16,185,129,0.1)", transition: "all 0.2s", flexShrink: 0, padding: 0, fontSize: 11,
                 }}>📦</button>
