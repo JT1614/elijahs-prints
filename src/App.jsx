@@ -308,7 +308,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v144 · 2026-03-29 00:00";
+const APP_VERSION = "v144 · 2026-03-29 11:59";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -3888,7 +3888,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           <Tooltip position="bottom" text="Downloads a full Excel spreadsheet (.xlsx) with six tabs: Products, Orders, Colours, Categories, Creators, and Stock.<br/><br/>Exports ALL fields automatically — new product fields are included without code changes.<br/><br/>Useful for records, the licence audit tracker, or sharing data with Claude for analysis.">
             <button onClick={exportData} disabled={exporting} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 14, fontWeight: 700, cursor: exporting ? "wait" : "pointer", fontFamily: S.fontHead, opacity: exporting ? 0.5 : 1 }}>{exporting ? "⏳ Exporting…" : "📊 Export Data"}</button>
           </Tooltip>
-          <span style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono, opacity: 0.6 }}>{APP_VERSION}</span>
+          <span style={{ fontSize: 10, color: "#8888aa", fontFamily: S.fontMono }}>{APP_VERSION}</span>
           <button onClick={onLogout} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.muted, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Log Out</button>
         </div>
       </div>
