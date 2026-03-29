@@ -308,7 +308,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v144 · 2026-03-29 11:59";
+const APP_VERSION = "v145 · 2026-03-29 12:36";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -818,7 +818,7 @@ function generateColourDotsHTML(filaments, filamentKeys) {
     const left = 11.5 + col * 21;
     const top = 13 + row * 21;
     const starHTML = isPremium ? `<svg viewBox="0 0 24 24" style="position:absolute;bottom:1mm;right:1mm;width:7mm;height:7mm;filter:drop-shadow(0 0 0.5px rgba(0,0,0,0.3))"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26" fill="#FFD700" stroke="#B8860B" stroke-width="1"/></svg>` : "";
-    circles += `<div style="position:absolute;left:${left}mm;top:${top}mm;width:21mm;height:21mm;border-radius:50%;background:${hex};border:0.3px solid #ccc;box-sizing:border-box">${starHTML}</div>`;
+    circles += `<div style="position:absolute;left:${left}mm;top:${top}mm;width:21mm;height:21mm;border-radius:50%;background:${hex};border:0.3px solid #ccc;box-sizing:border-box;print-color-adjust:exact;-webkit-print-color-adjust:exact">${starHTML}</div>`;
   });
 
   let legend = sorted.map(k => {
@@ -830,7 +830,7 @@ function generateColourDotsHTML(filaments, filamentKeys) {
   }).join("");
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Colour Dots</title>
-    <style>@page{size:A4 portrait;margin:0}@media print{body{margin:0}.no-print{display:none!important}}body{margin:0;font-family:-apple-system,sans-serif}</style>
+    <style>@page{size:A4 portrait;margin:0}@media print{body{margin:0}.no-print{display:none!important}}body{margin:0;font-family:-apple-system,sans-serif;print-color-adjust:exact;-webkit-print-color-adjust:exact}</style>
   </head><body>
     <div style="width:210mm;height:297mm;position:relative;box-sizing:border-box">
       ${circles}
