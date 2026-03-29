@@ -308,7 +308,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v146 · 2026-03-29 13:01";
+const APP_VERSION = "v147 · 2026-03-29 14:22";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -830,9 +830,9 @@ function generateColourDotsHTML(filaments, filamentKeys) {
   }).join("");
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Colour Dots</title>
-    <style>@page{size:A4 portrait;margin:0}@media print{body{margin:0}.no-print{display:none!important}}body{margin:0;font-family:-apple-system,sans-serif;print-color-adjust:exact;-webkit-print-color-adjust:exact}</style>
+    <style>@page{size:A4 portrait;margin:0}@media print{body{margin:0;transform:none;zoom:1;width:210mm;height:297mm;overflow:hidden}.no-print{display:none!important}}body{margin:0;font-family:-apple-system,sans-serif;print-color-adjust:exact;-webkit-print-color-adjust:exact;width:210mm;height:297mm;overflow:hidden}</style>
   </head><body>
-    <div style="width:210mm;height:297mm;position:relative;box-sizing:border-box">
+    <div style="width:210mm;height:297mm;position:relative;box-sizing:border-box;overflow:hidden">
       ${circles}
     </div>
     <script>window.onload = () => { window.print(); }</script>
