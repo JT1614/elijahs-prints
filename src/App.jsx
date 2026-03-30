@@ -308,7 +308,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v151 · 2026-03-30";
+const APP_VERSION = "v152 · 2026-03-30";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -3604,9 +3604,10 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       /* ── Pricing Review tab ── */
       (() => {
         const P_MARGIN = 0.40;
-        const P_PKG = 2.00;
+        const P_PKG_ADDON = 2.00; // what we charge for packaging
+        const P_PKG_COST = 1.00;  // actual materials cost (for margin calc)
         const pCalcL1 = (g) => (g * 0.01) / (1 - P_MARGIN);
-        const pCalcL3 = (g) => Math.ceil(((g * 0.01 / (1 - P_MARGIN)) + P_PKG) * 2) / 2;
+        const pCalcL3 = (l2) => Math.ceil((l2 + P_PKG_ADDON) * 2) / 2;
         const pRoundHalf = (v) => Math.ceil(v * 2) / 2;
         const P_PLANTER = { Small: 3, Medium: 4, Large: 5.50, Wall: 6, Signature: 7.50 };
         const P_DRAGON = { Small: 2.50, Medium: 5, Large: 7.50, Premium: 10 };
@@ -3639,7 +3640,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             const g = p.grams || 0;
             const l1 = pRoundHalf(pCalcL1(g));
             const l2 = pGetL2(p, cats, tier);
-            const l3 = pCalcL3(g);
+            const l3 = pCalcL3(l2);
             const hasOverride = pricingLayerOverrides[p.id] !== undefined;
             let draft;
             if (hasOverride) { draft = pricingLayerOverrides[p.id]; }
@@ -3649,7 +3650,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             const current = p.price || 0;
             const diff = draft - current;
             const pctChg = current > 0 ? (diff / current * 100) : 0;
-            const margin = draft > 0 ? ((draft - g * 0.01 - (boxed ? P_PKG : 0)) / draft * 100) : 0;
+            const margin = draft > 0 ? ((draft - g * 0.01 - (boxed ? P_PKG_COST : 0)) / draft * 100) : 0;
             const hrs = parseTimeToHrs(p.printTime);
             let perHr = "";
             if (hrs > 0) {
@@ -4879,9 +4880,10 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       {adminTab === "pricing" && (() => {
         /* ── Layer calculation helpers ── */
         const MARGIN_PCT = 0.40;
-        const PKG_COST = 2.00;
+        const PKG_ADDON = 2.00; // what we charge for packaging
+        const PKG_COST = 1.00;  // actual materials cost (for margin calc)
         const calcL1 = (g) => (g * 0.01) / (1 - MARGIN_PCT); // pure material floor, no packaging
-        const calcL3 = (g) => Math.ceil(((g * 0.01 / (1 - MARGIN_PCT)) + PKG_COST) * 2) / 2; // floor + £2.00 flat packaging
+        const calcL3 = (l2) => Math.ceil((l2 + PKG_ADDON) * 2) / 2; // L2 value + £2.00 flat packaging
         const roundHalf = (v) => Math.ceil(v * 2) / 2;
         const marginPct = (price, grams, boxed) => price > 0 ? ((price - grams * 0.01 - (boxed ? PKG_COST : 0)) / price * 100) : 0;
 
@@ -4986,7 +4988,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           const g = p.grams || 0;
           const cats = getProductCategories(p);
           if (layer === "L1") return roundHalf(calcL1(g));
-          if (layer === "L3") return calcL3(g);
+          if (layer === "L3") return calcL3(getL2(p, cats, tier));
           return getL2(p, cats, tier); // L2
         };
 
@@ -5085,7 +5087,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             <strong style={{ color: S.muted }}>Three pricing layers:</strong>{" "}
             <span style={{ color: "#6b7280" }}>L1 Floor</span> = material ÷ (1−40%){" · "}
             <span style={{ color: "#3b82f6" }}>L2 Value</span> = tier-based (size/weight/type){" · "}
-            <span style={{ color: "#10b981" }}>L3 Premium</span> = floor + £2.00 packaging.{" "}
+            <span style={{ color: "#10b981" }}>L3 Premium</span> = L2 value + £2.00 packaging.{" "}
             Set the layer per band, override individual products, then Apply.
           </div>
 
@@ -5160,7 +5162,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                               const cats = getProductCategories(p);
                               const l1 = roundHalf(calcL1(g));
                               const l2 = getL2(p, cats, tier);
-                              const l3 = calcL3(g);
+                              const l3 = calcL3(l2);
                               const newPrice = getNewPrice(p, section, tier);
                               const change = newPrice - (p.price || 0);
                               const isBoxed = section.boxed;
