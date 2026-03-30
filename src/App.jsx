@@ -308,7 +308,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v150 · 2026-03-29 15:23";
+const APP_VERSION = "v151 · 2026-03-30";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -3604,9 +3604,9 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       /* ── Pricing Review tab ── */
       (() => {
         const P_MARGIN = 0.40;
-        const P_PKG = 0.96;
+        const P_PKG = 2.00;
         const pCalcL1 = (g) => (g * 0.01) / (1 - P_MARGIN);
-        const pCalcL3 = (g) => Math.ceil((((g * 0.01 + P_PKG) / (1 - P_MARGIN)) + 0.50) * 2) / 2;
+        const pCalcL3 = (g) => Math.ceil(((g * 0.01 / (1 - P_MARGIN)) + P_PKG) * 2) / 2;
         const pRoundHalf = (v) => Math.ceil(v * 2) / 2;
         const P_PLANTER = { Small: 3, Medium: 4, Large: 5.50, Wall: 6, Signature: 7.50 };
         const P_DRAGON = { Small: 2.50, Medium: 5, Large: 7.50, Premium: 10 };
@@ -4879,9 +4879,9 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       {adminTab === "pricing" && (() => {
         /* ── Layer calculation helpers ── */
         const MARGIN_PCT = 0.40;
-        const PKG_COST = 0.96;
+        const PKG_COST = 2.00;
         const calcL1 = (g) => (g * 0.01) / (1 - MARGIN_PCT); // pure material floor, no packaging
-        const calcL3 = (g) => Math.ceil((((g * 0.01 + PKG_COST) / (1 - MARGIN_PCT)) + 0.50) * 2) / 2; // floor + packaging + £0.50
+        const calcL3 = (g) => Math.ceil(((g * 0.01 / (1 - MARGIN_PCT)) + PKG_COST) * 2) / 2; // floor + £2.00 flat packaging
         const roundHalf = (v) => Math.ceil(v * 2) / 2;
         const marginPct = (price, grams, boxed) => price > 0 ? ((price - grams * 0.01 - (boxed ? PKG_COST : 0)) / price * 100) : 0;
 
@@ -5085,7 +5085,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             <strong style={{ color: S.muted }}>Three pricing layers:</strong>{" "}
             <span style={{ color: "#6b7280" }}>L1 Floor</span> = material ÷ (1−40%){" · "}
             <span style={{ color: "#3b82f6" }}>L2 Value</span> = tier-based (size/weight/type){" · "}
-            <span style={{ color: "#10b981" }}>L3 Premium</span> = floor + packaging + £0.50.{" "}
+            <span style={{ color: "#10b981" }}>L3 Premium</span> = floor + £2.00 packaging.{" "}
             Set the layer per band, override individual products, then Apply.
           </div>
 
