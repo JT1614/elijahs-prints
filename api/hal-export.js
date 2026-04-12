@@ -131,12 +131,18 @@ export default async function handler(req, res) {
         }));
     }
 
+    // Debug: raw filament doc info
+    const _filDebug = filDoc.exists
+      ? { exists: true, valueType: typeof filDoc.data().value, valueLength: String(filDoc.data().value || "").length, sample: String(filDoc.data().value || "").slice(0, 200) }
+      : { exists: false };
+
     return res.status(200).json({
       exported_at: new Date().toISOString(),
       orders,
       stockOrders,
       products,
       filaments,
+      _filDebug,
     });
   } catch (error) {
     console.error("Hal export failed:", error);
