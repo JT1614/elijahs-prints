@@ -92,9 +92,14 @@ export default async function handler(req, res) {
     // 1. Orders — paid but not yet produced
     const ordersSnap = await db.collection("orders").get();
     const orders = [];
+    let _rawOrderCount = 0;
     ordersSnap.forEach((doc) => {
+      _rawOrderCount++;
       const o = doc.data();
-      if (o.status?.paid && !o.status?.produced) {
+      // Diagnostic: also catch orders with unexpected status shapes
+      const paid = o.status?.paid === true || o.paid === true || o.status === "paid";
+      const produced = o.status?.produced === true || o.produced === true;
+      if (paid && !produced) {
         orders.push({
           id: o.id || doc.id,
           date: o.date || null,
@@ -110,16 +115,17 @@ export default async function handler(req, res) {
       }
     });
 
-    // 2. Stock orders from shop/stock-orders-v1 (value is JSON string)
+    // 2. Stock needs — two sources merged:
+    //    (a) shop/stock-orders-v1: active production batches with unticked items
+    //    (b) shop/stock-targets-v1: stock level targets where onHand < targetQty
+    //    Source (b) is the primary source for the Stock tab "still to make" count.
+    //    Source (a) covers batches already queued but not yet printed.
     const stockDoc = await db.collection("shop").doc("stock-orders-v1").get();
-    let stockOrders = [];
+    const agg = {};
     if (stockDoc.exists) {
       const raw = stockDoc.data();
       const parsed = typeof raw.value === "string" ? JSON.parse(raw.value) : raw.value;
       const items = Array.isArray(parsed) ? parsed : [];
-      // Each item in a stock order = 1 unit to produce (no qty field).
-      // Aggregate by productId + colour to get totals.
-      const agg = {};
       items
         .filter((so) => so.status === "active")
         .forEach((so) =>
@@ -132,14 +138,45 @@ export default async function handler(req, res) {
                 colour: item.colour || null,
                 target: 0,
                 current: 0,
+                _source: "stock-orders-v1",
               };
             }
             agg[key].target += 1;
             if (item.ticked) agg[key].current += 1;
           })
         );
-      stockOrders = Object.values(agg);
     }
+
+    // Stock targets — the true source for "items still to make" on the Stock tab
+    const targetsDoc = await db.collection("shop").doc("stock-targets-v1").get();
+    let _rawTargetCount = 0;
+    let _targetShortfallCount = 0;
+    if (targetsDoc.exists) {
+      const raw = targetsDoc.data();
+      const parsed = typeof raw.value === "string" ? JSON.parse(raw.value) : raw.value;
+      const targets = Array.isArray(parsed) ? parsed : [];
+      _rawTargetCount = targets.length;
+      for (const t of targets) {
+        const onHand = t.onHand || 0;
+        const targetQty = t.targetQty || 0;
+        if (targetQty <= onHand) continue;
+        _targetShortfallCount++;
+        const colours = t.colours || (t.colour ? [t.colour] : [null]);
+        for (const colour of colours) {
+          const key = `${t.productId}::${colour || "any"}`;
+          if (agg[key]) continue; // already covered by an active production batch
+          agg[key] = {
+            product_id: t.productId,
+            product_name: t.productName || null,
+            colour: colour || null,
+            target: Math.max(1, targetQty - onHand),
+            current: 0,
+            _source: "stock-targets-v1",
+          };
+        }
+      }
+    }
+    const stockOrders = Object.values(agg);
 
     // 3. Products from shop/products-v2 (value is JSON string)
     const productsDoc = await db.collection("shop").doc("products-v2").get();
@@ -194,6 +231,12 @@ export default async function handler(req, res) {
       stockOrders,
       products,
       filaments,
+      _diagnostics: {
+        raw_orders_in_collection: _rawOrderCount,
+        orders_matching_filter: orders.length,
+        raw_stock_targets: _rawTargetCount,
+        stock_targets_with_shortfall: _targetShortfallCount,
+      },
     });
   } catch (error) {
     console.error("Hal export failed:", error);
