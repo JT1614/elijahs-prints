@@ -61,23 +61,32 @@ export default async function handler(req, res) {
     // 2. Stock orders from shop/stock-orders-v1 (value is JSON string)
     const stockDoc = await db.collection("shop").doc("stock-orders-v1").get();
     let stockOrders = [];
-    let _stockDebug = null;
     if (stockDoc.exists) {
       const raw = stockDoc.data();
       const parsed = typeof raw.value === "string" ? JSON.parse(raw.value) : raw.value;
       const items = Array.isArray(parsed) ? parsed : [];
-      _stockDebug = items.filter((so) => so.status === "active").map((so) => ({ id: so.id, status: so.status, items: so.items }));
-      stockOrders = items
+      // Each item in a stock order = 1 unit to produce (no qty field).
+      // Aggregate by productId + colour to get totals.
+      const agg = {};
+      items
         .filter((so) => so.status === "active")
-        .flatMap((so) =>
-          (so.items || []).map((item) => ({
-            product_id: item.productId,
-            product_name: item.productName || null,
-            colour: item.colour || null,
-            target: item.qty || 0,
-            current: item.ticked ? item.qty : 0,
-          }))
+        .forEach((so) =>
+          (so.items || []).forEach((item) => {
+            const key = `${item.productId}::${item.colour || "any"}`;
+            if (!agg[key]) {
+              agg[key] = {
+                product_id: item.productId,
+                product_name: item.productName || null,
+                colour: item.colour || null,
+                target: 0,
+                current: 0,
+              };
+            }
+            agg[key].target += 1;
+            if (item.ticked) agg[key].current += 1;
+          })
         );
+      stockOrders = Object.values(agg);
     }
 
     // 3. Products from shop/products-v2 (value is JSON string)
@@ -105,7 +114,6 @@ export default async function handler(req, res) {
       orders,
       stockOrders,
       products,
-      _stockDebug,
     });
   } catch (error) {
     console.error("Hal export failed:", error);
