@@ -1,5 +1,7 @@
 // Vercel Serverless Function — Hal Export endpoint
-// Read-only export of orders, stock, and products for the ET overnight print cycle.
+// Export + update endpoint for the ET overnight print cycle.
+// GET: read-only export of orders, stock, products, filaments.
+// POST: mark stock order items as ticked (printed).
 // Called nightly by Scripts/fetch-et-live-data.js before the print cycle runs.
 //
 // Required env vars in Vercel:
@@ -21,8 +23,8 @@ if (!admin.apps.length) {
 const db = admin.apps.length ? admin.firestore() : null;
 
 export default async function handler(req, res) {
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET");
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
 
@@ -36,6 +38,56 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Firebase not initialized" });
   }
 
+  // POST: mark stock order items as ticked (printed)
+  if (req.method === "POST") {
+    try {
+      const { action, productId, colour, count } = req.body || {};
+      if (action !== "tick_stock") {
+        return res.status(400).json({ error: "Unknown action. Use action: 'tick_stock'" });
+      }
+      if (!productId) {
+        return res.status(400).json({ error: "productId required" });
+      }
+
+      const stockDoc = await db.collection("shop").doc("stock-orders-v1").get();
+      if (!stockDoc.exists) {
+        return res.status(404).json({ error: "No stock orders found" });
+      }
+
+      const raw = stockDoc.data();
+      const parsed = typeof raw.value === "string" ? JSON.parse(raw.value) : raw.value;
+      const orders = Array.isArray(parsed) ? parsed : [];
+
+      // Find unticked items matching productId + colour in active orders, tick up to count
+      let ticked = 0;
+      const toTick = count || 1;
+      for (const so of orders) {
+        if (so.status !== "active") continue;
+        for (const item of so.items || []) {
+          if (item.productId === productId && !item.ticked) {
+            if (colour && item.colour !== colour) continue;
+            item.ticked = true;
+            ticked++;
+            if (ticked >= toTick) break;
+          }
+        }
+        if (ticked >= toTick) break;
+      }
+
+      // Write back
+      await db.collection("shop").doc("stock-orders-v1").set({
+        value: JSON.stringify(orders),
+        updatedAt: new Date().toISOString(),
+      });
+
+      return res.status(200).json({ ticked, productId, colour, requested: toTick });
+    } catch (error) {
+      console.error("Stock update failed:", error);
+      return res.status(500).json({ error: error.message || "Update failed" });
+    }
+  }
+
+  // GET: export
   try {
     // 1. Orders — paid but not yet produced
     const ordersSnap = await db.collection("orders").get();
