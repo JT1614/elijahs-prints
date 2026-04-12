@@ -109,11 +109,27 @@ export default async function handler(req, res) {
         }));
     }
 
+    // 4. Filament colour map from shop/filaments-v1
+    const filDoc = await db.collection("shop").doc("filaments-v1").get();
+    let filaments = [];
+    if (filDoc.exists) {
+      const raw = filDoc.data();
+      const parsed = typeof raw.value === "string" ? JSON.parse(raw.value) : raw.value;
+      filaments = (Array.isArray(parsed) ? parsed : [])
+        .filter((f) => f.available !== false)
+        .map((f) => ({
+          name: f.name,
+          hex: f.hex,
+          type: f.type || null,
+        }));
+    }
+
     return res.status(200).json({
       exported_at: new Date().toISOString(),
       orders,
       stockOrders,
       products,
+      filaments,
     });
   } catch (error) {
     console.error("Hal export failed:", error);
