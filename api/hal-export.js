@@ -122,19 +122,19 @@ export default async function handler(req, res) {
       if (typeof parsed === "string") {
         try { parsed = JSON.parse(parsed); } catch (e) { /* still not JSON */ }
       }
-      filaments = (Array.isArray(parsed) ? parsed : [])
-        .filter((f) => f.available !== false)
-        .map((f) => ({
-          name: f.name,
-          hex: f.hex,
-          type: f.type || null,
+      // Filaments stored as object keyed by name: { "Bright Green": { hex, type }, ... }
+      if (Array.isArray(parsed)) {
+        filaments = parsed
+          .filter((f) => f.available !== false)
+          .map((f) => ({ name: f.name, hex: f.hex, type: f.type || null }));
+      } else if (parsed && typeof parsed === "object") {
+        filaments = Object.entries(parsed).map(([name, val]) => ({
+          name,
+          hex: val.hex || null,
+          type: val.type || null,
         }));
+      }
     }
-
-    // Debug: raw filament doc info
-    const _filDebug = filDoc.exists
-      ? { exists: true, valueType: typeof filDoc.data().value, valueLength: String(filDoc.data().value || "").length, sample: String(filDoc.data().value || "").slice(0, 200) }
-      : { exists: false };
 
     return res.status(200).json({
       exported_at: new Date().toISOString(),
@@ -142,7 +142,6 @@ export default async function handler(req, res) {
       stockOrders,
       products,
       filaments,
-      _filDebug,
     });
   } catch (error) {
     console.error("Hal export failed:", error);
