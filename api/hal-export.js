@@ -61,10 +61,12 @@ export default async function handler(req, res) {
     // 2. Stock orders from shop/stock-orders-v1 (value is JSON string)
     const stockDoc = await db.collection("shop").doc("stock-orders-v1").get();
     let stockOrders = [];
+    let _stockDebug = null;
     if (stockDoc.exists) {
       const raw = stockDoc.data();
       const parsed = typeof raw.value === "string" ? JSON.parse(raw.value) : raw.value;
       const items = Array.isArray(parsed) ? parsed : [];
+      _stockDebug = items.filter((so) => so.status === "active").map((so) => ({ id: so.id, status: so.status, items: so.items }));
       stockOrders = items
         .filter((so) => so.status === "active")
         .flatMap((so) =>
@@ -103,6 +105,7 @@ export default async function handler(req, res) {
       orders,
       stockOrders,
       products,
+      _stockDebug,
     });
   } catch (error) {
     console.error("Hal export failed:", error);
