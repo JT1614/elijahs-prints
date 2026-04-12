@@ -58,12 +58,13 @@ export default async function handler(req, res) {
       }
     });
 
-    // 2. Stock orders from shop/stock-orders-v1
+    // 2. Stock orders from shop/stock-orders-v1 (value is JSON string)
     const stockDoc = await db.collection("shop").doc("stock-orders-v1").get();
     let stockOrders = [];
     if (stockDoc.exists) {
       const raw = stockDoc.data();
-      const items = Array.isArray(raw.value) ? raw.value : [];
+      const parsed = typeof raw.value === "string" ? JSON.parse(raw.value) : raw.value;
+      const items = Array.isArray(parsed) ? parsed : [];
       stockOrders = items
         .filter((so) => so.status === "active")
         .flatMap((so) =>
@@ -77,12 +78,13 @@ export default async function handler(req, res) {
         );
     }
 
-    // 3. Products from shop/products-v1
-    const productsDoc = await db.collection("shop").doc("products-v1").get();
+    // 3. Products from shop/products-v2 (value is JSON string)
+    const productsDoc = await db.collection("shop").doc("products-v2").get();
     let products = [];
     if (productsDoc.exists) {
       const raw = productsDoc.data();
-      const items = Array.isArray(raw.value) ? raw.value : [];
+      const parsed = typeof raw.value === "string" ? JSON.parse(raw.value) : raw.value;
+      const items = Array.isArray(parsed) ? parsed : [];
       products = items
         .filter((p) => p.available !== false)
         .map((p) => ({
