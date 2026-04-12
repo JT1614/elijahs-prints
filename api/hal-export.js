@@ -114,7 +114,14 @@ export default async function handler(req, res) {
     let filaments = [];
     if (filDoc.exists) {
       const raw = filDoc.data();
-      const parsed = typeof raw.value === "string" ? JSON.parse(raw.value) : raw.value;
+      let parsed = raw.value;
+      // Value may be double-stringified or a plain string
+      if (typeof parsed === "string") {
+        try { parsed = JSON.parse(parsed); } catch (e) { /* not JSON */ }
+      }
+      if (typeof parsed === "string") {
+        try { parsed = JSON.parse(parsed); } catch (e) { /* still not JSON */ }
+      }
       filaments = (Array.isArray(parsed) ? parsed : [])
         .filter((f) => f.available !== false)
         .map((f) => ({
