@@ -212,6 +212,54 @@ async function saveStockTargets(targets) {
   try { await storageSet("stock-targets-v1", JSON.stringify(targets)); } catch (e) { console.error("Save stock targets failed:", e); }
 }
 
+/* ── Offline Sales Storage (manual sales log: car boot, fair, after-school etc.) ── */
+async function loadOfflineSales() {
+  const r = await storageGet("offline-sales-v1");
+  return r ? JSON.parse(r) : [];
+}
+async function saveOfflineSales(sales) {
+  try { await storageSet("offline-sales-v1", JSON.stringify(sales)); } catch (e) { console.error("Save offline sales failed:", e); }
+}
+
+/* ── Stock Events Archive (preserved snapshots of rolled-over events) ── */
+async function loadStockEvents() {
+  const r = await storageGet("stock-events-v1");
+  return r ? JSON.parse(r) : [];
+}
+async function saveStockEvents(events) {
+  try { await storageSet("stock-events-v1", JSON.stringify(events)); } catch (e) { console.error("Save stock events failed:", e); }
+}
+
+/* ── Car Boot #1 sold-data seed (matched by stockTarget.id from ET-Print-World-Export-2026-04-18.xlsx) ── */
+const CB1_SALES_DATA = {
+  "st-1773073572500": { soldQty: 1, soldPrice: 5.0, soldRevenue: 5.0 },
+  "st-1773077242413": { soldQty: 1, soldPrice: 5.0, soldRevenue: 5.0 },
+  "st-1773077446470": { soldQty: 1, soldPrice: 2.0, soldRevenue: 2.0 },
+  "st-1773077568088": { soldQty: 1, soldPrice: 2.0, soldRevenue: 2.0 },
+  "st-1773077743550": { soldQty: 1, soldPrice: 5.0, soldRevenue: 5.0 },
+  "st-1773084935919": { soldQty: 1, soldPrice: 1.0, soldRevenue: 1.0 },
+  "st-1773084970082": { soldQty: 1, soldPrice: 1.0, soldRevenue: 1.0 },
+  "st-1773093370546": { soldQty: 1, soldPrice: 1.0, soldRevenue: 1.0 },
+  "st-1773093499468": { soldQty: 1, soldPrice: 5.0, soldRevenue: 5.0 },
+  "st-1773094005510": { soldQty: 1, soldPrice: 2.0, soldRevenue: 2.0 },
+  "st-1773102992750": { soldQty: 1, soldPrice: 2.0, soldRevenue: 2.0 },
+  "st-1773103176568": { soldQty: 1, soldPrice: 5.0, soldRevenue: 5.0 },
+  "st-1773103313637": { soldQty: 1, soldPrice: 2.0, soldRevenue: 2.0 },
+  "st-1773180271378": { soldQty: 1, soldPrice: 10.0, soldRevenue: 10.0 },
+  "st-1773180399949": { soldQty: 1, soldPrice: 5.0, soldRevenue: 5.0 },
+  "st-1773180496703": { soldQty: 2, soldPrice: 2.0, soldRevenue: 4.0 },
+  "st-1773180529634": { soldQty: 2, soldPrice: 2.0, soldRevenue: 4.0 },
+  "st-1773180595533": { soldQty: 2, soldPrice: 5.0, soldRevenue: 10.0 },
+  "st-1773180624835": { soldQty: 2, soldPrice: 5.0, soldRevenue: 10.0 },
+  "st-1773180817016": { soldQty: 6, soldPrice: 2.0, soldRevenue: 12.0 },
+  "st-1773181000347": { soldQty: 2, soldPrice: 2.0, soldRevenue: 4.0 },
+  "st-1773181038267": { soldQty: 1, soldPrice: 2.0, soldRevenue: 2.0 },
+  "st-1773181071785": { soldQty: 3, soldPrice: 2.0, soldRevenue: 6.0 },
+  "st-1773261502861": { soldQty: 1, soldPrice: 1.0, soldRevenue: 1.0 },
+  "st-1773295201646": { soldQty: 1, soldPrice: 10.0, soldRevenue: 10.0 },
+};
+const OFFLINE_SALES_CHANNELS = ["Website", "Carboot", "Fair", "Offline"];
+
 /* ── Order Queue (display order) ── */
 async function loadOrderQueue() {
   const r = await storageGet("order-queue-v1");
@@ -308,7 +356,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v152 · 2026-03-30";
+const APP_VERSION = "v153 · 2026-04-23";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1444,10 +1492,12 @@ function ProductEditor({ product, onSave, onAutoSave, onDelete, onCancel, isNew,
 /* ═══════════════════════════════════════════════
    ORDER BOOK
    ═══════════════════════════════════════════════ */
-function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMeta, stockOrders = [], onSaveStockOrders, stockTargets = [], onSaveStockTargets }) {
+function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMeta, stockOrders = [], onSaveStockOrders, stockTargets = [], onSaveStockTargets, offlineSales = [], onSaveOfflineSales }) {
   const [elijahPhoto, setElijahPhoto] = useState(null);
   const [orderQueue, setOrderQueue] = useState([]);
   const [hrsPerDay, setHrsPerDay] = useState(12);
+  const [salesModal, setSalesModal] = useState(null); // null | { id?, date, amount, channel, event, note } — add or edit
+  const [salesExpanded, setSalesExpanded] = useState(false);
 
   // Load Elijah's photo and order queue from Firebase on mount
   useEffect(() => {
@@ -1562,17 +1612,23 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     await storageSet("order-queue-hrsperday", String(v));
   };
 
-  const stats = useMemo(() => ({
-    total: orders.length,
-    toProduce: orders.filter(o => !o.status.produced && !o.status.despatched).length,
-    toLabel: orders.filter(o => o.status.produced && !o.status.labelPrinted && !o.status.despatched).length,
-    toDispatch: orders.filter(o => o.status.produced && o.status.labelPrinted && !o.status.despatched).length,
-    done: orders.filter(o => o.status.despatched).length,
-    revenue: orders.reduce((s, o) => s + o.total, 0),
-    stockActive: stockOrders.filter(o => o.status === "active").length,
-    stockItems: stockOrders.filter(o => o.status === "active").reduce((s, o) => s + o.items.length, 0),
-    stockTicked: stockOrders.filter(o => o.status === "active").reduce((s, o) => s + o.items.filter(i => i.ticked).length, 0),
-  }), [orders, stockOrders]);
+  const stats = useMemo(() => {
+    const websiteRevenue = orders.reduce((s, o) => s + o.total, 0);
+    const offlineRevenue = offlineSales.reduce((s, o) => s + (Number(o.amount) || 0), 0);
+    return {
+      total: orders.length,
+      toProduce: orders.filter(o => !o.status.produced && !o.status.despatched).length,
+      toLabel: orders.filter(o => o.status.produced && !o.status.labelPrinted && !o.status.despatched).length,
+      toDispatch: orders.filter(o => o.status.produced && o.status.labelPrinted && !o.status.despatched).length,
+      done: orders.filter(o => o.status.despatched).length,
+      revenue: websiteRevenue + offlineRevenue,
+      websiteRevenue,
+      offlineRevenue,
+      stockActive: stockOrders.filter(o => o.status === "active").length,
+      stockItems: stockOrders.filter(o => o.status === "active").reduce((s, o) => s + o.items.length, 0),
+      stockTicked: stockOrders.filter(o => o.status === "active").reduce((s, o) => s + o.items.filter(i => i.ticked).length, 0),
+    };
+  }, [orders, stockOrders, offlineSales]);
 
   // Stock order: tick/untick item → update on-hand in stock targets
   const tickStockItem = async (stockOrderId, itemIdx) => {
@@ -1969,6 +2025,236 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
         );
       })()}
 
+      {/* ═══════════════════════════════════════════════
+          SALES TRACKER — channel breakdown, monthly totals, + Log Offline Sale
+          Designed so Elijah can log any sale in 10 seconds from his phone.
+          ═══════════════════════════════════════════════ */}
+      {(() => {
+        const websiteByChannel = {
+          Website: stats.websiteRevenue || 0,
+        };
+        const offlineByChannel = {};
+        offlineSales.forEach(s => {
+          const ch = s.channel || "Offline";
+          offlineByChannel[ch] = (offlineByChannel[ch] || 0) + (Number(s.amount) || 0);
+        });
+        const channelStats = [
+          { key: "Website", icon: "🌐", colour: "#4c8bf5", amount: websiteByChannel.Website || 0 },
+          { key: "Carboot", icon: "🚗", colour: "#ff6b35", amount: offlineByChannel.Carboot || 0 },
+          { key: "Fair", icon: "🎪", colour: "#845ef7", amount: offlineByChannel.Fair || 0 },
+          { key: "Offline", icon: "🏠", colour: "#00c9a7", amount: offlineByChannel.Offline || 0 },
+        ];
+
+        // Monthly breakdown — combine website orders + offline sales
+        const monthMap = {}; // "2026-04" -> { Website, Carboot, Fair, Offline }
+        orders.forEach(o => {
+          const d = o.date || o.createdDate;
+          if (!d) return;
+          const ym = String(d).slice(0, 7);
+          monthMap[ym] = monthMap[ym] || {};
+          monthMap[ym].Website = (monthMap[ym].Website || 0) + (Number(o.total) || 0);
+        });
+        offlineSales.forEach(s => {
+          const ym = String(s.date || "").slice(0, 7);
+          if (!ym) return;
+          const ch = s.channel || "Offline";
+          monthMap[ym] = monthMap[ym] || {};
+          monthMap[ym][ch] = (monthMap[ym][ch] || 0) + (Number(s.amount) || 0);
+        });
+        const monthKeys = Object.keys(monthMap).sort().reverse().slice(0, 6);
+        const monthLabel = (ym) => {
+          const [y, m] = ym.split("-");
+          return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+        };
+
+        const recentSales = [...offlineSales].sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).slice(0, salesExpanded ? 50 : 5);
+
+        const openNewSale = () => setSalesModal({
+          id: null,
+          date: new Date().toISOString().slice(0, 10),
+          amount: "",
+          channel: "Carboot",
+          event: "",
+          note: "",
+        });
+
+        return (
+          <div style={{ marginBottom: 20, borderRadius: 14, border: `1px solid ${S.border}`, background: S.card, padding: "16px 18px" }}>
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 18 }}>💰</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: S.text, fontFamily: S.fontHead }}>Sales Tracker</span>
+                <span style={{ fontSize: 11, color: S.dimmer }}>by channel · all time</span>
+              </div>
+              <button
+                onClick={openNewSale}
+                style={{ padding: "10px 18px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #00c9a7, #00e5be)", color: "#0d0d1a", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, boxShadow: "0 2px 8px rgba(0,201,167,0.25)" }}
+              >+ Log Sale</button>
+            </div>
+
+            {/* Channel cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
+              {channelStats.map(c => (
+                <div key={c.key} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}`, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+                  <div style={{ fontSize: 18, marginBottom: 2 }}>{c.icon}</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: c.colour, fontFamily: S.fontMono }}>£{c.amount.toFixed(2)}</div>
+                  <div style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", marginTop: 2 }}>{c.key}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Monthly breakdown table */}
+            {monthKeys.length > 0 && (
+              <div style={{ marginBottom: 14, overflowX: "auto" }}>
+                <div style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>Monthly breakdown</div>
+                <table style={{ width: "100%", fontSize: 12, fontFamily: S.fontMono, borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${S.border}` }}>
+                      <th style={{ textAlign: "left", padding: "6px 8px", color: S.muted, fontWeight: 600 }}>Month</th>
+                      {channelStats.map(c => <th key={c.key} style={{ textAlign: "right", padding: "6px 8px", color: c.colour, fontWeight: 600 }}>{c.key}</th>)}
+                      <th style={{ textAlign: "right", padding: "6px 8px", color: S.text, fontWeight: 700 }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthKeys.map(ym => {
+                      const row = monthMap[ym] || {};
+                      const total = channelStats.reduce((s, c) => s + (row[c.key] || 0), 0);
+                      return (
+                        <tr key={ym} style={{ borderBottom: `1px solid ${S.border}` }}>
+                          <td style={{ padding: "6px 8px", color: S.muted }}>{monthLabel(ym)}</td>
+                          {channelStats.map(c => (
+                            <td key={c.key} style={{ textAlign: "right", padding: "6px 8px", color: (row[c.key] || 0) > 0 ? c.colour : S.dimmer }}>£{(row[c.key] || 0).toFixed(2)}</td>
+                          ))}
+                          <td style={{ textAlign: "right", padding: "6px 8px", color: S.teal, fontWeight: 700 }}>£{total.toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Recent offline sales list */}
+            {offlineSales.length > 0 && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontHead, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>Recent offline sales ({offlineSales.length})</span>
+                  {offlineSales.length > 5 && (
+                    <button onClick={() => setSalesExpanded(!salesExpanded)} style={{ fontSize: 11, color: S.teal, background: "transparent", border: "none", cursor: "pointer", fontWeight: 600, fontFamily: S.fontHead }}>
+                      {salesExpanded ? "Show less ▲" : `Show all ▼`}
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {recentSales.map(s => {
+                    const channelMeta = channelStats.find(c => c.key === s.channel) || { colour: S.muted, icon: "💵" };
+                    return (
+                      <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}` }}>
+                        <span style={{ fontSize: 14 }}>{channelMeta.icon}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{Number(s.amount).toFixed(2)}</span>
+                            <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: "rgba(255,255,255,0.05)", color: channelMeta.colour, fontWeight: 700, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.3px" }}>{s.channel}</span>
+                            <span style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontMono }}>{s.date}</span>
+                          </div>
+                          {s.note && <div style={{ fontSize: 11, color: S.dimmer, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={s.note}>{s.note}</div>}
+                        </div>
+                        <button
+                          onClick={() => setSalesModal({ ...s })}
+                          style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 11, cursor: "pointer", fontFamily: S.fontHead, fontWeight: 600 }}
+                        >Edit</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Sales log modal */}
+            {salesModal && (
+              <div onClick={() => setSalesModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
+                <div onClick={(e) => e.stopPropagation()} style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 16, padding: 24, maxWidth: 440, width: "100%", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: S.text, fontFamily: S.fontHead }}>{salesModal.id ? "✏️ Edit Sale" : "💰 Log a Sale"}</span>
+                    <button onClick={() => setSalesModal(null)} style={{ background: "transparent", border: "none", color: S.dimmer, fontSize: 20, cursor: "pointer" }}>✕</button>
+                  </div>
+
+                  <label style={{ display: "block", marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: S.dimmer, fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Date</div>
+                    <input type="date" value={salesModal.date} onChange={(e) => setSalesModal({ ...salesModal, date: e.target.value })}
+                      style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 14, fontFamily: S.fontMono }} />
+                  </label>
+
+                  <label style={{ display: "block", marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: S.dimmer, fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Amount (£)</div>
+                    <input type="number" step="0.01" inputMode="decimal" placeholder="0.00" value={salesModal.amount} onChange={(e) => setSalesModal({ ...salesModal, amount: e.target.value })}
+                      style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 16, fontFamily: S.fontMono, fontWeight: 700 }} />
+                  </label>
+
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: S.dimmer, fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>Channel</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+                      {["Carboot", "Fair", "Offline"].map(ch => (
+                        <button key={ch} onClick={() => setSalesModal({ ...salesModal, channel: ch })}
+                          style={{ padding: "10px", borderRadius: 8, border: `1px solid ${salesModal.channel === ch ? S.teal : S.border}`, background: salesModal.channel === ch ? "rgba(0,201,167,0.12)" : "transparent", color: salesModal.channel === ch ? S.teal : S.muted, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}
+                        >{ch}</button>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 10, color: S.dimmer, marginTop: 4 }}>Tip: "Carboot" = boot sale · "Fair" = village/craft fair · "Offline" = after-school, friends, anything else</div>
+                  </div>
+
+                  <label style={{ display: "block", marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, color: S.dimmer, fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Note (optional)</div>
+                    <textarea value={salesModal.note || ""} onChange={(e) => setSalesModal({ ...salesModal, note: e.target.value })} placeholder="What was sold? Who to?"
+                      rows={2}
+                      style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 13, fontFamily: S.fontHead, resize: "vertical" }} />
+                  </label>
+
+                  <div style={{ display: "flex", gap: 10 }}>
+                    {salesModal.id && (
+                      <button
+                        onClick={async () => {
+                          if (!confirm("Delete this sale?")) return;
+                          const updated = offlineSales.filter(s => s.id !== salesModal.id);
+                          await onSaveOfflineSales(updated);
+                          setSalesModal(null);
+                        }}
+                        style={{ padding: "12px 16px", borderRadius: 10, border: "1px solid rgba(255,80,80,0.3)", background: "rgba(255,80,80,0.08)", color: "#ff5050", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}
+                      >🗑 Delete</button>
+                    )}
+                    <button onClick={() => setSalesModal(null)}
+                      style={{ flex: 1, padding: "12px 16px", borderRadius: 10, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Cancel</button>
+                    <button
+                      onClick={async () => {
+                        const amt = parseFloat(salesModal.amount);
+                        if (!amt || amt <= 0) { alert("Enter a valid amount"); return; }
+                        if (!salesModal.date) { alert("Pick a date"); return; }
+                        if (!salesModal.channel) { alert("Pick a channel"); return; }
+                        const saleToSave = {
+                          id: salesModal.id || ("os-" + Date.now()),
+                          date: salesModal.date,
+                          amount: amt,
+                          channel: salesModal.channel,
+                          event: salesModal.event || "",
+                          note: salesModal.note || "",
+                          createdAt: salesModal.createdAt || new Date().toISOString(),
+                        };
+                        const existing = offlineSales.filter(s => s.id !== saleToSave.id);
+                        const updated = [...existing, saleToSave].sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+                        await onSaveOfflineSales(updated);
+                        setSalesModal(null);
+                      }}
+                      style={{ flex: 2, padding: "12px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #00c9a7, #00e5be)", color: "#0d0d1a", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead }}
+                    >💾 {salesModal.id ? "Save Changes" : "Save Sale"}</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Print capacity setting */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "10px 16px", borderRadius: 12, background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}` }}>
         <span style={{ fontSize: 12, color: S.muted, fontFamily: S.fontHead, fontWeight: 600 }}>⏱️ Print capacity</span>
@@ -2284,7 +2570,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 /* ═══════════════════════════════════════════════
    STOCK TAB — Production stock targets & batch generator
    ═══════════════════════════════════════════════ */
-function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addProduct, onClearAddProduct, categoryMeta = {}, orders = [], onSendToOrderBook, stockOrders = [] }) {
+function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addProduct, onClearAddProduct, categoryMeta = {}, orders = [], onSendToOrderBook, stockOrders = [], stockEvents = [], onSaveStockEvents }) {
   const [eventFilter, setEventFilter] = useState("all");
   const [stockCatFilter, setStockCatFilter] = useState("all");
   const [editModal, setEditModal] = useState(null); // null | { ...target } for add/edit
@@ -2301,6 +2587,8 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
   const [manualQty, setManualQty] = useState(1);
   const [manualNotes, setManualNotes] = useState("");
   const [manualSent, setManualSent] = useState(false);
+  const [rolloverModal, setRolloverModal] = useState(null); // null | { fromEvent, toEventId, toEventName, toEventDate }
+  const [rolloverBusy, setRolloverBusy] = useState(false);
   const togglePanel = (key) => setOpenPanels(prev => ({ ...prev, [key]: !prev[key] }));
 
   // Load sell-through % from Firebase
@@ -2558,6 +2846,24 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
         {onSendToOrderBook && (
           <button onClick={() => setManualOrderModal(true)} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #ff6b35", background: "transparent", color: "#ff6b35", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>
             🏭 Production Order
+          </button>
+        )}
+        {onSaveStockEvents && eventFilter !== "all" && stockTargets.some(t => t.event === eventFilter && (t.onHand || 0) > 0) && (
+          <button
+            onClick={() => {
+              const today = new Date();
+              const defaultDate = new Date(today.getFullYear(), today.getMonth() + 1, 1).toISOString().slice(0, 10);
+              setRolloverModal({
+                fromEvent: eventFilter,
+                toEventId: eventFilter === "car-boot-1" ? "village-fair-2026-05-04" : "",
+                toEventName: eventFilter === "car-boot-1" ? "Village Fair 2026-05-04" : "",
+                toEventDate: eventFilter === "car-boot-1" ? "2026-05-04" : defaultDate,
+              });
+            }}
+            style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #845ef7", background: "transparent", color: "#845ef7", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}
+            title="Roll remaining on-hand stock forward to a new event. Old event onHand → 0. Old event detail preserved in archive."
+          >
+            🔄 Roll Over Event
           </button>
         )}
       </div>
@@ -3293,6 +3599,149 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
           </div>
         );
       })()}
+
+      {/* ─────────────────────────────────────────────
+          ROLL OVER EVENT MODAL
+          Archives the current event's full detail, creates new targets in the new event
+          with onHand = leftover (what wasn't sold), and zeroes out the old event's onHand.
+          ───────────────────────────────────────────── */}
+      {rolloverModal && (() => {
+        const fromTargets = stockTargets.filter(t => t.event === rolloverModal.fromEvent);
+        const withOnHand = fromTargets.filter(t => (t.onHand || 0) > 0);
+        const totalOnHand = fromTargets.reduce((s, t) => s + (t.onHand || 0), 0);
+        const totalSold = fromTargets.reduce((s, t) => s + (t.soldQty || 0), 0);
+        const totalLeftover = fromTargets.reduce((s, t) => s + Math.max(0, (t.onHand || 0) - (t.soldQty || 0)), 0);
+        const totalRevenue = fromTargets.reduce((s, t) => s + (t.soldRevenue || 0), 0);
+        const existingArchive = stockEvents.find(e => e.eventId === rolloverModal.fromEvent);
+
+        const doRollover = async () => {
+          if (!rolloverModal.toEventId || !rolloverModal.toEventName) { alert("Fill in new event ID and name"); return; }
+          if (rolloverModal.toEventId === rolloverModal.fromEvent) { alert("New event ID must be different from current"); return; }
+          if (!confirm(`Roll ${totalLeftover} units forward from ${rolloverModal.fromEvent} → ${rolloverModal.toEventId}?\n\nOld event's onHand will be zeroed. Full detail preserved in archive.`)) return;
+          setRolloverBusy(true);
+          try {
+            // 1) Build archive snapshot (preserves full detail per product, even zero-sold rows)
+            const archiveRows = fromTargets.map(t => {
+              const prod = prodMap[t.productId];
+              const onHand = t.onHand || 0;
+              const sold = t.soldQty || 0;
+              const remaining = Math.max(0, onHand - sold);
+              return {
+                targetId: t.id,
+                productId: t.productId,
+                productName: t.productName || (prod && prod.name) || "",
+                category: (prod && getProductCategories(prod).join(", ")) || "",
+                colours: t.colours || (t.colour ? [t.colour] : []),
+                targetQty: t.targetQty || 0,
+                onHandAtEvent: onHand,
+                soldQty: sold,
+                soldPrice: t.soldPrice || 0,
+                soldRevenue: t.soldRevenue || 0,
+                remaining,
+                cbPrice: t.carBootPrice || 0,
+                webPrice: (prod && prod.price) || 0,
+                notes: t.notes || "",
+              };
+            });
+            const archive = {
+              eventId: rolloverModal.fromEvent,
+              eventName: existingArchive ? existingArchive.eventName : rolloverModal.fromEvent,
+              eventDate: existingArchive ? existingArchive.eventDate : "",
+              archivedAt: new Date().toISOString(),
+              rolledOverTo: rolloverModal.toEventId,
+              totals: { onHandAtEvent: totalOnHand, soldQty: totalSold, soldRevenue: totalRevenue, remaining: totalLeftover, productCount: fromTargets.length },
+              rows: archiveRows,
+            };
+            const nextEvents = [...stockEvents.filter(e => e.eventId !== rolloverModal.fromEvent), archive];
+            await onSaveStockEvents(nextEvents);
+
+            // 2) Update stockTargets: zero out old event, create new event rows carrying leftover onHand
+            const rolloverStamp = Date.now();
+            const newTargets = [];
+            fromTargets.forEach((t, i) => {
+              const leftover = Math.max(0, (t.onHand || 0) - (t.soldQty || 0));
+              if (leftover > 0) {
+                newTargets.push({
+                  id: "st-" + rolloverStamp + "-" + i,
+                  productId: t.productId,
+                  productName: t.productName,
+                  colours: [...(t.colours || (t.colour ? [t.colour] : []))],
+                  event: rolloverModal.toEventId,
+                  targetQty: 0, // John to fill in based on new event plan
+                  onHand: leftover,
+                  carBootPrice: t.carBootPrice || 0,
+                  notes: t.notes || "",
+                  rolledFrom: rolloverModal.fromEvent,
+                });
+              }
+            });
+            const updatedOld = stockTargets.map(t => {
+              if (t.event !== rolloverModal.fromEvent) return t;
+              const { soldQty, soldPrice, soldRevenue, ...rest } = t;
+              return { ...rest, onHand: 0, _archived: true };
+            });
+            await onSave([...updatedOld, ...newTargets]);
+
+            setRolloverBusy(false);
+            setRolloverModal(null);
+            setEventFilter(rolloverModal.toEventId);
+            alert(`✅ Rolled ${totalLeftover} units → ${rolloverModal.toEventId}\n\nNext: set Target Qty for each product for the new event.`);
+          } catch (e) {
+            setRolloverBusy(false);
+            console.error("Rollover failed:", e);
+            alert("❌ Rollover failed: " + (e && e.message ? e.message : String(e)));
+          }
+        };
+
+        return (
+          <div onClick={() => !rolloverBusy && setRolloverModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 16, padding: 24, maxWidth: 520, width: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <span style={{ fontSize: 16, fontWeight: 800, color: S.text, fontFamily: S.fontHead }}>🔄 Roll Over Event</span>
+                <button disabled={rolloverBusy} onClick={() => setRolloverModal(null)} style={{ background: "transparent", border: "none", color: S.dimmer, fontSize: 20, cursor: rolloverBusy ? "wait" : "pointer" }}>✕</button>
+              </div>
+
+              {/* Summary of what will happen */}
+              <div style={{ padding: 14, borderRadius: 10, background: "rgba(132,94,247,0.06)", border: "1px solid rgba(132,94,247,0.25)", marginBottom: 14, fontSize: 12, color: S.muted, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 11, color: "#845ef7", fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>From: {rolloverModal.fromEvent}</div>
+                <div>📦 Products tracked: <strong style={{ color: S.teal, fontFamily: S.fontMono }}>{fromTargets.length}</strong></div>
+                <div>📥 On hand (brought): <strong style={{ color: S.teal, fontFamily: S.fontMono }}>{totalOnHand}</strong></div>
+                <div>💰 Sold: <strong style={{ color: S.teal, fontFamily: S.fontMono }}>{totalSold}</strong> for <strong style={{ color: S.teal, fontFamily: S.fontMono }}>£{totalRevenue.toFixed(2)}</strong></div>
+                <div>📦 Leftover to roll forward: <strong style={{ color: "#ffd43b", fontFamily: S.fontMono, fontSize: 14 }}>{totalLeftover} units</strong></div>
+              </div>
+
+              <label style={{ display: "block", marginBottom: 10 }}>
+                <div style={labelStyle}>New Event Name</div>
+                <input disabled={rolloverBusy} type="text" value={rolloverModal.toEventName} onChange={(e) => setRolloverModal({ ...rolloverModal, toEventName: e.target.value })}
+                  placeholder="e.g. Village Fair 2026-05-04" style={inputStyle} />
+              </label>
+
+              <label style={{ display: "block", marginBottom: 10 }}>
+                <div style={labelStyle}>New Event ID (short code — lowercase, no spaces)</div>
+                <input disabled={rolloverBusy} type="text" value={rolloverModal.toEventId} onChange={(e) => setRolloverModal({ ...rolloverModal, toEventId: e.target.value.toLowerCase().replace(/\s+/g, "-") })}
+                  placeholder="village-fair-2026-05-04" style={{ ...inputStyle, fontFamily: S.fontMono }} />
+              </label>
+
+              <label style={{ display: "block", marginBottom: 14 }}>
+                <div style={labelStyle}>Event Date</div>
+                <input disabled={rolloverBusy} type="date" value={rolloverModal.toEventDate} onChange={(e) => setRolloverModal({ ...rolloverModal, toEventDate: e.target.value })} style={inputStyle} />
+              </label>
+
+              <div style={{ padding: 10, borderRadius: 8, background: "rgba(255,212,59,0.06)", border: "1px solid rgba(255,212,59,0.25)", fontSize: 11, color: S.dimmer, lineHeight: 1.5, marginBottom: 14 }}>
+                <strong style={{ color: "#ffd43b" }}>What happens:</strong> Every product with leftover stock moves to the new event with onHand = leftover. The old event's onHand is zeroed but full detail (qty brought, sold, price, revenue, remaining) is preserved in the Events Archive.
+              </div>
+
+              <div style={{ display: "flex", gap: 10 }}>
+                <button disabled={rolloverBusy} onClick={() => setRolloverModal(null)}
+                  style={{ flex: 1, padding: "12px 16px", borderRadius: 10, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 13, fontWeight: 700, cursor: rolloverBusy ? "wait" : "pointer", fontFamily: S.fontHead }}>Cancel</button>
+                <button disabled={rolloverBusy || totalLeftover === 0} onClick={doRollover}
+                  style={{ flex: 2, padding: "12px 16px", borderRadius: 10, border: "none", background: rolloverBusy ? "rgba(132,94,247,0.3)" : "linear-gradient(135deg, #845ef7, #b197fc)", color: "#fff", fontSize: 13, fontWeight: 800, cursor: rolloverBusy || totalLeftover === 0 ? "not-allowed" : "pointer", fontFamily: S.fontHead, opacity: totalLeftover === 0 ? 0.4 : 1 }}
+                >{rolloverBusy ? "⏳ Rolling over..." : `🔄 Roll ${totalLeftover} units → new event`}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -3317,6 +3766,9 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [stockLoading, setStockLoading] = useState(true);
   const [stockAddProduct, setStockAddProduct] = useState(null); // product to pre-fill in stock tab
   const [stockOrders, setStockOrders] = useState([]);
+  const [offlineSales, setOfflineSales] = useState([]);
+  const [stockEvents, setStockEvents] = useState([]);
+  const [dataImportDone, setDataImportDone] = useState(false);
 
   /* ── Load creators from Firebase on mount ── */
   useEffect(() => {
@@ -3345,7 +3797,67 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
     loadStockTargets().then(t => { setStockTargets(t); setStockLoading(false); }).catch(() => setStockLoading(false));
     loadStockOrders().then(o => setStockOrders(o)).catch(() => {});
     loadPricingConfig().then(c => { setPricingLayerOverrides(c.overrides || {}); setPricingBandLayers(c.bandLayers || {}); }).catch(() => {});
+    loadOfflineSales().then(s => setOfflineSales(s)).catch(() => {});
+    loadStockEvents().then(e => setStockEvents(e)).catch(() => {});
   }, []);
+
+  /* ── One-time data import: £120 Car Boot + £100 offline sales + CB1 per-product sold data
+     Runs once per Firebase (guarded by flag key "et-data-import-2026-04-23-v1"). Safe to deploy. ── */
+  useEffect(() => {
+    if (stockLoading || dataImportDone) return;
+    (async () => {
+      try {
+        const flag = await storageGet("et-data-import-2026-04-23-v1");
+        if (flag) { setDataImportDone(true); return; }
+
+        // Seed offline sales
+        const nowIso = new Date().toISOString();
+        const seedSales = [
+          {
+            id: "os-cb1-2026-04-19",
+            date: "2026-04-19",
+            amount: 120,
+            channel: "Carboot",
+            event: "car-boot-1",
+            note: "Chirk Car Boot #1 — 39 items sold (37 catalogued + 2 off-catalogue fidgets).",
+            createdAt: nowIso,
+          },
+          {
+            id: "os-afterschool-2026-04-23",
+            date: "2026-04-23",
+            amount: 100,
+            channel: "Offline",
+            event: "",
+            note: "After-school & word-of-mouth sales, week of 20–23 April. Elijah held full car-boot prices (demand was high).",
+            createdAt: nowIso,
+          },
+        ];
+        await saveOfflineSales(seedSales);
+        setOfflineSales(seedSales);
+
+        // Apply CB1 sold data to matching stockTargets rows
+        let touched = false;
+        const updatedTargets = stockTargets.map(t => {
+          const sales = CB1_SALES_DATA[t.id];
+          if (sales && t.event === "car-boot-1") {
+            touched = true;
+            return { ...t, soldQty: sales.soldQty, soldPrice: sales.soldPrice, soldRevenue: sales.soldRevenue };
+          }
+          return t;
+        });
+        if (touched) {
+          await saveStockTargets(updatedTargets);
+          setStockTargets(updatedTargets);
+        }
+
+        await storageSet("et-data-import-2026-04-23-v1", "true");
+        setDataImportDone(true);
+        console.log("✅ ET data import 2026-04-23 complete: £120 Carboot + £100 Offline + CB1 per-product sold data seeded");
+      } catch (e) {
+        console.error("ET data import failed:", e);
+      }
+    })();
+  }, [stockLoading, dataImportDone, stockTargets]);
 
   /* ── Auto-save pricing config when overrides or band layers change ── */
   const pricingConfigRef = useRef({ overrides: {}, bandLayers: {} });
@@ -3370,6 +3882,18 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const handleSaveStockOrders = async (updated) => {
     setStockOrders(updated);
     await saveStockOrders(updated);
+  };
+
+  /* ── Save offline sales helper ── */
+  const handleSaveOfflineSales = async (updated) => {
+    setOfflineSales(updated);
+    await saveOfflineSales(updated);
+  };
+
+  /* ── Save stock events archive helper ── */
+  const handleSaveStockEvents = async (updated) => {
+    setStockEvents(updated);
+    await saveStockEvents(updated);
   };
 
   /* ── Send batch to Order Book ── */
@@ -3929,7 +4453,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
 
       {/* Orders tab */}
       {adminTab === "orders" && (
-        <OrderBook orders={orders} onUpdateOrder={onUpdateOrders} products={products} onEditProduct={(product) => setEditing(product)} categoryMeta={categoryMeta} stockOrders={stockOrders} onSaveStockOrders={handleSaveStockOrders} stockTargets={stockTargets} onSaveStockTargets={handleSaveStockTargets} />
+        <OrderBook orders={orders} onUpdateOrder={onUpdateOrders} products={products} onEditProduct={(product) => setEditing(product)} categoryMeta={categoryMeta} stockOrders={stockOrders} onSaveStockOrders={handleSaveStockOrders} stockTargets={stockTargets} onSaveStockTargets={handleSaveStockTargets} offlineSales={offlineSales} onSaveOfflineSales={handleSaveOfflineSales} />
       )}
 
       {/* Products tab */}
@@ -4873,7 +5397,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       )}
 
       {adminTab === "stock" && (
-        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} addProduct={stockAddProduct} onClearAddProduct={() => setStockAddProduct(null)} categoryMeta={categoryMeta} orders={orders} onSendToOrderBook={handleSendToOrderBook} stockOrders={stockOrders} />
+        <StockTab products={products} stockTargets={stockTargets} onSave={handleSaveStockTargets} loading={stockLoading} onEditProduct={(product) => setEditing(product)} addProduct={stockAddProduct} onClearAddProduct={() => setStockAddProduct(null)} categoryMeta={categoryMeta} orders={orders} onSendToOrderBook={handleSendToOrderBook} stockOrders={stockOrders} stockEvents={stockEvents} onSaveStockEvents={handleSaveStockEvents} />
       )}
 
       {/* Pricing Dashboard */}
