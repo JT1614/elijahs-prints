@@ -356,7 +356,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v153 · 2026-04-23";
+const APP_VERSION = "v154 · 2026-04-24";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -2853,15 +2853,38 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
             onClick={() => {
               const today = new Date();
               const defaultDate = new Date(today.getFullYear(), today.getMonth() + 1, 1).toISOString().slice(0, 10);
+              // Build editable rows from current targets, auto-populating from CB1_SALES_DATA if available
+              const fromTargets = stockTargets.filter(t => t.event === eventFilter).map(t => {
+                const prod = prodMap[t.productId];
+                const cbSeed = CB1_SALES_DATA[t.id];
+                // Priority: target already has sold data → use it. Else → seed from CB1_SALES_DATA if id matches. Else → 0.
+                const soldQty = t.soldQty != null ? t.soldQty : (cbSeed ? cbSeed.soldQty : 0);
+                const soldPrice = t.soldPrice != null ? t.soldPrice : (cbSeed ? cbSeed.soldPrice : (t.carBootPrice || 0));
+                const soldRevenue = t.soldRevenue != null ? t.soldRevenue : (cbSeed ? cbSeed.soldRevenue : (soldQty * soldPrice));
+                return {
+                  targetId: t.id,
+                  productId: t.productId,
+                  productName: t.productName || (prod && prod.name) || "(unnamed)",
+                  category: (prod && getProductCategories(prod).join(", ")) || "",
+                  colours: (t.colours || (t.colour ? [t.colour] : [])).join(" + "),
+                  onHand: t.onHand || 0,
+                  cbPrice: t.carBootPrice || 0,
+                  soldQty,
+                  soldPrice,
+                  soldRevenue,
+                  seededFrom: (t.soldQty != null) ? "saved" : (cbSeed ? "CB1 export" : null),
+                };
+              }).sort((a, b) => (b.onHand || 0) - (a.onHand || 0));
               setRolloverModal({
                 fromEvent: eventFilter,
                 toEventId: eventFilter === "car-boot-1" ? "village-fair-2026-05-04" : "",
                 toEventName: eventFilter === "car-boot-1" ? "Village Fair 2026-05-04" : "",
                 toEventDate: eventFilter === "car-boot-1" ? "2026-05-04" : defaultDate,
+                editRows: fromTargets,
               });
             }}
             style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #845ef7", background: "transparent", color: "#845ef7", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}
-            title="Roll remaining on-hand stock forward to a new event. Old event onHand → 0. Old event detail preserved in archive."
+            title="Roll remaining on-hand stock forward to a new event. Shows per-row sold/leftover detail — editable before you commit."
           >
             🔄 Roll Over Event
           </button>
@@ -3606,13 +3629,40 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
           with onHand = leftover (what wasn't sold), and zeroes out the old event's onHand.
           ───────────────────────────────────────────── */}
       {rolloverModal && (() => {
-        const fromTargets = stockTargets.filter(t => t.event === rolloverModal.fromEvent);
-        const withOnHand = fromTargets.filter(t => (t.onHand || 0) > 0);
-        const totalOnHand = fromTargets.reduce((s, t) => s + (t.onHand || 0), 0);
-        const totalSold = fromTargets.reduce((s, t) => s + (t.soldQty || 0), 0);
-        const totalLeftover = fromTargets.reduce((s, t) => s + Math.max(0, (t.onHand || 0) - (t.soldQty || 0)), 0);
-        const totalRevenue = fromTargets.reduce((s, t) => s + (t.soldRevenue || 0), 0);
+        const rows = rolloverModal.editRows || [];
+        const totalOnHand = rows.reduce((s, r) => s + (Number(r.onHand) || 0), 0);
+        const totalSold = rows.reduce((s, r) => s + (Number(r.soldQty) || 0), 0);
+        const totalRevenue = rows.reduce((s, r) => s + (Number(r.soldRevenue) || 0), 0);
+        const totalLeftover = rows.reduce((s, r) => s + Math.max(0, (Number(r.onHand) || 0) - (Number(r.soldQty) || 0)), 0);
+        const seededFromCB1 = rows.filter(r => r.seededFrom === "CB1 export").length;
         const existingArchive = stockEvents.find(e => e.eventId === rolloverModal.fromEvent);
+
+        const updateRow = (idx, field, value) => {
+          const next = rows.map((r, i) => {
+            if (i !== idx) return r;
+            const v = value === "" ? 0 : (Number(value) || 0);
+            const updated = { ...r, [field]: v };
+            // Auto-recompute revenue when qty or price changes
+            if (field === "soldQty" || field === "soldPrice") {
+              updated.soldRevenue = (Number(updated.soldQty) || 0) * (Number(updated.soldPrice) || 0);
+            }
+            updated.seededFrom = "edited";
+            return updated;
+          });
+          setRolloverModal({ ...rolloverModal, editRows: next });
+        };
+
+        const resetFromCB1 = () => {
+          if (!confirm("Reset all sold qty / price / revenue from the 2026-04-18 Car Boot export?\n\nThis overwrites any edits you've made.")) return;
+          const refreshed = rows.map(r => {
+            const cbSeed = CB1_SALES_DATA[r.targetId];
+            if (cbSeed) {
+              return { ...r, soldQty: cbSeed.soldQty, soldPrice: cbSeed.soldPrice, soldRevenue: cbSeed.soldRevenue, seededFrom: "CB1 export" };
+            }
+            return { ...r, soldQty: 0, soldPrice: 0, soldRevenue: 0, seededFrom: null };
+          });
+          setRolloverModal({ ...rolloverModal, editRows: refreshed });
+        };
 
         const doRollover = async () => {
           if (!rolloverModal.toEventId || !rolloverModal.toEventName) { alert("Fill in new event ID and name"); return; }
@@ -3620,27 +3670,27 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
           if (!confirm(`Roll ${totalLeftover} units forward from ${rolloverModal.fromEvent} → ${rolloverModal.toEventId}?\n\nOld event's onHand will be zeroed. Full detail preserved in archive.`)) return;
           setRolloverBusy(true);
           try {
-            // 1) Build archive snapshot (preserves full detail per product, even zero-sold rows)
-            const archiveRows = fromTargets.map(t => {
-              const prod = prodMap[t.productId];
-              const onHand = t.onHand || 0;
-              const sold = t.soldQty || 0;
+            // 1) Build archive snapshot from the edited rows (source of truth)
+            const archiveRows = rows.map(r => {
+              const prod = prodMap[r.productId];
+              const onHand = Number(r.onHand) || 0;
+              const sold = Number(r.soldQty) || 0;
               const remaining = Math.max(0, onHand - sold);
+              const soldPrice = Number(r.soldPrice) || 0;
+              const soldRevenue = Number(r.soldRevenue) || 0;
               return {
-                targetId: t.id,
-                productId: t.productId,
-                productName: t.productName || (prod && prod.name) || "",
-                category: (prod && getProductCategories(prod).join(", ")) || "",
-                colours: t.colours || (t.colour ? [t.colour] : []),
-                targetQty: t.targetQty || 0,
+                targetId: r.targetId,
+                productId: r.productId,
+                productName: r.productName,
+                category: r.category || "",
+                colours: r.colours ? r.colours.split(" + ").filter(Boolean) : [],
                 onHandAtEvent: onHand,
                 soldQty: sold,
-                soldPrice: t.soldPrice || 0,
-                soldRevenue: t.soldRevenue || 0,
+                soldPrice,
+                soldRevenue,
                 remaining,
-                cbPrice: t.carBootPrice || 0,
+                cbPrice: r.cbPrice || 0,
                 webPrice: (prod && prod.price) || 0,
-                notes: t.notes || "",
               };
             });
             const archive = {
@@ -3649,43 +3699,54 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
               eventDate: existingArchive ? existingArchive.eventDate : "",
               archivedAt: new Date().toISOString(),
               rolledOverTo: rolloverModal.toEventId,
-              totals: { onHandAtEvent: totalOnHand, soldQty: totalSold, soldRevenue: totalRevenue, remaining: totalLeftover, productCount: fromTargets.length },
+              totals: { onHandAtEvent: totalOnHand, soldQty: totalSold, soldRevenue: totalRevenue, remaining: totalLeftover, productCount: rows.length },
               rows: archiveRows,
             };
             const nextEvents = [...stockEvents.filter(e => e.eventId !== rolloverModal.fromEvent), archive];
             await onSaveStockEvents(nextEvents);
 
-            // 2) Update stockTargets: zero out old event, create new event rows carrying leftover onHand
+            // 2) Update stockTargets: zero out old event, write sold data from the edits FIRST so the
+            //    pre-rollover snapshot in Firebase reflects what John confirmed.
+            const rowByTargetId = {};
+            rows.forEach(r => { rowByTargetId[r.targetId] = r; });
             const rolloverStamp = Date.now();
             const newTargets = [];
-            fromTargets.forEach((t, i) => {
-              const leftover = Math.max(0, (t.onHand || 0) - (t.soldQty || 0));
+            rows.forEach((r, i) => {
+              const leftover = Math.max(0, (Number(r.onHand) || 0) - (Number(r.soldQty) || 0));
               if (leftover > 0) {
                 newTargets.push({
                   id: "st-" + rolloverStamp + "-" + i,
-                  productId: t.productId,
-                  productName: t.productName,
-                  colours: [...(t.colours || (t.colour ? [t.colour] : []))],
+                  productId: r.productId,
+                  productName: r.productName,
+                  colours: r.colours ? r.colours.split(" + ").filter(Boolean) : [],
                   event: rolloverModal.toEventId,
-                  targetQty: 0, // John to fill in based on new event plan
+                  targetQty: 0, // John to fill in
                   onHand: leftover,
-                  carBootPrice: t.carBootPrice || 0,
-                  notes: t.notes || "",
+                  carBootPrice: r.cbPrice || 0,
+                  notes: "",
                   rolledFrom: rolloverModal.fromEvent,
                 });
               }
             });
             const updatedOld = stockTargets.map(t => {
               if (t.event !== rolloverModal.fromEvent) return t;
-              const { soldQty, soldPrice, soldRevenue, ...rest } = t;
-              return { ...rest, onHand: 0, _archived: true };
+              // preserve sold data on old target for historical record inside stockTargets-v1 too
+              const r = rowByTargetId[t.id];
+              return {
+                ...t,
+                soldQty: r ? (Number(r.soldQty) || 0) : 0,
+                soldPrice: r ? (Number(r.soldPrice) || 0) : 0,
+                soldRevenue: r ? (Number(r.soldRevenue) || 0) : 0,
+                onHand: 0,
+                _archived: true,
+              };
             });
             await onSave([...updatedOld, ...newTargets]);
 
             setRolloverBusy(false);
             setRolloverModal(null);
             setEventFilter(rolloverModal.toEventId);
-            alert(`✅ Rolled ${totalLeftover} units → ${rolloverModal.toEventId}\n\nNext: set Target Qty for each product for the new event.`);
+            alert(`✅ Rolled ${totalLeftover} units → ${rolloverModal.toEventId}\n\nArchive captured ${rows.length} products, £${totalRevenue.toFixed(2)} revenue, ${totalSold} sold, ${totalLeftover} leftover.\n\nNext: set Target Qty for each product for the new event.`);
           } catch (e) {
             setRolloverBusy(false);
             console.error("Rollover failed:", e);
@@ -3693,42 +3754,132 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
           }
         };
 
+        const tdStyle = { padding: "6px 8px", fontSize: 11, color: S.muted, fontFamily: S.fontMono, borderBottom: `1px solid ${S.border}`, verticalAlign: "middle" };
+        const miniInputStyle = { width: "100%", minWidth: 48, padding: "4px 6px", borderRadius: 5, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontSize: 11, fontFamily: S.fontMono, textAlign: "right", boxSizing: "border-box" };
+
         return (
           <div onClick={() => !rolloverBusy && setRolloverModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 16, padding: 24, maxWidth: 520, width: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                <span style={{ fontSize: 16, fontWeight: 800, color: S.text, fontFamily: S.fontHead }}>🔄 Roll Over Event</span>
-                <button disabled={rolloverBusy} onClick={() => setRolloverModal(null)} style={{ background: "transparent", border: "none", color: S.dimmer, fontSize: 20, cursor: rolloverBusy ? "wait" : "pointer" }}>✕</button>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 16, padding: 24, maxWidth: 980, width: "100%", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: S.text, fontFamily: S.fontHead }}>🔄 Roll Over Event</div>
+                  <div style={{ fontSize: 11, color: S.dimmer, marginTop: 2 }}>Review per-row sold data, edit anything that's wrong, then roll the leftover forward.</div>
+                </div>
+                <button disabled={rolloverBusy} onClick={() => setRolloverModal(null)} style={{ background: "transparent", border: "none", color: S.dimmer, fontSize: 22, cursor: rolloverBusy ? "wait" : "pointer" }}>✕</button>
               </div>
 
-              {/* Summary of what will happen */}
-              <div style={{ padding: 14, borderRadius: 10, background: "rgba(132,94,247,0.06)", border: "1px solid rgba(132,94,247,0.25)", marginBottom: 14, fontSize: 12, color: S.muted, lineHeight: 1.5 }}>
-                <div style={{ fontSize: 11, color: "#845ef7", fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>From: {rolloverModal.fromEvent}</div>
-                <div>📦 Products tracked: <strong style={{ color: S.teal, fontFamily: S.fontMono }}>{fromTargets.length}</strong></div>
-                <div>📥 On hand (brought): <strong style={{ color: S.teal, fontFamily: S.fontMono }}>{totalOnHand}</strong></div>
-                <div>💰 Sold: <strong style={{ color: S.teal, fontFamily: S.fontMono }}>{totalSold}</strong> for <strong style={{ color: S.teal, fontFamily: S.fontMono }}>£{totalRevenue.toFixed(2)}</strong></div>
-                <div>📦 Leftover to roll forward: <strong style={{ color: "#ffd43b", fontFamily: S.fontMono, fontSize: 14 }}>{totalLeftover} units</strong></div>
+              {/* Summary tiles */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}`, textAlign: "center" }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: S.teal, fontFamily: S.fontMono }}>{rows.length}</div>
+                  <div style={{ fontSize: 10, color: S.dimmer, textTransform: "uppercase", letterSpacing: "0.5px" }}>Products</div>
+                </div>
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}`, textAlign: "center" }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: S.teal, fontFamily: S.fontMono }}>{totalOnHand}</div>
+                  <div style={{ fontSize: 10, color: S.dimmer, textTransform: "uppercase", letterSpacing: "0.5px" }}>Brought</div>
+                </div>
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}`, textAlign: "center" }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#00c9a7", fontFamily: S.fontMono }}>{totalSold}<span style={{ fontSize: 11, color: S.dimmer, marginLeft: 4 }}>/ £{totalRevenue.toFixed(2)}</span></div>
+                  <div style={{ fontSize: 10, color: S.dimmer, textTransform: "uppercase", letterSpacing: "0.5px" }}>Sold / Revenue</div>
+                </div>
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(255,212,59,0.08)", border: "1px solid rgba(255,212,59,0.3)", textAlign: "center" }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#ffd43b", fontFamily: S.fontMono }}>{totalLeftover}</div>
+                  <div style={{ fontSize: 10, color: "#ffd43b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Rolling forward</div>
+                </div>
               </div>
 
-              <label style={{ display: "block", marginBottom: 10 }}>
-                <div style={labelStyle}>New Event Name</div>
-                <input disabled={rolloverBusy} type="text" value={rolloverModal.toEventName} onChange={(e) => setRolloverModal({ ...rolloverModal, toEventName: e.target.value })}
-                  placeholder="e.g. Village Fair 2026-05-04" style={inputStyle} />
-              </label>
+              {seededFromCB1 > 0 && (
+                <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 8, background: "rgba(0,201,167,0.08)", border: "1px solid rgba(0,201,167,0.25)", fontSize: 11, color: S.teal, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span>✓ <strong>{seededFromCB1}</strong> rows pre-filled from the 2026-04-18 Car Boot export. Edit inline if anything's off.</span>
+                  <button onClick={resetFromCB1} style={{ marginLeft: "auto", padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(0,201,167,0.4)", background: "transparent", color: S.teal, fontSize: 11, cursor: "pointer", fontFamily: S.fontHead, fontWeight: 700 }}>↻ Re-seed from CB1</button>
+                </div>
+              )}
 
-              <label style={{ display: "block", marginBottom: 10 }}>
-                <div style={labelStyle}>New Event ID (short code — lowercase, no spaces)</div>
-                <input disabled={rolloverBusy} type="text" value={rolloverModal.toEventId} onChange={(e) => setRolloverModal({ ...rolloverModal, toEventId: e.target.value.toLowerCase().replace(/\s+/g, "-") })}
-                  placeholder="village-fair-2026-05-04" style={{ ...inputStyle, fontFamily: S.fontMono }} />
-              </label>
+              {/* Editable table */}
+              <div style={{ marginBottom: 14, maxHeight: "40vh", overflowY: "auto", border: `1px solid ${S.border}`, borderRadius: 8 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead style={{ position: "sticky", top: 0, background: S.card, zIndex: 1 }}>
+                    <tr style={{ borderBottom: `1px solid ${S.border}` }}>
+                      <th style={{ ...tdStyle, textAlign: "left", color: S.dimmer, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px" }}>Product</th>
+                      <th style={{ ...tdStyle, textAlign: "left", color: S.dimmer, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", minWidth: 120 }}>Colour</th>
+                      <th style={{ ...tdStyle, textAlign: "right", color: S.dimmer, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px" }}>Brought</th>
+                      <th style={{ ...tdStyle, textAlign: "right", color: "#00c9a7", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", minWidth: 60 }}>Sold</th>
+                      <th style={{ ...tdStyle, textAlign: "right", color: "#00c9a7", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", minWidth: 72 }}>Price £</th>
+                      <th style={{ ...tdStyle, textAlign: "right", color: "#00c9a7", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", minWidth: 78 }}>Revenue</th>
+                      <th style={{ ...tdStyle, textAlign: "right", color: "#ffd43b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px" }}>Leftover</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => {
+                      const leftover = Math.max(0, (Number(r.onHand) || 0) - (Number(r.soldQty) || 0));
+                      const seededBadge = r.seededFrom === "CB1 export" ? (
+                        <span title="Auto-filled from CB1 export" style={{ fontSize: 8, padding: "1px 4px", borderRadius: 3, background: "rgba(0,201,167,0.15)", color: S.teal, marginLeft: 4, fontWeight: 700 }}>CB1</span>
+                      ) : r.seededFrom === "edited" ? (
+                        <span title="Edited" style={{ fontSize: 8, padding: "1px 4px", borderRadius: 3, background: "rgba(255,212,59,0.15)", color: "#ffd43b", marginLeft: 4, fontWeight: 700 }}>EDIT</span>
+                      ) : null;
+                      return (
+                        <tr key={r.targetId} style={{ background: i % 2 ? "rgba(255,255,255,0.02)" : "transparent" }}>
+                          <td style={{ ...tdStyle, color: S.text, maxWidth: 220 }}>
+                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.productName}>{r.productName}</div>
+                            {r.category && <div style={{ fontSize: 9, color: S.dimmer }}>{r.category}</div>}
+                          </td>
+                          <td style={{ ...tdStyle, color: S.dimmer, fontSize: 10, maxWidth: 160 }}>
+                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.colours}>{r.colours || "—"}</div>
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: S.text, fontWeight: 700 }}>{r.onHand}</td>
+                          <td style={{ ...tdStyle, textAlign: "right" }}>
+                            <input disabled={rolloverBusy} type="number" min="0" step="1" value={r.soldQty}
+                              onChange={(e) => updateRow(i, "soldQty", e.target.value)}
+                              style={{ ...miniInputStyle, color: (Number(r.soldQty) || 0) > 0 ? "#00c9a7" : S.muted }} />
+                            {seededBadge}
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: "right" }}>
+                            <input disabled={rolloverBusy} type="number" min="0" step="0.5" value={r.soldPrice}
+                              onChange={(e) => updateRow(i, "soldPrice", e.target.value)}
+                              style={miniInputStyle} />
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: (Number(r.soldRevenue) || 0) > 0 ? "#00c9a7" : S.dimmer, fontWeight: 700 }}>
+                            £{(Number(r.soldRevenue) || 0).toFixed(2)}
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: leftover > 0 ? "#ffd43b" : S.dimmer, fontWeight: 700 }}>{leftover}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: "rgba(132,94,247,0.08)", borderTop: `2px solid #845ef7` }}>
+                      <td style={{ ...tdStyle, color: "#845ef7", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>Totals</td>
+                      <td style={tdStyle}></td>
+                      <td style={{ ...tdStyle, textAlign: "right", color: S.text, fontWeight: 800 }}>{totalOnHand}</td>
+                      <td style={{ ...tdStyle, textAlign: "right", color: "#00c9a7", fontWeight: 800 }}>{totalSold}</td>
+                      <td style={tdStyle}></td>
+                      <td style={{ ...tdStyle, textAlign: "right", color: "#00c9a7", fontWeight: 800 }}>£{totalRevenue.toFixed(2)}</td>
+                      <td style={{ ...tdStyle, textAlign: "right", color: "#ffd43b", fontWeight: 800 }}>{totalLeftover}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
 
-              <label style={{ display: "block", marginBottom: 14 }}>
-                <div style={labelStyle}>Event Date</div>
-                <input disabled={rolloverBusy} type="date" value={rolloverModal.toEventDate} onChange={(e) => setRolloverModal({ ...rolloverModal, toEventDate: e.target.value })} style={inputStyle} />
-              </label>
+              {/* Event fields */}
+              <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+                <label>
+                  <div style={labelStyle}>New Event Name</div>
+                  <input disabled={rolloverBusy} type="text" value={rolloverModal.toEventName} onChange={(e) => setRolloverModal({ ...rolloverModal, toEventName: e.target.value })}
+                    placeholder="e.g. Village Fair 2026-05-04" style={inputStyle} />
+                </label>
+                <label>
+                  <div style={labelStyle}>New Event ID</div>
+                  <input disabled={rolloverBusy} type="text" value={rolloverModal.toEventId} onChange={(e) => setRolloverModal({ ...rolloverModal, toEventId: e.target.value.toLowerCase().replace(/\s+/g, "-") })}
+                    placeholder="village-fair-2026-05-04" style={{ ...inputStyle, fontFamily: S.fontMono }} />
+                </label>
+                <label>
+                  <div style={labelStyle}>Event Date</div>
+                  <input disabled={rolloverBusy} type="date" value={rolloverModal.toEventDate} onChange={(e) => setRolloverModal({ ...rolloverModal, toEventDate: e.target.value })} style={inputStyle} />
+                </label>
+              </div>
 
               <div style={{ padding: 10, borderRadius: 8, background: "rgba(255,212,59,0.06)", border: "1px solid rgba(255,212,59,0.25)", fontSize: 11, color: S.dimmer, lineHeight: 1.5, marginBottom: 14 }}>
-                <strong style={{ color: "#ffd43b" }}>What happens:</strong> Every product with leftover stock moves to the new event with onHand = leftover. The old event's onHand is zeroed but full detail (qty brought, sold, price, revenue, remaining) is preserved in the Events Archive.
+                <strong style={{ color: "#ffd43b" }}>What happens on Roll Over:</strong> (1) Current sold values (edited or seeded) are saved back onto the old targets. (2) Full snapshot archived to Events Archive. (3) New targets created for each row with leftover &gt; 0, onHand = leftover, targetQty = 0 (you fill in for the new event). (4) Old event's onHand zeroed.
               </div>
 
               <div style={{ display: "flex", gap: 10 }}>
