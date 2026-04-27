@@ -332,12 +332,30 @@ function getBatchHrsPerItem(singleHrs, plateCap) {
   return (singleHrs * 1.1) / plateCap;
 }
 const SHIPPING_OPTIONS = [
-  { id: "collection", name: "School Collection", description: "Elijah will drop it off at school — free!", price: 0, icon: "🎒" },
+  { id: "collection-school", name: "School drop-off", description: "Elijah hands it over at school — free!", price: 0, icon: "🎒" },
+  { id: "collection-local", name: "Free local delivery", description: "Gwernaffield & Pantymwyn only · we'll drop it off", price: 0, icon: "🏘️" },
   { id: "standard", name: "Royal Mail Tracked 48", description: "2–3 working days · tracked delivery", price: 3.49, icon: "📦" },
 ];
 const FREE_SHIPPING_THRESHOLD = 30;
 function getStripeFee(amount) {
   return Math.ceil((0.20 + amount * 0.015) * 100) / 100;
+}
+// Promo codes — flat lookup. Keep small; expand to admin/Firebase if catalogue grows.
+const PROMO_CODES = {
+  GWERN10: { rate: 0.10, label: "Local launch offer (Gwernaffield)" },
+};
+// Free local delivery is restricted to Gwernaffield + Pantymwyn (CH7 5 prefix).
+function isLocalPostcode(postcode) {
+  const cleaned = (postcode || "").toUpperCase().replace(/\s+/g, "");
+  return cleaned.startsWith("CH75");
+}
+// Backward-compatible helper — old orders use "collection", new orders use "collection-school" or "collection-local".
+function isPickupShipping(shipping) {
+  return shipping?.id?.startsWith("collection") || false;
+}
+function needsAddress(shipping) {
+  if (!shipping?.id) return false;
+  return shipping.id !== "collection" && shipping.id !== "collection-school";
 }
 const PREMIUM_UPLIFT = 0.30; // 30% price increase for premium filaments
 function getPremiumPrice(basePrice, selectedColors) {
@@ -356,7 +374,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v154 · 2026-04-24";
+const APP_VERSION = "v155 · 2026-04-27";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -540,8 +558,8 @@ async function sendOrderEmail(order) {
     const itemsList = order.items.map(i =>
       i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`
     ).join("\n");
-    const address = order.shipping.id === "collection"
-      ? "🎒 School collection"
+    const address = isPickupShipping(order.shipping)
+      ? `${order.shipping.icon || "🎒"} ${order.shipping.name || "Collection"}` + (order.shipping.id === "collection-local" && order.customer?.address1 ? ` — ${[order.customer.address1, order.customer.postcode].filter(Boolean).join(", ")}` : "")
       : [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join(", ");
     await fetch("/api/send-email", {
       method: "POST",
@@ -575,7 +593,7 @@ async function sendShippedEmail(order) {
     const itemsList = order.items.map(i =>
       i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`
     ).join("\n");
-    const isCollection = order.shipping?.id === "collection";
+    const isCollection = isPickupShipping(order.shipping);
     await fetch("/api/send-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1761,10 +1779,12 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     const newProduct2 = pickProduct(premiumCandidates.length > 0 ? premiumCandidates : newestSorted);
 
     // Address
-    const addr = order.shipping?.id === "collection"
-      ? "🎒 School Collection"
+    const addr = isPickupShipping(order.shipping)
+      ? (order.shipping.id === "collection-local" && order.customer?.address1
+          ? [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join("\n")
+          : `${order.shipping.icon || "🎒"} ${order.shipping.name || "School Collection"}`)
       : [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join("\n");
-    const isPostal = order.shipping?.id !== "collection";
+    const isPostal = !isPickupShipping(order.shipping);
 
     // Items list
     const itemsList = order.items.filter(i => !i.isTip).map(i => `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`).join("\n");
@@ -2485,12 +2505,12 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>{order.id}</span>
                   <span style={{ fontSize: 11, color: S.dimmer }}>{formatDate(order.date)}</span>
-                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 8, background: order.shipping.id === "collection" ? "rgba(0,201,167,0.1)" : "rgba(132,94,247,0.1)", color: order.shipping.id === "collection" ? S.teal : S.purple, fontWeight: 600, fontFamily: S.fontHead }}>{order.shipping.id === "collection" ? "🎒 Collection" : `📦 ${order.shipping.name}`}</span>
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 8, background: isPickupShipping(order.shipping) ? "rgba(0,201,167,0.1)" : "rgba(132,94,247,0.1)", color: isPickupShipping(order.shipping) ? S.teal : S.purple, fontWeight: 600, fontFamily: S.fontHead }}>{isPickupShipping(order.shipping) ? `${order.shipping.icon || "🎒"} ${order.shipping.name || "Collection"}` : `📦 ${order.shipping.name}`}</span>
                   {(() => { const hasBox = (order.items || []).some(i => !i.isTip && (() => { const prod = products.find(p => p.id === i.id); return prod && productUsesBoxLabels(prod, categoryMeta); })()); return <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 8, fontWeight: 700, fontFamily: S.fontHead, background: hasBox ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.04)", color: hasBox ? "#10b981" : S.dimmer }}>{hasBox ? "📦 Box packaging" : "📬 Bag only"}</span>; })()}
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: S.text, fontFamily: S.fontHead, marginBottom: 2 }}>{order.customer.name}</div>
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>{order.customer.email}{order.customer.phone ? ` · ${order.customer.phone}` : ""}</div>
-                {order.shipping.id !== "collection" && order.customer.address1 && (
+                {(needsAddress(order.shipping) || order.shipping.id === "collection-local") && order.customer.address1 && (
                   <div style={{ fontSize: 11, color: S.dimmer, marginBottom: 6 }}>{[order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join(", ")}</div>
                 )}
                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -6254,17 +6274,41 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
   const [processing, setProcessing] = useState(false);
   const [errors, setErrors] = useState({});
   const [lastOrderId, setLastOrderId] = useState("");
+  const [promoInput, setPromoInput] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState(null);
+  const [promoError, setPromoError] = useState("");
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const productSubtotal = cart.filter(i => !i.isTip).reduce((s, i) => s + i.price * i.qty, 0);
+  const discountAmount = appliedPromo ? Math.round(productSubtotal * appliedPromo.rate * 100) / 100 : 0;
+  const subtotalAfterDiscount = subtotal - discountAmount;
   const qualifiesFree = productSubtotal >= FREE_SHIPPING_THRESHOLD;
   const currentTip = cart.find(i => i.isTip);
-  const shippingCost = shipping?.id === "collection" ? 0 : (qualifiesFree ? 0 : (shipping?.price || 0));
-  const stripeFee = getStripeFee(subtotal + shippingCost);
-  const total = subtotal + shippingCost + stripeFee;
+  const shippingCost = isPickupShipping(shipping) ? 0 : (qualifiesFree ? 0 : (shipping?.price || 0));
+  const stripeFee = getStripeFee(subtotalAfterDiscount + shippingCost);
+  const total = subtotalAfterDiscount + shippingCost + stripeFee;
+  const applyPromo = () => {
+    const code = (promoInput || "").trim().toUpperCase();
+    const promo = PROMO_CODES[code];
+    if (promo) { setAppliedPromo({ code, ...promo }); setPromoInput(""); setPromoError(""); }
+    else { setPromoError("That code doesn't look right — check and try again."); }
+  };
+  const removePromo = () => { setAppliedPromo(null); setPromoInput(""); setPromoError(""); };
   const validate = (s) => {
     const e = {};
     if (s >= 1 && !shipping) e.shipping = "Required";
-    if (s >= 2) { if (!form.name.trim()) e.name = "Required"; if (!form.email.trim() || !/\S+@\S+\.\S+/.test(form.email)) e.email = "Valid email required"; if (shipping?.id !== "collection") { if (!form.address1.trim()) e.address1 = "Required"; if (!form.city.trim()) e.city = "Required"; if (!form.postcode.trim()) e.postcode = "Required"; } }
+    if (s >= 2) {
+      if (!form.name.trim()) e.name = "Required";
+      if (!form.email.trim() || !/\S+@\S+\.\S+/.test(form.email)) e.email = "Valid email required";
+      if (needsAddress(shipping)) {
+        if (!form.address1.trim()) e.address1 = "Required";
+        if (!form.city.trim()) e.city = "Required";
+        if (!form.postcode.trim()) e.postcode = "Required";
+        // Free local delivery only valid for Gwernaffield + Pantymwyn (CH7 5 prefix)
+        if (shipping?.id === "collection-local" && form.postcode.trim() && !isLocalPostcode(form.postcode)) {
+          e.postcode = "Free local delivery is for Gwernaffield & Pantymwyn (CH7 5 postcodes) only — please choose Royal Mail instead";
+        }
+      }
+    }
     setErrors(e); return Object.keys(e).length === 0;
   };
   const nextStep = () => { if (validate(step)) setStep(step + 1); };
@@ -6287,11 +6331,13 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
         shipping: { id: shipping.id, name: shipping.name },
         items: orderItems,
         subtotal, shippingCost, stripeFee, total,
+        promoCode: appliedPromo?.code || null,
+        discountAmount,
         _nonce: nonce,
         _created: Date.now(),
       };
       localStorage.setItem("ep_pending_order", JSON.stringify(pendingOrder));
-      
+
       try {
         const resp = await fetch("/api/create-checkout-session", {
           method: "POST",
@@ -6302,6 +6348,8 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
             customerEmail: form.email,
             customerName: form.name,
             stripeFee,
+            promoCode: appliedPromo?.code || null,
+            discountAmount,
             // Full order data for webhook to create order server-side
             orderData: {
               orderId,
@@ -6309,6 +6357,8 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
               shipping: { id: shipping.id, name: shipping.name },
               items: orderItems,
               subtotal, shippingCost, stripeFee, total,
+              promoCode: appliedPromo?.code || null,
+              discountAmount,
             },
           }),
         });
@@ -6337,6 +6387,8 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
       shipping: { id: shipping.id, name: shipping.name },
       items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}) })),
       subtotal, shippingCost, stripeFee, total,
+      promoCode: appliedPromo?.code || null,
+      discountAmount,
       status: { paid: true, produced: false, despatched: false },
     };
     // Save and notify
@@ -6358,7 +6410,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
       <div style={{ width: 80, height: 80, borderRadius: "50%", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, margin: "0 auto 24px" }}>✓</div>
       <h2 style={{ fontSize: 28, fontWeight: 800, fontFamily: S.fontHead, marginBottom: 12, color: S.text }}>Order Confirmed!</h2>
       {lastOrderId && <p style={{ fontSize: 13, fontFamily: S.fontMono, color: S.teal, fontWeight: 700, marginBottom: 8 }}>Ref: {lastOrderId}</p>}
-      <p style={{ color: S.muted, fontSize: 15, marginBottom: 32 }}>{shipping?.id === "collection" ? `Thanks ${form.name.split(" ")[0]}! Elijah will bring it to school.` : `Thanks ${form.name.split(" ")[0]}! Elijah will print and ship it.`}</p>
+      <p style={{ color: S.muted, fontSize: 15, marginBottom: 32 }}>{shipping?.id === "collection-school" || shipping?.id === "collection" ? `Thanks ${form.name.split(" ")[0]}! Elijah will bring it to school.` : shipping?.id === "collection-local" ? `Thanks ${form.name.split(" ")[0]}! Elijah will drop it round.` : `Thanks ${form.name.split(" ")[0]}! Elijah will print and ship it.`}</p>
       <button onClick={onBack} style={{ padding: "13px 32px", borderRadius: 12, border: "none", background: "rgba(255,255,255,0.05)", color: S.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Back to Shop</button>
     </div>
   );
@@ -6383,7 +6435,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
     <div className="ep-checkout-page" style={{ maxWidth: 900, margin: "0 auto", padding: "40px 24px 80px" }}>
       <button onClick={step === 1 ? onBack : () => setStep(step - 1)} style={{ background: "none", border: "none", color: S.teal, cursor: "pointer", fontSize: 14, fontFamily: S.fontHead, fontWeight: 600, marginBottom: 24 }}>← {step === 1 ? "Back to Shop" : "Back"}</button>
       <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 40 }}>
-        {["Shipping", shipping?.id === "collection" ? "Details" : "Address", "Payment"].map((label, i) => (
+        {["Shipping", needsAddress(shipping) ? "Address" : "Details", "Payment"].map((label, i) => (
           <div key={i} style={{ flex: 1, display: "flex", alignItems: "center" }}>
             <div style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, background: step > i + 1 ? S.teal : step === i + 1 ? "rgba(0,201,167,0.15)" : "rgba(255,255,255,0.05)", color: step > i + 1 ? "#1a1a2e" : step === i + 1 ? S.teal : S.dimmer, border: step === i + 1 ? `1.5px solid ${S.teal}` : `1px solid ${S.border}`, flexShrink: 0 }}>{step > i + 1 ? "✓" : i + 1}</div>
             <span className="ep-step-label" style={{ fontSize: 12, fontWeight: 600, color: step >= i + 1 ? S.text : S.dimmer, fontFamily: S.fontHead, marginLeft: 8, whiteSpace: "nowrap" }}>{label}</span>
@@ -6396,7 +6448,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
           {step === 1 && (<div style={secBox}>
             <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 16 }}>How do you want your prints?</h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {SHIPPING_OPTIONS.map(opt => { const isFree = opt.id === "collection" || (qualifiesFree && opt.id !== "collection"); const sel = shipping?.id === opt.id; return (
+              {SHIPPING_OPTIONS.map(opt => { const isFree = opt.price === 0 || (qualifiesFree && opt.price > 0); const sel = shipping?.id === opt.id; return (
                 <button key={opt.id} onClick={() => setShipping(opt)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", borderRadius: 12, cursor: "pointer", textAlign: "left", border: sel ? `1.5px solid ${S.teal}` : `1px solid ${S.border}`, background: sel ? "rgba(0,201,167,0.06)" : S.card }}>
                   <span style={{ fontSize: 22 }}>{opt.icon}</span>
                   <div style={{ flex: 1 }}><div style={{ fontSize: 14, fontWeight: 700, color: sel ? S.teal : S.text, fontFamily: S.fontHead }}>{opt.name}</div><div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>{opt.description}</div></div>
@@ -6409,13 +6461,13 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
             <button onClick={nextStep} style={{ marginTop: 20, width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.teal}, #00a88a)`, color: "#1a1a2e", fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, textTransform: "uppercase" }}>Continue →</button>
           </div>)}
           {step === 2 && (<div style={secBox}>
-            <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 20 }}>{shipping?.id === "collection" ? "Your Details" : "Delivery Address"}</h3>
+            <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: S.fontHead, color: S.text, marginBottom: 20 }}>{needsAddress(shipping) ? "Delivery Address" : "Your Details"}</h3>
             <div style={{ display: "grid", gap: 16 }}>
               <div className="ep-form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div><label style={labS}>Full Name *</label><input style={inpS("name")} value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></div>
                 <div><label style={labS}>Email *</label><input style={inpS("email")} type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} /></div>
               </div>
-              {shipping?.id === "collection" ? (
+              {!needsAddress(shipping) ? (
                 <div><label style={labS}>Phone / Instagram</label><input style={inpS("phone")} value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="07700 900000 or @username" /></div>
               ) : (<>
 <div><label style={labS}>Address Line 1 *</label><input style={inpS("address1")} value={form.address1} onChange={e => setForm({...form, address1: e.target.value})} placeholder="House number and street" /></div>
@@ -6453,6 +6505,25 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
                 <button onClick={onRemoveTip} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 12, fontFamily: S.fontHead, textDecoration: "underline" }}>Remove</button>
               </div>
             )}
+            {/* Promo code box */}
+            {!appliedPromo ? (
+              <div style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}`, borderRadius: 14, padding: "14px 18px", marginBottom: 16 }}>
+                <p style={{ fontSize: 11, fontWeight: 700, fontFamily: S.fontHead, color: S.muted, textTransform: "uppercase", letterSpacing: 1, margin: "0 0 8px" }}>🎟️ Got a code?</p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input value={promoInput} onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(""); }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); applyPromo(); } }} placeholder="Enter code" style={{ flex: 1, padding: "10px 12px", borderRadius: 10, fontSize: 14, border: promoError ? "1.5px solid #ff6b6b" : `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.text, fontFamily: S.fontMono, outline: "none", textTransform: "uppercase", letterSpacing: 1.5 }} />
+                  <button onClick={applyPromo} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, letterSpacing: 0.5 }}>Apply</button>
+                </div>
+                {promoError && <p style={{ fontSize: 11, color: "#ff6b6b", margin: "6px 0 0" }}>{promoError}</p>}
+              </div>
+            ) : (
+              <div style={{ background: "rgba(0,201,167,0.06)", border: `1px solid rgba(0,201,167,0.25)`, borderRadius: 14, padding: "12px 18px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: S.teal, fontFamily: S.fontHead, letterSpacing: 0.5 }}>✓ {appliedPromo.code} applied</span>
+                  <span style={{ fontSize: 11, color: S.muted, marginLeft: 8 }}>−{(appliedPromo.rate * 100).toFixed(0)}% (−£{discountAmount.toFixed(2)})</span>
+                </div>
+                <button onClick={removePromo} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 12, fontFamily: S.fontHead, textDecoration: "underline", flexShrink: 0 }}>Remove</button>
+              </div>
+            )}
             <div style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
               <p style={{ fontSize: 11, color: S.dimmer, textAlign: "center" }}>{USE_STRIPE ? "🔒 Secure payment via Stripe" : "Demo mode — connect Stripe for real payments"}</p>
             </div>
@@ -6473,6 +6544,9 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
           ))}
           <div style={{ borderTop: `1px solid ${S.border}`, paddingTop: 10, marginTop: 8 }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span style={{ color: S.muted }}>Subtotal</span><span style={{ fontFamily: S.fontMono }}>£{subtotal.toFixed(2)}</span></div>
+            {discountAmount > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span style={{ color: S.teal }}>Discount ({appliedPromo.code})</span><span style={{ color: S.teal, fontFamily: S.fontMono }}>−£{discountAmount.toFixed(2)}</span></div>
+            )}
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span style={{ color: S.muted }}>Shipping</span><span style={{ color: shippingCost === 0 ? S.teal : S.text, fontFamily: S.fontMono }}>{shippingCost === 0 ? "FREE" : `£${shippingCost.toFixed(2)}`}</span></div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span style={{ color: S.muted }}>Card fee</span><span style={{ fontFamily: S.fontMono }}>£{stripeFee.toFixed(2)}</span></div>
             <div style={{ borderTop: `1px solid ${S.border}`, paddingTop: 8, marginTop: 4, display: "flex", justifyContent: "space-between" }}><span style={{ fontWeight: 700 }}>Total</span><span style={{ color: S.teal, fontFamily: S.fontMono, fontWeight: 800, fontSize: 20 }}>£{total.toFixed(2)}</span></div>
@@ -7081,8 +7155,10 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           <p style={{ color: S.muted, fontSize: 15, marginBottom: 32 }}>
             {stripeSuccess.items?.every(i => i.isTip)
               ? `Thanks ${stripeSuccess.customer?.name?.split(" ")[0] || ""}! 🧡 Your support means the world to Elijah!`
-              : stripeSuccess.shipping?.id === "collection"
+              : (stripeSuccess.shipping?.id === "collection" || stripeSuccess.shipping?.id === "collection-school")
               ? `Thanks ${stripeSuccess.customer?.name?.split(" ")[0] || ""}! Elijah will bring it to school.`
+              : stripeSuccess.shipping?.id === "collection-local"
+              ? `Thanks ${stripeSuccess.customer?.name?.split(" ")[0] || ""}! Elijah will drop it round.`
               : `Thanks ${stripeSuccess.customer?.name?.split(" ")[0] || ""}! Elijah will print and ship it.`}
           </p>
           <button onClick={() => { setStripeSuccess(null); setCart([]); setPage("shop"); }} style={{ padding: "13px 32px", borderRadius: 12, border: "none", background: "rgba(255,255,255,0.05)", color: S.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}>Back to Shop</button>

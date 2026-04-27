@@ -69,18 +69,18 @@ async function sendEmailNotification(order) {
       )
       .join("\n");
 
-    const address =
-      order.shipping.id === "collection"
-        ? "🎒 School collection"
-        : [
-            order.customer.address1,
-            order.customer.address2,
-            order.customer.city,
-            order.customer.county,
-            order.customer.postcode,
-          ]
-            .filter(Boolean)
-            .join(", ");
+    const isPickup = order.shipping?.id?.startsWith("collection") || false;
+    const address = isPickup && order.shipping.id !== "collection-local"
+      ? `${order.shipping.icon || "🎒"} ${order.shipping.name || "School collection"}`
+      : [
+          order.customer.address1,
+          order.customer.address2,
+          order.customer.city,
+          order.customer.county,
+          order.customer.postcode,
+        ]
+          .filter(Boolean)
+          .join(", ");
 
     const origin = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
@@ -170,6 +170,8 @@ export default async function handler(req, res) {
         shipping: orderData.shipping,
         items: orderData.items,
         subtotal: orderData.subtotal,
+        promoCode: orderData.promoCode || null,
+        discountAmount: orderData.discountAmount || 0,
         shippingCost: orderData.shippingCost,
         stripeFee: orderData.stripeFee,
         total: orderData.total,

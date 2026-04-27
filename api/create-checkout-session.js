@@ -9,9 +9,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
   try {
-    const { items, shipping, customerEmail, customerName, stripeFee, orderData } = req.body;
+    const { items, shipping, customerEmail, customerName, stripeFee, orderData, promoCode, discountAmount } = req.body;
 
-    // Build line items for Stripe
+    // Build line items for Stripe (always at full price — discount applied via Stripe coupon below)
     const lineItems = items.map((item) => ({
       price_data: {
         currency: "gbp",
@@ -38,7 +38,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // Add card fee as a line item
+    // Add card fee as a line item (already computed client-side on discounted subtotal)
     if (stripeFee && stripeFee > 0) {
       lineItems.push({
         price_data: {
@@ -50,12 +50,32 @@ export default async function handler(req, res) {
       });
     }
 
+    // Build a Stripe coupon when a promo discount is applied. Stripe handles the math
+    // and shows the discount line natively in checkout.
+    let discounts;
+    if (promoCode && discountAmount && discountAmount > 0) {
+      try {
+        const coupon = await stripe.coupons.create({
+          amount_off: Math.round(discountAmount * 100),
+          currency: "gbp",
+          duration: "once",
+          name: `${promoCode} (-£${discountAmount.toFixed(2)})`,
+        });
+        discounts = [{ coupon: coupon.id }];
+      } catch (e) {
+        // If coupon creation fails, log and continue without discount rather than blocking checkout.
+        console.error("Coupon creation failed for", promoCode, "—", e.message);
+      }
+    }
+
     // Store full order data as chunked metadata (values limited to 500 chars each)
     const metadata = {
       customer_name: customerName,
       shipping_method: shipping?.name || "Collection",
       shipping_id: shipping?.id || "collection",
     };
+    if (promoCode) metadata.promo_code = promoCode;
+    if (discountAmount) metadata.discount_amount = String(discountAmount);
 
     if (orderData) {
       const orderJson = JSON.stringify(orderData);
@@ -72,7 +92,7 @@ export default async function handler(req, res) {
       req.headers.referer?.replace(/\/$/, "") ||
       "https://etprintworld.com";
 
-    const session = await stripe.checkout.sessions.create({
+    const sessionParams = {
       payment_method_types: ["card"],
       mode: "payment",
       customer_email: customerEmail,
@@ -80,7 +100,10 @@ export default async function handler(req, res) {
       metadata,
       success_url: `${origin}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}?payment=cancelled`,
-    });
+    };
+    if (discounts) sessionParams.discounts = discounts;
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
 
     return res.status(200).json({ url: session.url });
   } catch (error) {
