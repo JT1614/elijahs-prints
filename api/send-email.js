@@ -18,10 +18,36 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing type or templateParams" });
   }
 
-  // Validate order emails have required fields (prevents blank spam)
+  // Validate order emails have required fields (prevents blank spam + bot abuse)
+  // Background: the client-side _tok is bundled into App.jsx so anyone viewing the
+  // deployed JS can extract it. The auth token alone isn't enough — we also need
+  // strict format checks on the payload to block scraper/bot submissions that pass
+  // whitespace or token strings to satisfy truthy checks.
   if (type === "order") {
-    if (!templateParams.order_id || !templateParams.items_list) {
-      return res.status(400).json({ error: "Order email missing required fields" });
+    const p = templateParams;
+    const order_id = (p.order_id || "").trim();
+    const items_list = (p.items_list || "").trim();
+    const customer_name = (p.customer_name || "").trim();
+    const customer_email = (p.customer_email || "").trim();
+    const total = (p.total || "").trim();
+
+    // Order IDs must come from our generators: "EP-" (customer) or "SO-" (stock)
+    const validIdPrefix = order_id.startsWith("EP-") || order_id.startsWith("SO-");
+    if (!validIdPrefix) {
+      console.warn("[send-email] BLOCKED order email — bad order_id:", JSON.stringify(p).slice(0, 300));
+      return res.status(400).json({ error: "Invalid order_id format" });
+    }
+
+    // Real items list always contains at least "1× X" (5+ chars). Whitespace fails.
+    if (items_list.length < 5) {
+      console.warn("[send-email] BLOCKED order email — empty items_list:", JSON.stringify(p).slice(0, 300));
+      return res.status(400).json({ error: "Order email items_list too short" });
+    }
+
+    // Customer details must be present (real or stock-placeholder)
+    if (!customer_name || !customer_email || !total) {
+      console.warn("[send-email] BLOCKED order email — missing customer/total:", JSON.stringify(p).slice(0, 300));
+      return res.status(400).json({ error: "Order email missing customer or total" });
     }
   }
 
