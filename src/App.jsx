@@ -20,6 +20,7 @@ const DEFAULT_FILAMENTS = {
   "Silk Copper":       { hex: "#b45a30", type: "ELEGOO Silk", premium: true, sortOrder: 14 },
   "Ocean to Meadow":   { hex: "linear-gradient(135deg, #0984e3, #00b894)", type: "PLA Gradient", premium: true, sortOrder: 15 },
   "Rainbow":           { hex: "linear-gradient(135deg, #e74c3c, #f39c12, #2ecc71, #3498db, #9b59b6)", type: "Reprapper PLA", premium: true, sortOrder: 16 },
+  "Glow Green":        { hex: "#aaff00", type: "PLA Glow", tier: "glow", sortOrder: 17 },
 };
 const COLOUR_SORT_MAP = {
   "White": 1, "Matte White": 1, "Bone White": 2, "Matte Ash Gray": 2.5, "Beige": 3, "Desert Tan": 4, "Matte Desert Tan": 4,
@@ -142,6 +143,19 @@ async function loadFilaments() {
 }
 async function saveFilaments(f) {
   try { await storageSet("filaments-v1", JSON.stringify(f)); } catch (e) { console.error("Save filaments failed:", e); }
+}
+
+// Feature flags — gate hardware-dependent features (e.g. glow filament) until physically tested.
+// Default OFF for any new flag. Flip ON via admin Colours tab once verified.
+const DEFAULT_FEATURE_FLAGS = { glowEnabled: false };
+async function loadFeatureFlags() {
+  try {
+    const r = await storageGet("feature-flags-v1");
+    return r ? { ...DEFAULT_FEATURE_FLAGS, ...JSON.parse(r) } : { ...DEFAULT_FEATURE_FLAGS };
+  } catch { return { ...DEFAULT_FEATURE_FLAGS }; }
+}
+async function saveFeatureFlags(flags) {
+  try { await storageSet("feature-flags-v1", JSON.stringify(flags)); } catch (e) { console.error("Save feature flags failed:", e); }
 }
 async function loadCategories() {
   try {
@@ -357,13 +371,37 @@ function needsAddress(shipping) {
   if (!shipping?.id) return false;
   return shipping.id !== "collection" && shipping.id !== "collection-school";
 }
-const PREMIUM_UPLIFT = 0.30; // 30% price increase for premium filaments
-function getPremiumPrice(basePrice, selectedColors) {
-  const hasPremium = selectedColors.some(c => FILAMENTS[c]?.premium);
-  if (!hasPremium) return basePrice;
-  const uplifted = basePrice * (1 + PREMIUM_UPLIFT);
-  return Math.ceil(uplifted * 20) / 20; // Round up to nearest 5p
+// Filament tier system. Each filament is "standard" | "premium" | "glow".
+// Backward-compat: legacy `premium: true` flag is treated as tier="premium".
+// Uplift formulas (per John's pricing 2026-05-02):
+//   standard → 0%
+//   premium  → +30% (existing)
+//   glow     → DOUBLE if base<£5; +50% if base>=£5 (reflects £23/kg + nozzle wear)
+function getFilamentTier(f) {
+  if (!f) return "standard";
+  if (f.tier) return f.tier;
+  if (f.premium) return "premium";
+  return "standard";
 }
+const TIER_RANK = { standard: 0, premium: 1, glow: 2 };
+function highestTier(selectedColors) {
+  return selectedColors.reduce((acc, c) => {
+    const t = getFilamentTier(FILAMENTS[c]);
+    return TIER_RANK[t] > TIER_RANK[acc] ? t : acc;
+  }, "standard");
+}
+function applyTierUplift(basePrice, tier) {
+  if (tier === "premium") return basePrice * 1.30;
+  if (tier === "glow")    return basePrice < 5 ? basePrice * 2 : basePrice * 1.5;
+  return basePrice;
+}
+function getTierPrice(basePrice, selectedColors) {
+  const tier = highestTier(selectedColors);
+  if (tier === "standard") return basePrice;
+  return Math.ceil(applyTierUplift(basePrice, tier) * 20) / 20; // round UP to nearest 5p
+}
+// Legacy alias — keep so any external script or skill referencing the old name still works.
+const getPremiumPrice = getTierPrice;
 /* ───────────────────────────────────────────────
    STRIPE CONFIG — Fill in your publishable key
    ─────────────────────────────────────────────── */
@@ -1162,7 +1200,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
       <div style={{ padding: "14px 16px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
-          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{selectedColors.some(c => FILAMENTS[c]?.premium) ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getPremiumPrice(product.price, selectedColors).toFixed(2)}</> : `£${product.price.toFixed(2)}`}</span>
+          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{highestTier(selectedColors) !== "standard" ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getTierPrice(product.price, selectedColors).toFixed(2)}</> : `£${product.price.toFixed(2)}`}</span>
         </div>
         <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.widthMm && product.heightMm ? `${product.widthMm}mm wide × ${product.heightMm}mm tall. ` : ""}{product.description}</p>
         {!fixedColours && maxC > 1 && <div style={{ fontSize: 11, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 6, background: "rgba(132,94,247,0.08)", padding: "4px 8px", borderRadius: 6, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
@@ -1227,8 +1265,8 @@ function CrossSellCard({ product, onAddToCart }) {
     else setSelectedColors([selectedColors[0]]);
   };
   const canAdd = selectedColors.length >= Math.min(maxC, product.colors.length);
-  const hasPremium = selectedColors.some(c => FILAMENTS[c]?.premium);
-  const displayPrice = hasPremium ? getPremiumPrice(product.price, selectedColors) : product.price;
+  const hasPremium = highestTier(selectedColors) !== "standard";
+  const displayPrice = hasPremium ? getTierPrice(product.price, selectedColors) : product.price;
   const handleAdd = () => {
     if (!canAdd) return;
     onAddToCart(product, selectedColors);
@@ -3102,7 +3140,12 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
       )}
       {totalTargets > 0 && openPanels.margin && (() => {
         // Filament cost helper: premium = 30% more
-        const filCost = (colors) => (colors || []).some(c => FILAMENTS[c]?.premium) ? 0.013 : 0.01;
+        const filCost = (colors) => {
+          const tier = highestTier(colors || []);
+          if (tier === "glow") return 0.025;     // £23/kg material + ~£2/kg amortised nozzle wear
+          if (tier === "premium") return 0.013;  // existing premium silk/gradient cost
+          return 0.01;                            // standard PLA Basic
+        };
 
         // ── Car Boot margin ──
         const cbPrintCost = filtered.reduce((s, t) => {
@@ -4037,7 +4080,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
 /* ═══════════════════════════════════════════════
    ADMIN PANEL
    ═══════════════════════════════════════════════ */
-function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories, categoryMeta, onSaveCategoryMeta, autoBadges }) {
+function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories, categoryMeta, onSaveCategoryMeta, autoBadges, featureFlags = {}, onSaveFeatureFlags = () => {} }) {
   const [filter, setFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [productCreatorFilter, setProductCreatorFilter] = useState("");
@@ -4895,6 +4938,50 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           <p style={{ fontSize: 13, color: S.muted, marginBottom: 20, lineHeight: 1.6 }}>
             Manage your filament library. Every colour here is automatically available on <strong style={{ color: S.text }}>all products</strong>.
           </p>
+
+          {/* Glow Filament Program — feature flag panel (added 2026-05-02 session 7) */}
+          <div style={{
+            marginBottom: 24, borderRadius: 16, padding: "18px 20px",
+            background: featureFlags.glowEnabled ? "rgba(170,255,0,0.06)" : "rgba(170,255,0,0.02)",
+            border: `1px solid ${featureFlags.glowEnabled ? "rgba(170,255,0,0.4)" : "rgba(170,255,0,0.15)"}`,
+            boxShadow: featureFlags.glowEnabled ? "0 0 24px rgba(170,255,0,0.1)" : "none",
+          }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: "#aaff00", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                  🌙 Glow Filament Program
+                  <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 999, background: featureFlags.glowEnabled ? "#aaff00" : "rgba(255,255,255,0.08)", color: featureFlags.glowEnabled ? "#0d0d1a" : S.muted, fontFamily: S.fontMono, fontWeight: 700 }}>
+                    {featureFlags.glowEnabled ? "LIVE" : "READY · NOT LIVE"}
+                  </span>
+                </div>
+                <p style={{ fontSize: 13, color: S.muted, lineHeight: 1.6, marginBottom: 8 }}>
+                  Master switch for everything glow-in-the-dark — the homepage hero, product colour pickers, and pricing uplifts.
+                  When OFF, customers see the shop exactly as it is today (no glow filaments, no glow hero). When ON, all glow-tagged
+                  filaments become selectable AND the GLOW IN THE DARK hero appears at the top of the homepage.
+                </p>
+                <p style={{ fontSize: 12, color: featureFlags.glowEnabled ? "#aaff00" : "#f59e0b", fontWeight: 600, marginTop: 8 }}>
+                  ⚠️ Test the filament physically before turning this on. Customer prices DOUBLE for under-£5 items in glow tier (£1 keyring → £2). Don't promise customers a glow you haven't proven.
+                </p>
+              </div>
+              <button
+                onClick={() => onSaveFeatureFlags({ ...featureFlags, glowEnabled: !featureFlags.glowEnabled })}
+                style={{
+                  padding: "12px 20px", borderRadius: 12, cursor: "pointer",
+                  background: featureFlags.glowEnabled ? "#aaff00" : "rgba(170,255,0,0.08)",
+                  color: featureFlags.glowEnabled ? "#0d0d1a" : "#aaff00",
+                  border: `1px solid ${featureFlags.glowEnabled ? "#aaff00" : "rgba(170,255,0,0.4)"}`,
+                  fontSize: 14, fontWeight: 800, fontFamily: S.fontHead,
+                  display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap",
+                  boxShadow: featureFlags.glowEnabled ? "0 0 20px rgba(170,255,0,0.4)" : "none",
+                }}
+              >
+                <span style={{ width: 36, height: 20, borderRadius: 999, background: featureFlags.glowEnabled ? "rgba(0,0,0,0.25)" : "rgba(170,255,0,0.2)", position: "relative", display: "inline-block" }}>
+                  <span style={{ position: "absolute", top: 2, left: featureFlags.glowEnabled ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: featureFlags.glowEnabled ? "#0d0d1a" : "#aaff00", transition: "left 0.2s" }} />
+                </span>
+                {featureFlags.glowEnabled ? "GLOW IS LIVE — click to hide" : "Go LIVE with glow"}
+              </button>
+            </div>
+          </div>
 
           {/* Print Colour Dots button */}
           <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
@@ -7073,6 +7160,13 @@ function ElijahsPrintsInner() {
   const [categoryMeta, setCategoryMeta] = useState({...DEFAULT_CATEGORY_META});
   const [authChecked, setAuthChecked] = useState(!USE_FIREBASE); // skip auth check if no Firebase
   const [stripeSuccess, setStripeSuccess] = useState(null); // holds completed order after Stripe redirect
+  const [featureFlags, setFeatureFlags] = useState({ ...DEFAULT_FEATURE_FLAGS });
+
+  // Persist feature-flag changes through admin and keep customer site in sync
+  const handleSaveFeatureFlags = async (flags) => {
+    setFeatureFlags(flags);
+    await saveFeatureFlags(flags);
+  };
 
   // Scroll to top when navigating between pages
   useEffect(() => { window.scrollTo(0, 0); }, [page]);
@@ -7145,6 +7239,7 @@ function ElijahsPrintsInner() {
         categories = cleaned; setCatVer(v => v + 1);
       }
     });
+    loadFeatureFlags().then(flags => setFeatureFlags(flags)).catch(() => {});
     loadCategoryMeta().then(meta => {
       if (meta) {
         // Migrate: add sortOrder to any entries missing it
@@ -7389,7 +7484,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
       </nav>
 
       {page === "admin-login" && !adminLoggedIn && <AdminLogin onLogin={() => { setAdminLoggedIn(true); setPage("admin"); }} />}
-      {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} categoryMeta={categoryMeta} onSaveCategoryMeta={handleSaveCategoryMeta} autoBadges={autoBadges} />}
+      {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} categoryMeta={categoryMeta} onSaveCategoryMeta={handleSaveCategoryMeta} autoBadges={autoBadges} featureFlags={featureFlags} onSaveFeatureFlags={handleSaveFeatureFlags} />}
       {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} onAddTip={addTip} onRemoveTip={removeTip} products={products} onAddToCart={addToCart} />}
       {page === "request" && <SpecialRequestPage onBack={() => setPage("shop")} />}
 
@@ -7413,6 +7508,43 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
       )}
 
       {page === "shop" && (<>
+        {featureFlags.glowEnabled && (
+          <section style={{ position: "relative", padding: "70px 24px 80px", textAlign: "center", overflow: "hidden", background: "radial-gradient(circle at center 30%, rgba(170,255,0,0.08) 0%, transparent 60%), #0d0d1a", borderBottom: "1px solid rgba(170,255,0,0.2)" }}>
+            <style>{`
+              @keyframes glowTitlePulse {
+                0%, 100% { text-shadow: 0 0 10px #aaff00, 0 0 30px rgba(170,255,0,0.6), 0 0 60px rgba(170,255,0,0.4), 0 0 100px rgba(170,255,0,0.2); }
+                50% { text-shadow: 0 0 14px #d4ff44, 0 0 45px rgba(170,255,0,0.8), 0 0 90px rgba(170,255,0,0.5), 0 0 140px rgba(170,255,0,0.3); }
+              }
+              @keyframes glowFloat {
+                0%, 100% { transform: translateY(0) scale(1); }
+                50% { transform: translateY(-12px) scale(1.02); }
+              }
+              @keyframes glowPulseDot {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.4; transform: scale(1.4); }
+              }
+            `}</style>
+            <div style={{ position: "absolute", left: "20%", bottom: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(170,255,0,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
+            <div style={{ position: "absolute", right: "20%", top: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(170,255,0,0.05) 0%, transparent 70%)", pointerEvents: "none" }} />
+            <div style={{ position: "relative" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(170,255,0,0.12)", border: "1px solid rgba(170,255,0,0.3)", color: "#aaff00", padding: "6px 16px", borderRadius: 999, fontFamily: S.fontMono, fontWeight: 700, fontSize: 12, marginBottom: 28, letterSpacing: "1.5px", boxShadow: "0 0 20px rgba(170,255,0,0.2)" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#aaff00", boxShadow: "0 0 8px #aaff00", animation: "glowPulseDot 1.5s ease-in-out infinite" }} />
+                BRAND NEW
+              </span>
+              <h2 style={{ fontFamily: S.fontHead, fontWeight: 900, fontSize: "clamp(48px, 11vw, 132px)", lineHeight: 0.9, marginBottom: 22, letterSpacing: "-2px", color: "#aaff00", animation: "glowTitlePulse 4s ease-in-out infinite" }}>
+                GLOW IN<br />THE DARK
+              </h2>
+              <p style={{ fontFamily: S.fontHead, fontWeight: 700, fontSize: "clamp(16px, 2.6vw, 24px)", color: S.text, marginBottom: 32, letterSpacing: "0.5px" }}>
+                Charge it in daylight. <em style={{ color: "#aaff00", fontStyle: "normal" }}>Watch it shine all night.</em>
+              </p>
+              <div style={{ fontSize: "clamp(96px, 17vw, 180px)", margin: "20px 0 40px", filter: "drop-shadow(0 0 20px #aaff00) drop-shadow(0 0 40px rgba(170,255,0,0.6)) drop-shadow(0 0 80px rgba(170,255,0,0.3))", animation: "glowFloat 6s ease-in-out infinite" }}>🐉</div>
+              <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 18 }}>
+                <button onClick={() => { document.querySelector('.ep-product-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} style={{ padding: "14px 28px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 700, fontSize: 14, background: "#aaff00", color: "#0d0d1a", boxShadow: "0 0 20px rgba(170,255,0,0.4), 0 0 40px rgba(170,255,0,0.2)" }}>SEE GLOW PRODUCTS →</button>
+              </div>
+              <p style={{ color: S.muted, fontSize: 12, fontFamily: S.fontMono, marginTop: 12 }}>Available on dragons · keyrings · spiral fidgets · skeleton owl · more</p>
+            </div>
+          </section>
+        )}
         <header className="ep-hero" style={{ position: "relative", padding: "60px 24px 40px", textAlign: "center", overflow: "hidden" }}>
           <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 500, height: 500, borderRadius: "50%", background: "radial-gradient(circle, rgba(0,201,167,0.12), transparent 70%)", animation: "heroGlow 4s ease-in-out infinite", pointerEvents: "none" }} />
           <div style={{ position: "relative", opacity: loaded ? 1 : 0, transform: loaded ? "translateY(0)" : "translateY(30px)", transition: "all 0.8s cubic-bezier(0.16,1,0.3,1)" }}>
@@ -7423,9 +7555,9 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               I got <span style={{ color: S.teal, fontWeight: 800, fontStyle: "normal", fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "1px" }}>BANNED</span> from selling 3D prints at school…<br /><span style={{ color: S.teal, fontWeight: 700, fontStyle: "normal" }}>so I built this website instead!!</span>
             </div>
             <p style={{ fontSize: "clamp(13px, 2.5vw, 16px)", color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.7, fontStyle: "italic" }}>Bambu Lab P1S Combo · Ships from Wales 🏴󠁧󠁢󠁷󠁬󠁳󠁿</p>
-            <p style={{ fontSize: 15, color: S.muted, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused).length} colours · Free school drop-off or UK-wide shipping</p>
+            <p style={{ fontSize: 15, color: S.muted, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow")).length} colours · Free school drop-off or UK-wide shipping</p>
             <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap", maxWidth: 340, margin: "0 auto" }}>
-              {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused).map(name => {
+              {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow")).map(name => {
                 const f = FILAMENTS[name];
                 const isGrad = f.hex.includes("linear");
                 const tipText = f.premium
@@ -7459,11 +7591,18 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
 
         <div className="ep-product-grid" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 60px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 18 }}>
           {shopProducts.length === 0 ? <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px 0", color: S.dimmer }}>{search ? `Nothing found for "${search}"` : "No products available"}</div>
-          : shopProducts.map((product, i) => (
-            <div key={product.id} style={{ opacity: loaded ? 1 : 0, transform: loaded ? "translateY(0)" : "translateY(20px)", transition: `all 0.5s cubic-bezier(0.16,1,0.3,1) ${Math.min(i * 0.05, 0.4)}s` }}>
-              <ProductCard product={{ ...product, badge: autoBadges[product.id] || null }} onAddToCart={addToCart} cartAnimation={cartAnim} />
-            </div>
-          ))}
+          : shopProducts.map((product, i) => {
+            // Hide glow-tier filaments from customer colour pickers while the
+            // glow feature flag is off (set in admin Colours tab).
+            const visibleColors = featureFlags.glowEnabled
+              ? product.colors
+              : (product.colors || []).filter(c => getFilamentTier(FILAMENTS[c]) !== "glow");
+            return (
+              <div key={product.id} style={{ opacity: loaded ? 1 : 0, transform: loaded ? "translateY(0)" : "translateY(20px)", transition: `all 0.5s cubic-bezier(0.16,1,0.3,1) ${Math.min(i * 0.05, 0.4)}s` }}>
+                <ProductCard product={{ ...product, colors: visibleColors, badge: autoBadges[product.id] || null }} onAddToCart={addToCart} cartAnimation={cartAnim} />
+              </div>
+            );
+          })}
         </div>
 
         <div style={{ maxWidth: 800, margin: "0 auto 60px", padding: "0 24px" }}>
