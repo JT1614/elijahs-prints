@@ -526,6 +526,49 @@ async function updateOrderStatus(orderId, status) {
   } catch (e) { console.error("Update order failed:", e); }
 }
 
+// Special-request persistence (added 2026-05-02 session 7) — mirrors orders pattern.
+// Lives alongside the email send-path so neither failure mode loses customer requests.
+async function loadRequests() {
+  if (USE_FIREBASE) {
+    try {
+      const { db, collection, getDocs } = await getFirebase();
+      const snap = await getDocs(collection(db, "requests"));
+      return snap.docs.map(d => d.data());
+    } catch (e) { console.error("Load requests failed:", e); return []; }
+  }
+  try {
+    const r = await storageGet("requests-v1");
+    return r ? JSON.parse(r) : [];
+  } catch { return []; }
+}
+async function addRequest(request) {
+  if (USE_FIREBASE) {
+    try {
+      const { db, doc, setDoc } = await getFirebase();
+      await setDoc(doc(db, "requests", request.id), request);
+    } catch (e) { console.error("Add request failed:", e); }
+    return;
+  }
+  try {
+    const existing = await loadRequests();
+    await storageSet("requests-v1", JSON.stringify([...existing, request]));
+  } catch (e) { console.error("Add request failed:", e); }
+}
+async function updateRequestStatus(reqId, status) {
+  if (USE_FIREBASE) {
+    try {
+      const { db, doc, updateDoc } = await getFirebase();
+      await updateDoc(doc(db, "requests", reqId), { status });
+    } catch (e) { console.error("Update request failed:", e); }
+    return;
+  }
+  try {
+    const all = await loadRequests();
+    const updated = all.map(r => r.id === reqId ? { ...r, status } : r);
+    await storageSet("requests-v1", JSON.stringify(updated));
+  } catch (e) { console.error("Update request failed:", e); }
+}
+
 /* ═══════════════════════════════════════════════
    EMAIL NOTIFICATION (EmailJS)
    Setup: 1) Sign up free at emailjs.com
@@ -3954,6 +3997,13 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [offlineSales, setOfflineSales] = useState([]);
   const [stockEvents, setStockEvents] = useState([]);
   const [dataImportDone, setDataImportDone] = useState(false);
+  const [requests, setRequests] = useState([]);
+  const [requestStatusFilter, setRequestStatusFilter] = useState("all");
+
+  const handleUpdateRequest = async (id, status) => {
+    await updateRequestStatus(id, status);
+    setRequests(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+  };
 
   /* ── Load creators from Firebase on mount ── */
   useEffect(() => {
@@ -3984,6 +4034,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
     loadPricingConfig().then(c => { setPricingLayerOverrides(c.overrides || {}); setPricingBandLayers(c.bandLayers || {}); }).catch(() => {});
     loadOfflineSales().then(s => setOfflineSales(s)).catch(() => {});
     loadStockEvents().then(e => setStockEvents(e)).catch(() => {});
+    loadRequests().then(r => setRequests(r)).catch(() => {});
   }, []);
 
   /* ── One-time data import: £120 Car Boot + £100 offline sales + CB1 per-product sold data
@@ -4613,6 +4664,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           { id: "creators", label: "👤 Creators", shortLabel: "👤 Creators", count: creators.length },
           { id: "stock", label: "📊 Stock", shortLabel: "📊 Stock", count: stockTargets.reduce((s, t) => s + (t.targetQty || 0), 0) },
           { id: "pricing", label: "💰 Pricing", shortLabel: "💰 Pricing", count: 0 },
+          { id: "requests", label: "✨ Requests", shortLabel: "✨ Reqs", count: requests.filter(r => (r.status || "new") === "new").length },
         ].map(tab => (
 
            
@@ -5928,6 +5980,120 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
         </>);
       })()}
 
+      {/* Requests tab — special-request audit trail (added 2026-05-02 session 7) */}
+      {adminTab === "requests" && (() => {
+        const STATUSES = [
+          { id: "all", label: "All" },
+          { id: "new", label: "🆕 New" },
+          { id: "quoted", label: "💬 Quoted" },
+          { id: "closed", label: "✅ Closed" },
+        ];
+        const filtered = requests
+          .filter(r => requestStatusFilter === "all" || (r.status || "new") === requestStatusFilter)
+          .slice()
+          .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+        const counts = {
+          all: requests.length,
+          new: requests.filter(r => (r.status || "new") === "new").length,
+          quoted: requests.filter(r => r.status === "quoted").length,
+          closed: requests.filter(r => r.status === "closed").length,
+        };
+        const statusBadge = (status) => {
+          const s = status || "new";
+          const colour = s === "new" ? "#ffb84d" : s === "quoted" ? S.purple : s === "closed" ? S.teal : S.muted;
+          const label = s === "new" ? "🆕 New" : s === "quoted" ? "💬 Quoted" : s === "closed" ? "✅ Closed" : s;
+          return <span style={{ fontSize: 11, fontFamily: S.fontHead, fontWeight: 700, padding: "4px 10px", borderRadius: 8, background: `${colour}22`, color: colour, border: `1px solid ${colour}44` }}>{label}</span>;
+        };
+        return (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 700, fontFamily: S.fontHead, color: S.text, margin: 0 }}>Special Requests</h2>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {STATUSES.map(s => (
+                  <button key={s.id} onClick={() => setRequestStatusFilter(s.id)} style={{
+                    padding: "8px 14px", borderRadius: 10, border: `1px solid ${requestStatusFilter === s.id ? S.teal : S.border}`,
+                    background: requestStatusFilter === s.id ? "rgba(0,201,167,0.1)" : "transparent",
+                    color: requestStatusFilter === s.id ? S.teal : S.muted,
+                    fontSize: 13, fontWeight: 600, fontFamily: S.fontHead, cursor: "pointer",
+                  }}>{s.label} <span style={{ opacity: 0.7, marginLeft: 4 }}>({counts[s.id]})</span></button>
+                ))}
+              </div>
+            </div>
+            {requests.length === 0 ? (
+              <div style={{ padding: "60px 24px", textAlign: "center", background: S.card, border: `1px dashed ${S.border}`, borderRadius: 16, color: S.muted, fontSize: 14 }}>
+                No special requests yet.<br />
+                <span style={{ fontSize: 13, color: S.dimmer }}>They'll appear here when customers use the ✨ Request form on the shop.</span>
+              </div>
+            ) : filtered.length === 0 ? (
+              <div style={{ padding: "40px 24px", textAlign: "center", background: S.card, border: `1px dashed ${S.border}`, borderRadius: 16, color: S.muted, fontSize: 14 }}>
+                No requests with this status. Try a different filter.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 14 }}>
+                {filtered.map(r => {
+                  const dateStr = r.date ? new Date(r.date).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+                  return (
+                    <div key={r.id} style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 14, padding: 18 }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
+                            <span style={{ fontSize: 13, fontFamily: S.fontMono, fontWeight: 700, color: S.teal }}>{r.id}</span>
+                            {statusBadge(r.status)}
+                          </div>
+                          <div style={{ fontSize: 12, color: S.dimmer, fontFamily: S.fontMono }}>{dateStr}</div>
+                        </div>
+                        <select
+                          value={r.status || "new"}
+                          onChange={e => handleUpdateRequest(r.id, e.target.value)}
+                          style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: "#1a1a2e", color: S.text, fontSize: 13, fontFamily: S.fontHead, colorScheme: "dark", cursor: "pointer" }}
+                        >
+                          <option value="new">🆕 New</option>
+                          <option value="quoted">💬 Quoted</option>
+                          <option value="closed">✅ Closed</option>
+                        </select>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 14px", fontSize: 13, marginBottom: 10 }}>
+                        <span style={{ color: S.muted, fontWeight: 600 }}>Customer:</span>
+                        <span style={{ color: S.text }}>
+                          {r.name || "—"}
+                          {r.email && <> · <a href={`mailto:${r.email}?subject=Re: Your special request ${r.id}`} style={{ color: S.teal, textDecoration: "underline" }}>{r.email}</a></>}
+                        </span>
+                        <span style={{ color: S.muted, fontWeight: 600 }}>Item type:</span>
+                        <span style={{ color: S.text }}>{r.type || "—"}</span>
+                        <span style={{ color: S.muted, fontWeight: 600 }}>Size:</span>
+                        <span style={{ color: S.text }}>{r.size || "—"}</span>
+                        <span style={{ color: S.muted, fontWeight: 600 }}>Budget:</span>
+                        <span style={{ color: S.text, fontWeight: 700 }}>{r.budget || "—"}</span>
+                        {r.colours && (<>
+                          <span style={{ color: S.muted, fontWeight: 600 }}>Colours:</span>
+                          <span style={{ color: S.text }}>{r.colours}</span>
+                        </>)}
+                      </div>
+                      <div style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${S.border}`, borderRadius: 10, padding: 12, marginBottom: r.notes || r.modelLink ? 10 : 0 }}>
+                        <div style={{ fontSize: 11, color: S.dimmer, fontFamily: S.fontHead, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Description</div>
+                        <div style={{ fontSize: 14, color: S.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{r.description || "—"}</div>
+                      </div>
+                      {(r.notes || r.modelLink) && (
+                        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 14px", fontSize: 13 }}>
+                          {r.modelLink && (<>
+                            <span style={{ color: S.muted, fontWeight: 600 }}>Model link:</span>
+                            <a href={r.modelLink} target="_blank" rel="noreferrer" style={{ color: S.teal, textDecoration: "underline", wordBreak: "break-all" }}>{r.modelLink}</a>
+                          </>)}
+                          {r.notes && (<>
+                            <span style={{ color: S.muted, fontWeight: 600 }}>Notes:</span>
+                            <span style={{ color: S.text }}>{r.notes}</span>
+                          </>)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {importingJSON && (
         <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div onClick={() => setImportingJSON(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }} />
@@ -6658,7 +6824,14 @@ function SpecialRequestPage({ onBack }) {
     setSending(true);
     const id = "REQ-" + Date.now().toString(36).toUpperCase().slice(-6);
     setReqId(id);
-    await sendRequestEmail({ ...form, id });
+    const reqRecord = { ...form, id, date: new Date().toISOString(), status: "new" };
+    // Persist + email in parallel — neither failure mode swallows the customer's
+    // request. allSettled means a Firebase write error can't stop the email and
+    // an email error can't stop the Firebase write.
+    await Promise.allSettled([
+      addRequest(reqRecord),
+      sendRequestEmail({ ...form, id }),
+    ]);
     setSending(false);
     setSent(true);
   };
