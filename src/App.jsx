@@ -542,17 +542,33 @@ async function loadRequests() {
   } catch { return []; }
 }
 async function addRequest(request) {
+  // Server-side write via /api/save-request — uses firebase-admin which bypasses
+  // Firestore security rules (admin SDK is privileged). This means customer
+  // submissions land in the requests collection without needing a per-collection
+  // create rule in the Firebase console. Mirrors the Stripe-webhook pattern
+  // for orders. The _tok is the same one /api/send-email uses.
   if (USE_FIREBASE) {
     try {
-      const { db, doc, setDoc } = await getFirebase();
-      await setDoc(doc(db, "requests", request.id), request);
-    } catch (e) { console.error("Add request failed:", e); }
+      const res = await fetch("/api/save-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ _tok: EMAILJS_CONFIG._tok, request }),
+      });
+      if (!res.ok) {
+        const err = await res.text().catch(() => res.statusText);
+        console.error("Add request failed (server):", res.status, err);
+      }
+    } catch (e) {
+      console.error("Add request failed (network):", e);
+    }
     return;
   }
+  // Dev fallback when Firebase is disabled — keep the localStorage path so
+  // local testing still works without the serverless function.
   try {
     const existing = await loadRequests();
     await storageSet("requests-v1", JSON.stringify([...existing, request]));
-  } catch (e) { console.error("Add request failed:", e); }
+  } catch (e) { console.error("Add request failed (local):", e); }
 }
 async function updateRequestStatus(reqId, status) {
   if (USE_FIREBASE) {
