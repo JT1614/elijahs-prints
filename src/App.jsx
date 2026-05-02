@@ -526,16 +526,42 @@ async function updateOrderStatus(orderId, status) {
   } catch (e) { console.error("Update order failed:", e); }
 }
 
-// Special-request persistence (added 2026-05-02 session 7) — mirrors orders pattern.
-// Lives alongside the email send-path so neither failure mode loses customer requests.
+// Special-request persistence (added 2026-05-02 session 7) — fully server-mediated.
+// Customer writes go through /api/save-request (firebase-admin, bypasses Firestore rules).
+// Admin reads + status updates go through /api/admin-list-requests and
+// /api/admin-update-request, authenticated via Firebase Auth ID tokens — no Firestore
+// rule needed on the requests collection at all.
 async function loadRequests() {
   if (USE_FIREBASE) {
     try {
-      const { db, collection, getDocs } = await getFirebase();
-      const snap = await getDocs(collection(db, "requests"));
-      return snap.docs.map(d => d.data());
-    } catch (e) { console.error("Load requests failed:", e); return []; }
+      const { auth } = await getFirebase();
+      const user = auth.currentUser;
+      if (!user) {
+        // Admin not signed in — return empty rather than throw, so the tab renders cleanly
+        return [];
+      }
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/admin-list-requests", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const err = await res.text().catch(() => res.statusText);
+        console.error("Load requests failed (server):", res.status, err);
+        return [];
+      }
+      const data = await res.json();
+      return data.items || [];
+    } catch (e) {
+      console.error("Load requests failed:", e);
+      return [];
+    }
   }
+  // Dev fallback when Firebase is disabled
   try {
     const r = await storageGet("requests-v1");
     return r ? JSON.parse(r) : [];
@@ -573,16 +599,34 @@ async function addRequest(request) {
 async function updateRequestStatus(reqId, status) {
   if (USE_FIREBASE) {
     try {
-      const { db, doc, updateDoc } = await getFirebase();
-      await updateDoc(doc(db, "requests", reqId), { status });
+      const { auth } = await getFirebase();
+      const user = auth.currentUser;
+      if (!user) {
+        console.error("Update request failed: not signed in");
+        return;
+      }
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/admin-update-request", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ id: reqId, status }),
+      });
+      if (!res.ok) {
+        const err = await res.text().catch(() => res.statusText);
+        console.error("Update request failed (server):", res.status, err);
+      }
     } catch (e) { console.error("Update request failed:", e); }
     return;
   }
+  // Dev fallback
   try {
     const all = await loadRequests();
     const updated = all.map(r => r.id === reqId ? { ...r, status } : r);
     await storageSet("requests-v1", JSON.stringify(updated));
-  } catch (e) { console.error("Update request failed:", e); }
+  } catch (e) { console.error("Update request failed (local):", e); }
 }
 
 /* ═══════════════════════════════════════════════
