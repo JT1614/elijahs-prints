@@ -658,6 +658,8 @@ async function sendRequestEmail(request) {
         _tok: EMAILJS_CONFIG._tok,
         templateParams: {
           to_email: EMAILJS_CONFIG.recipientEmail,
+          // Native request-template variables (used when EMAILJS_REQUEST_TEMPLATE_ID
+          // points to a properly-configured request template)
           request_id: request.id,
           customer_name: request.name,
           customer_email: request.email,
@@ -668,6 +670,18 @@ async function sendRequestEmail(request) {
           colour_pref: request.colours || "No preference",
           budget: request.budget,
           extra_notes: request.notes || "None",
+          // Order-template variable aliases — defensive: if the request template ID
+          // is misconfigured (e.g. points to the order template), these aliases let
+          // John still see the request content rather than a "ghost order" email
+          // with only name+email populated. EmailJS ignores extra params silently.
+          order_id: request.id,
+          customer_phone: "Budget: " + request.budget,
+          shipping_method: "SPECIAL REQUEST — " + request.type,
+          items_list: request.description,
+          subtotal: "Size: " + request.size,
+          shipping_cost: "Colours: " + (request.colours || "No preference"),
+          total: "Budget: " + request.budget,
+          address: "Notes: " + (request.notes || "None") + " | Model: " + (request.modelLink || "None"),
         },
       }),
     });
