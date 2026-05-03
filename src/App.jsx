@@ -993,7 +993,7 @@ function generateBoxLabelHTML(labelProducts, copies = 2) {
               <div style="width:19mm; height:19mm; border-radius:50%; background:#aaa; flex-shrink:0; margin-left:3mm;"></div>
             </div>
             <div style="flex:1; display:flex; align-items:center; justify-content:center; width:100%; overflow:hidden;">
-              ${p.labelDrawing ? `<img src="${p.labelDrawing}" style="max-width:100%; max-height:100%; object-fit:contain;" crossorigin="anonymous" />` : `<div style="width:80mm; height:80mm; border:2px dashed #ccc; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#999; font-size:14pt;">No drawing</div>`}
+              ${p.labelDrawing ? `<img src="${p.labelDrawing}" style="max-width:100%; max-height:100%; object-fit:contain;" referrerpolicy="no-referrer" onerror="this.dataset.failed='1';" />` : `<div style="width:80mm; height:80mm; border:2px dashed #ccc; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#999; font-size:14pt;">No drawing</div>`}
             </div>
             <div style="font-size:16pt; font-weight:700; color:#555; font-family:'DM Sans',Helvetica,sans-serif; margin-top:4mm;">etprintworld.com</div>
           </div>`;
