@@ -2523,13 +2523,13 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
       })()}
 
       {/* Column headers */}
-      <div className="ep-order-header" style={{ display: "grid", gridTemplateColumns: "36px 1fr 70px 70px 90px 90px 70px", gap: 8, padding: "0 16px 8px", alignItems: "center" }}>
+      <div className="ep-order-header" style={{ display: "grid", gridTemplateColumns: "36px 1fr 70px 70px 70px 70px 70px", gap: 8, padding: "0 16px 8px", alignItems: "center" }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>#</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px" }}>Order</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Paid</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Made</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Box label</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Shipping label</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center", lineHeight: 1.15 }}>Box<br/>label</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center", lineHeight: 1.15 }}>Shipping<br/>label</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Sent</span>
       </div>
 
@@ -2644,7 +2644,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
               background: S.card, border: `1px solid ${S.border}`, borderLeft: allDone ? `1px solid ${S.border}` : `5px solid ${S.teal}`,
               borderRadius: 14, padding: "14px 16px",
               opacity: allDone ? 0.45 : 1, transition: "opacity 0.3s",
-              display: "grid", gridTemplateColumns: "36px 1fr 70px 70px 90px 90px 70px", gap: 8, alignItems: "center",
+              display: "grid", gridTemplateColumns: "36px 1fr 70px 70px 70px 70px 70px", gap: 8, alignItems: "center",
             }}>
               {/* Reorder buttons */}
               <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "center" }}>
