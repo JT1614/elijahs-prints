@@ -1939,7 +1939,6 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
           ? [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join("\n")
           : `${order.shipping.icon || "🎒"} ${order.shipping.name || "School Collection"}`)
       : [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join("\n");
-    const isPostal = !isPickupShipping(order.shipping);
 
     // Items list
     const itemsList = order.items.filter(i => !i.isTip).map(i => `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`).join("\n");
@@ -2038,7 +2037,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     <div class="from">FROM: etprintworld.com</div>
     <div class="heading">DELIVER TO</div>
     <div class="to-name">${order.customer.name}</div>
-    <div class="to-addr">${isPostal ? addr : "🎒 School Collection"}</div>
+    <div class="to-addr">${addr}</div>
   </div></div>
 
   <!-- Label 2: Thank You (dark mode) -->
