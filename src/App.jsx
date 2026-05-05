@@ -2523,12 +2523,13 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
       })()}
 
       {/* Column headers */}
-      <div className="ep-order-header" style={{ display: "grid", gridTemplateColumns: "36px 1fr 70px 70px 70px 70px", gap: 8, padding: "0 16px 8px", alignItems: "center" }}>
+      <div className="ep-order-header" style={{ display: "grid", gridTemplateColumns: "36px 1fr 70px 70px 90px 90px 70px", gap: 8, padding: "0 16px 8px", alignItems: "center" }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>#</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px" }}>Order</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Paid</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Made</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Label</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Box label</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Shipping label</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "0.5px", textAlign: "center" }}>Sent</span>
       </div>
 
@@ -2643,7 +2644,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
               background: S.card, border: `1px solid ${S.border}`, borderLeft: allDone ? `1px solid ${S.border}` : `5px solid ${S.teal}`,
               borderRadius: 14, padding: "14px 16px",
               opacity: allDone ? 0.45 : 1, transition: "opacity 0.3s",
-              display: "grid", gridTemplateColumns: "36px 1fr 70px 70px 70px 70px", gap: 8, alignItems: "center",
+              display: "grid", gridTemplateColumns: "36px 1fr 70px 70px 90px 90px 70px", gap: 8, alignItems: "center",
             }}>
               {/* Reorder buttons */}
               <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "center" }}>
@@ -2708,7 +2709,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                 <Checkbox checked={order.status.produced} onChange={() => toggleStatus(order.id, "produced")} color="#ff6b35" />
                 <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#ff6b35", fontWeight: 600, fontFamily: S.fontHead }}>Made</span>
               </div>
-              {(() => { const boxItems = (order.items || []).filter(i => !i.isTip && (() => { const prod = products.find(p => p.id === i.id); return prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing; })()); if (boxItems.length === 0) return null; const totalQty = boxItems.reduce((s, i) => s + (i.qty || 1), 0); return (
+              {(() => { const boxItems = (order.items || []).filter(i => !i.isTip && (() => { const prod = products.find(p => p.id === i.id); return prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing; })()); if (boxItems.length === 0) return <div className="ep-order-check" />; const totalQty = boxItems.reduce((s, i) => s + (i.qty || 1), 0); return (
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Tooltip position="left" text={`Print ${totalQty} box label${totalQty !== 1 ? "s" : ""} for kraft packaging.<br/><br/>Opens a print-ready page for 140mm kraft labels.`}>
                 <button onClick={() => { const boxProds = []; (order.items || []).filter(i => !i.isTip).forEach(i => { const prod = products.find(p => p.id === i.id); if (prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing) { for (let q = 0; q < (i.qty || 1); q++) boxProds.push(prod); } }); if (boxProds.length > 0) { const w = window.open("", "_blank"); w.document.write(generateBoxLabelHTML(boxProds, 2)); w.document.close(); } }} title="Print box labels" style={{
@@ -2716,7 +2717,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                   border: "2px solid rgba(16,185,129,0.4)", background: "rgba(16,185,129,0.1)", transition: "all 0.2s", flexShrink: 0, padding: 0, fontSize: 11,
                 }}>📦</button>
                 </Tooltip>
-                <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#10b981", fontWeight: 600, fontFamily: S.fontHead }}>Box</span>
+                <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#10b981", fontWeight: 600, fontFamily: S.fontHead }}>Box label</span>
               </div>); })()}
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Tooltip position="left" text="Prints an Avery J8165 label sheet (8 labels/A4) on your Canon MX535.<br/><br/>Opens a print-ready page automatically. Also marks the order as Label Printed.">
@@ -2726,7 +2727,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                   background: (order.status.labelPrinted || order.status.despatched) ? "#f59f00" : "transparent", transition: "all 0.2s", flexShrink: 0, padding: 0, fontSize: 11,
                 }}>{(order.status.labelPrinted || order.status.despatched) ? <span style={{ color: "#1a1a2e", fontSize: 13, fontWeight: 800, lineHeight: 1 }}>✓</span> : "🏷️"}</button>
                 </Tooltip>
-                <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#f59f00", fontWeight: 600, fontFamily: S.fontHead }}>Label</span>
+                <span className="ep-check-label" style={{ display: "none", fontSize: 11, color: "#f59f00", fontWeight: 600, fontFamily: S.fontHead }}>Shipping label</span>
               </div>
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Checkbox checked={order.status.despatched} onChange={() => toggleStatus(order.id, "despatched")} color={S.purple} />
