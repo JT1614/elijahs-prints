@@ -175,6 +175,26 @@ async function loadCategoryMeta() {
 async function saveCategoryMeta(meta) {
   try { await storageSet("category-meta-v1", JSON.stringify(meta)); } catch (e) { console.error("Save category meta failed:", e); }
 }
+/* Assessment Ledger — the routine's memory of every (creator, makerworld_id) pair
+   it has ever evaluated. 3 statuses: live / draft / rejected. statusReason is free
+   text. Source-of-truth for the et-creator-watcher routine; surfaced via morning
+   briefings, not via a UI tab. */
+async function loadAssessmentLedger() {
+  try {
+    const r = await storageGet("assessment-v1");
+    return r ? JSON.parse(r) : {};
+  } catch { return {}; }
+}
+async function saveAssessmentLedger(ledger) {
+  try { await storageSet("assessment-v1", JSON.stringify(ledger)); } catch (e) { console.error("Save ledger failed:", e); }
+}
+function extractMakerWorldId(sourceUrl) {
+  const m = (sourceUrl || "").match(/\/models\/(\d+)/);
+  return m ? m[1] : null;
+}
+function ledgerKey(creator, makerworldId) {
+  return `${creator}::${makerworldId}`;
+}
 const DEFAULT_CATEGORY_META = {
   "Key Rings": { audience: "kids", hasDimensions: false, sortOrder: 0 },
   "Fidgets & Toys": { audience: "kids", hasDimensions: false, sortOrder: 1 },
@@ -5573,9 +5593,48 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             })}
           </div>
           {categories.length === 0 && <p style={{ textAlign: "center", color: S.dimmer, fontSize: 13, padding: 20 }}>No categories yet. Add one above!</p>}
+          {/* Assessment Ledger admin action — rebuilds the routine's memory from current catalogue state.
+              The ledger drives the et-creator-watcher routine; reseed if it gets out of sync with reality. */}
+          <div style={{ marginTop: 32, padding: 16, borderRadius: 12, background: "rgba(132,94,247,0.05)", border: `1px solid rgba(132,94,247,0.2)` }}>
+            <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: S.purple, fontFamily: S.fontHead, marginBottom: 6 }}>🧾 Assessment Ledger</h4>
+            <p style={{ fontSize: 12, color: S.muted, lineHeight: 1.5, margin: 0, marginBottom: 12 }}>The routine's memory of every (creator, product) pair it has seen. Drives the weekly et-creator-watcher recommendations. Reseed if products were added or removed outside the routine flow.</p>
+            <button onClick={async () => {
+              if (!products) return;
+              const eligible = products.filter(p => p.creator && p.sourceUrl && extractMakerWorldId(p.sourceUrl));
+              if (eligible.length === 0) { alert("No products with creator + sourceUrl + valid MakerWorld URL found. Cannot seed."); return; }
+              const existing = await loadAssessmentLedger();
+              const today = new Date().toISOString().slice(0, 10);
+              let added = 0, refreshed = 0;
+              const next = { ...existing };
+              for (const p of eligible) {
+                const id = extractMakerWorldId(p.sourceUrl);
+                const key = ledgerKey(p.creator, id);
+                const status = (p.status === "rejected") ? "rejected" : (p.status === "live" ? "live" : "draft");
+                if (next[key]) {
+                  next[key] = { ...next[key], name: p.name, status, lastSeenDate: today, productId: p.id };
+                  refreshed += 1;
+                } else {
+                  next[key] = {
+                    name: p.name,
+                    creator: p.creator,
+                    sourceUrl: p.sourceUrl,
+                    status,
+                    statusReason: status === "live" ? "seeded from existing live catalogue" : (status === "draft" ? "seeded from existing draft" : "seeded from existing rejected record"),
+                    createdDate: today,
+                    lastSeenDate: today,
+                    productId: p.id,
+                  };
+                  added += 1;
+                }
+              }
+              await saveAssessmentLedger(next);
+              const totals = Object.values(next).reduce((a, e) => { a[e.status] = (a[e.status] || 0) + 1; return a; }, {});
+              alert(`Assessment Ledger seeded.\nAdded: ${added}\nRefreshed: ${refreshed}\nTotals: ${JSON.stringify(totals)}\nGrand total: ${Object.keys(next).length}`);
+            }} style={{ padding: "8px 16px", borderRadius: 10, border: `1px solid rgba(132,94,247,0.4)`, background: "rgba(132,94,247,0.1)", color: S.purple, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>🧾 Reseed Assessment Ledger from current catalogue</button>
+          </div>
         </div>
       )}
-       
+
       {adminTab === "creators" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* RAG status mapping — exposure-aware */}
