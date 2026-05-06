@@ -196,6 +196,21 @@ function getProductCategories(p) {
 function productInCategory(p, cat) {
   return getProductCategories(p).includes(cat);
 }
+/* Sub-category support: categoryMeta[name].parent points a child cat at its parent.
+   Click on a parent (e.g. "Game Room") matches products tagged with the parent
+   OR any descendant ("PS5", "PS4", "Xbox"). */
+function getCategoryDescendants(cat, meta) {
+  if (!meta) return [cat];
+  const children = Object.keys(meta).filter(name => meta[name] && meta[name].parent === cat);
+  return [cat, ...children];
+}
+function productInCategoryOrSub(p, cat, meta) {
+  const targets = getCategoryDescendants(cat, meta);
+  return getProductCategories(p).some(c => targets.includes(c));
+}
+function isSubCategory(cat, meta) {
+  return !!(meta && meta[cat] && meta[cat].parent);
+}
 function isCategoryPaused(cat, meta) {
   return !!(meta[cat] || {}).paused;
 }
@@ -4666,7 +4681,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const getProductStatus = p => { const s = p.status || (p.available !== false ? "live" : "paused"); return s === "photo_needed" ? "approved" : s === "removed" ? "paused" : s; };
   const draftCount = products.filter(p => getProductStatus(p) === "draft").length;
   const filteredByStatus = statusFilter === "All" ? products : products.filter(p => getProductStatus(p) === statusFilter);
-  const filteredByCategory = filter === "All" ? filteredByStatus : filteredByStatus.filter(p => productInCategory(p, filter));
+  const filteredByCategory = filter === "All" ? filteredByStatus : filteredByStatus.filter(p => productInCategoryOrSub(p, filter, categoryMeta));
   const filtered = !productCreatorFilter ? filteredByCategory : productCreatorFilter === "__none__" ? filteredByCategory.filter(p => !p.creator) : filteredByCategory.filter(p => p.creator === productCreatorFilter);
 
   // Margin/hr relative banding: compute thresholds from filtered products
@@ -5520,7 +5535,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
               const meta = categoryMeta[cat] || { audience: "kids", hasDimensions: false, sortOrder: sortIdx };
               const moveCategory = (dir) => { const swapCat = sortedCats[sortIdx + dir]; if (!swapCat) return; const newMeta = {...categoryMeta}; const curOrder = meta.sortOrder ?? sortIdx; const swapMeta = newMeta[swapCat] || { audience: "kids", hasDimensions: false, sortOrder: sortIdx + dir }; const swapOrder = swapMeta.sortOrder ?? (sortIdx + dir); newMeta[cat] = { ...meta, sortOrder: swapOrder }; newMeta[swapCat] = { ...swapMeta, sortOrder: curOrder }; onSaveCategoryMeta(newMeta); };
               return (
-                <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 12, background: "rgba(255,255,255,0.02)", border: `1px solid ${S.border}`, flexWrap: "wrap" }}>
+                <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", paddingLeft: meta.parent ? 40 : 14, borderRadius: 12, background: meta.parent ? "rgba(132,94,247,0.04)" : "rgba(255,255,255,0.02)", border: `1px solid ${S.border}`, flexWrap: "wrap" }}>
                   {isEditing ? (
                     <>
                       <input value={editCatName} onChange={e => setEditCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && editCatName.trim()) { const n = editCatName.trim(); const updated = [...categories]; const oldName = updated[idx]; updated[idx] = n; onSaveCategories(updated); if (products) { const renamedProducts = products.map(p => { const cats = getProductCategories(p); return cats.includes(oldName) ? { ...p, category: cats.map(c => c === oldName ? n : c) } : p; }); onSave(renamedProducts); } /* migrate meta key */ const newMeta = {...categoryMeta}; if (newMeta[oldName]) { newMeta[n] = newMeta[oldName]; delete newMeta[oldName]; onSaveCategoryMeta(newMeta); } setEditingCat(null); } if (e.key === "Escape") setEditingCat(null); }} autoFocus style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: `1px solid ${S.teal}`, background: "rgba(0,201,167,0.05)", color: S.text, fontSize: 14, fontFamily: S.font, outline: "none" }} />
@@ -5535,6 +5550,13 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       </div>
                       <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: S.text, fontFamily: S.fontHead, minWidth: 120 }}>{cat}</span>
                       <span onClick={count > 0 ? () => { setFilter(cat); setStatusFilter("All"); setProductCreatorFilter(""); setAdminTab("products"); } : undefined} style={{ fontSize: 11, color: count > 0 ? S.teal : S.dimmer, fontWeight: count > 0 ? 700 : 400, cursor: count > 0 ? "pointer" : "default", textDecoration: count > 0 ? "underline" : "none", fontFamily: S.fontMono }}>{count} product{count !== 1 ? "s" : ""}</span>
+                      {/* Parent selector — making this a sub-category groups it under another cat */}
+                      <select value={meta.parent || ""} onChange={e => { const newMeta = {...categoryMeta}; const v = e.target.value; if (v) newMeta[cat] = { ...meta, parent: v }; else { newMeta[cat] = { ...meta }; delete newMeta[cat].parent; } onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 8px", borderRadius: 8, border: `1px solid ${meta.parent ? "rgba(132,94,247,0.4)" : S.border}`, background: meta.parent ? "rgba(132,94,247,0.08)" : "rgba(255,255,255,0.02)", color: meta.parent ? S.purple : S.dimmer, fontSize: 11, fontWeight: 600, fontFamily: S.fontHead, cursor: "pointer", outline: "none", colorScheme: "dark" }}>
+                        <option value="">↑ Top level</option>
+                        {[...categories].filter(c => c !== cat && !categoryMeta[c]?.parent).sort((a, b) => a.localeCompare(b)).map(c => (
+                          <option key={c} value={c}>↳ Under {c}</option>
+                        ))}
+                      </select>
                       {/* Audience toggle */}
                       <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, audience: meta.audience === "kids" ? "adult" : "kids" }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.audience === "kids" ? "rgba(255,193,7,0.4)" : "rgba(132,94,247,0.4)"}`, background: meta.audience === "kids" ? "rgba(255,193,7,0.1)" : "rgba(132,94,247,0.1)", color: meta.audience === "kids" ? "#ffc107" : S.purple, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.audience === "kids" ? "👶 Kids" : "🧑 Adult"}</button>
                       {/* Dimensions toggle */}
@@ -7355,7 +7377,7 @@ function ElijahsPrintsInner() {
   const shopProducts = useMemo(() => {
     if (!products) return [];
     let p = products.filter(x => x.available !== false);
-    if (activeCat !== "All") p = p.filter(x => productInCategory(x, activeCat));
+    if (activeCat !== "All") p = p.filter(x => productInCategoryOrSub(x, activeCat, categoryMeta));
     if (search.trim()) { const q = search.toLowerCase(); p = p.filter(x => x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)); }
     const badgePriority = { "Premium": 1, "New": 2, "Popular": 3, "Best Seller": 4 };
     p.sort((a, b) => {
@@ -7407,15 +7429,24 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
 const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVer(v => v + 1); await saveCategoryMeta(meta); };
 
    
- const displayCategories = useMemo(() => ["All", ...sortCategoriesByMeta(categories.filter(c => !isCategoryPaused(c, categoryMeta)), categoryMeta)], [catVer, categoryMeta]);
+ const displayCategories = useMemo(() => ["All", ...sortCategoriesByMeta(categories.filter(c => !isCategoryPaused(c, categoryMeta) && !isSubCategory(c, categoryMeta)), categoryMeta)], [catVer, categoryMeta]);
+
+  /* Sub-cat second row: when a category with children is active (or a sub-cat is active),
+     show the sibling sub-cats so the customer can drill in further. */
+  const subCategoriesOfActive = useMemo(() => {
+    if (!activeCat || activeCat === "All") return [];
+    const parent = (categoryMeta[activeCat] && categoryMeta[activeCat].parent) || activeCat;
+    return sortCategoriesByMeta(categories.filter(c => categoryMeta[c]?.parent === parent && !isCategoryPaused(c, categoryMeta)), categoryMeta);
+  }, [activeCat, catVer, categoryMeta]);
 
   const catCounts = useMemo(() => {
     if (!products) return {};
     const avail = products.filter(x => x.available !== false);
     const c = { All: avail.length };
-    categories.forEach(cat => { c[cat] = avail.filter(p => productInCategory(p, cat)).length; });
+    /* Top-level cat counts include products in any descendant sub-cat. */
+    categories.forEach(cat => { c[cat] = avail.filter(p => productInCategoryOrSub(p, cat, categoryMeta)).length; });
     return c;
-  }, [products, catVer]);
+  }, [products, catVer, categoryMeta]);
   if (!products) return <div style={{ minHeight: "100vh", background: S.dark, display: "flex", alignItems: "center", justifyContent: "center", color: S.teal, fontFamily: S.fontHead, fontSize: 18 }}>Loading...</div>;
 
   return (
@@ -7582,12 +7613,25 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           </div>
         </div>
         <div className="ep-cat-bar" style={{ maxWidth: 1200, margin: "0 auto", padding: "12px 24px 12px", display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", position: "sticky", top: 64, zIndex: 90, background: "rgba(13,13,26,0.95)", backdropFilter: "blur(12px)", borderBottom: `1px solid ${S.border}` }}>
-          {displayCategories.filter(cat => cat === "All" || (catCounts[cat] || 0) > 0).map(cat => (
-            <button key={cat} onClick={() => setActiveCat(cat)} style={{ padding: "8px 16px", borderRadius: 20, border: activeCat === cat ? `1.5px solid ${S.teal}` : `1px solid rgba(255,255,255,0.15)`, background: activeCat === cat ? "rgba(0,201,167,0.12)" : "rgba(255,255,255,0.05)", color: activeCat === cat ? S.teal : S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 6 }}>
-              {cat}<span style={{ fontSize: 11, color: activeCat === cat ? "rgba(0,201,167,0.6)" : S.muted, fontFamily: S.fontMono }}>{catCounts[cat] || 0}</span>
+          {displayCategories.filter(cat => cat === "All" || (catCounts[cat] || 0) > 0).map(cat => {
+            // A top-level cat is "active" when itself OR any of its sub-cats is the activeCat.
+            const isActive = activeCat === cat || (categoryMeta[activeCat]?.parent === cat);
+            return (
+            <button key={cat} onClick={() => setActiveCat(cat)} style={{ padding: "8px 16px", borderRadius: 20, border: isActive ? `1.5px solid ${S.teal}` : `1px solid rgba(255,255,255,0.15)`, background: isActive ? "rgba(0,201,167,0.12)" : "rgba(255,255,255,0.05)", color: isActive ? S.teal : S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 6 }}>
+              {cat}<span style={{ fontSize: 11, color: isActive ? "rgba(0,201,167,0.6)" : S.muted, fontFamily: S.fontMono }}>{catCounts[cat] || 0}</span>
             </button>
-          ))}
+            );
+          })}
         </div>
+        {subCategoriesOfActive.length > 0 && (
+          <div className="ep-subcat-bar" style={{ maxWidth: 1200, margin: "0 auto", padding: "8px 24px 8px", display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
+            {subCategoriesOfActive.filter(sub => (catCounts[sub] || 0) > 0).map(sub => (
+              <button key={sub} onClick={() => setActiveCat(sub)} style={{ padding: "5px 12px", borderRadius: 14, border: activeCat === sub ? `1px solid ${S.purple}` : `1px solid rgba(255,255,255,0.1)`, background: activeCat === sub ? "rgba(132,94,247,0.14)" : "rgba(255,255,255,0.03)", color: activeCat === sub ? S.purple : S.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 5 }}>
+                {sub}<span style={{ fontSize: 10, color: activeCat === sub ? "rgba(132,94,247,0.6)" : S.dimmer, fontFamily: S.fontMono }}>{catCounts[sub] || 0}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="ep-product-grid" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 60px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 18 }}>
           {shopProducts.length === 0 ? <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px 0", color: S.dimmer }}>{search ? `Nothing found for "${search}"` : "No products available"}</div>
