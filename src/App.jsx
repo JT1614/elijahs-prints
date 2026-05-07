@@ -7700,7 +7700,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               I got <span style={{ color: S.teal, fontWeight: 800, fontStyle: "normal", fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "1px" }}>BANNED</span> from selling 3D prints at school…<br /><span style={{ color: S.teal, fontWeight: 700, fontStyle: "normal" }}>so I built this website instead!!</span>
             </div>
             <p style={{ fontSize: "clamp(13px, 2.5vw, 16px)", color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.7, fontStyle: "italic" }}>Bambu Lab P1S Combo · Ships from Wales 🏴󠁧󠁢󠁷󠁬󠁳󠁿</p>
-            <p style={{ fontSize: 15, color: S.muted, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow")).length} colours · Free school drop-off or UK-wide shipping</p>
+            <p style={{ fontSize: 15, color: S.muted, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow")).length} colours · Free school &amp; local drop-off or UK-wide shipping</p>
             <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap", maxWidth: 340, margin: "0 auto" }}>
               {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow")).map(name => {
                 const f = FILAMENTS[name];
