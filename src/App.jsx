@@ -7641,8 +7641,8 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
             <div style={{ position: "absolute", left: "20%", bottom: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(170,255,0,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
             <div style={{ position: "absolute", right: "20%", top: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(170,255,0,0.05) 0%, transparent 70%)", pointerEvents: "none" }} />
             <div style={{ position: "relative" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(170,255,0,0.12)", border: "1px solid rgba(170,255,0,0.3)", color: "#aaff00", padding: "6px 16px", borderRadius: 999, fontFamily: S.fontMono, fontWeight: 700, fontSize: 12, marginBottom: 28, letterSpacing: "1.5px", boxShadow: "0 0 20px rgba(170,255,0,0.2)" }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#aaff00", boxShadow: "0 0 8px #aaff00", animation: "glowPulseDot 1.5s ease-in-out infinite" }} />
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 16, background: "rgba(170,255,0,0.12)", border: "1.5px solid rgba(170,255,0,0.4)", color: "#aaff00", padding: "16px 36px", borderRadius: 999, fontFamily: S.fontMono, fontWeight: 700, fontSize: 28, marginBottom: 28, letterSpacing: "3px", boxShadow: "0 0 40px rgba(170,255,0,0.3), 0 0 80px rgba(170,255,0,0.15)" }}>
+                <span style={{ width: 18, height: 18, borderRadius: "50%", background: "#aaff00", boxShadow: "0 0 16px #aaff00, 0 0 32px rgba(170,255,0,0.6)", animation: "glowPulseDot 1.5s ease-in-out infinite" }} />
                 BRAND NEW
               </span>
               <h2 style={{ fontFamily: S.fontHead, fontWeight: 900, fontSize: "clamp(48px, 11vw, 132px)", lineHeight: 0.9, marginBottom: 22, letterSpacing: "-2px", color: "#aaff00", animation: "glowTitlePulse 4s ease-in-out infinite" }}>
