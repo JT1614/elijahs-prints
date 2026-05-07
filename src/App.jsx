@@ -7633,6 +7633,10 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                 0%, 100% { opacity: 1; transform: scale(1); }
                 50% { opacity: 0.4; transform: scale(1.4); }
               }
+              @keyframes glowSwatchPulse {
+                0%, 100% { transform: scale(1); filter: brightness(1); }
+                50% { transform: scale(1.08); filter: brightness(1.25); }
+              }
             `}</style>
             <div style={{ position: "absolute", left: "20%", bottom: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(170,255,0,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
             <div style={{ position: "absolute", right: "20%", top: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(170,255,0,0.05) 0%, transparent 70%)", pointerEvents: "none" }} />
@@ -7651,7 +7655,38 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 18 }}>
                 <button onClick={() => { setGlowOnly(true); setActiveCat("All"); setTimeout(() => document.querySelector('.ep-product-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }} style={{ padding: "14px 28px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 700, fontSize: 14, background: "#aaff00", color: "#0d0d1a", boxShadow: "0 0 20px rgba(170,255,0,0.4), 0 0 40px rgba(170,255,0,0.2)" }}>SEE GLOW PRODUCTS →</button>
               </div>
-              <p style={{ color: S.muted, fontSize: 12, fontFamily: S.fontMono, marginTop: 12 }}>Available on dragons · keyrings · spiral fidgets · skeleton owl · more</p>
+              {/* Glow filament swatch row — replaces the static product list (session 11). Each glow-tier filament renders as a pulsing swatch using its own hex. */}
+              {(() => {
+                const glowColours = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && getFilamentTier(FILAMENTS[c]) === "glow");
+                if (glowColours.length === 0) return null;
+                return (
+                  <div style={{ marginTop: 18 }}>
+                    <p style={{ color: S.muted, fontSize: 11, fontFamily: S.fontMono, letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: 16 }}>{glowColours.length === 1 ? "1 glow colour available" : `${glowColours.length} glow colours available`}</p>
+                    <div style={{ display: "flex", gap: 24, justifyContent: "center", flexWrap: "wrap", maxWidth: 640, margin: "0 auto" }}>
+                      {glowColours.map((name, i) => {
+                        const f = FILAMENTS[name];
+                        const isGrad = f.hex.includes("linear");
+                        return (
+                          <Tooltip key={name} position="top" text={`<strong style="color:${f.hex};">🌙 ${name}</strong><br/>${f.type} · <span style="color:${f.hex};">Glow in the dark</span>`}>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                              <div style={{
+                                width: 56, height: 56, borderRadius: "50%",
+                                ...(isGrad ? { background: f.hex } : { backgroundColor: f.hex }),
+                                border: `2px solid ${f.hex}`,
+                                boxShadow: `0 0 20px ${f.hex}, 0 0 40px ${f.hex}aa, 0 0 80px ${f.hex}55`,
+                                animation: `glowSwatchPulse 2.4s ease-in-out infinite`,
+                                animationDelay: `${i * 0.3}s`,
+                                cursor: "pointer",
+                              }} />
+                              <span style={{ fontSize: 11, color: f.hex, fontFamily: S.fontHead, fontWeight: 700, letterSpacing: "0.5px", textShadow: `0 0 8px ${f.hex}aa` }}>{name}</span>
+                            </div>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </section>
         )}
