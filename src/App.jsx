@@ -1114,15 +1114,18 @@ const S = {
 
 function ColorSwatch({ name, selected, onClick, size = 22, disabled }) {
   const fil = FILAMENTS[name]; if (!fil) return null;
+  const isGlow = getFilamentTier(fil) === "glow";
+  const glowShadow = isGlow ? `0 0 10px ${fil.hex}, 0 0 20px ${fil.hex}80, 0 0 4px ${fil.hex}` : "none";
   return (
-    <button className="ep-swatch" onClick={disabled ? undefined : onClick} title={`${name} (${fil.type})`} disabled={disabled} style={{
+    <button className={"ep-swatch" + (isGlow ? " ep-glow-swatch" : "")} onClick={disabled ? undefined : onClick} title={`${name} (${fil.type})${isGlow ? " · GLOW" : ""}`} disabled={disabled} style={{
       width: size, height: size, borderRadius: "50%", cursor: disabled ? "default" : "pointer", flexShrink: 0,
       position: "relative", background: fil.hex, border: selected ? "2.5px solid #00c9a7" : "2px solid rgba(255,255,255,0.15)",
       outline: selected ? "2px solid rgba(0,201,167,0.3)" : "none", outlineOffset: 1,
       transition: "all 0.2s", transform: selected ? "scale(1.15)" : "scale(1)", padding: 0,
-      boxShadow: selected ? "0 0 8px rgba(0,201,167,0.3)" : "none", opacity: disabled ? 0.3 : 1,
+      boxShadow: selected ? "0 0 8px rgba(0,201,167,0.3)" : glowShadow, opacity: disabled ? 0.3 : 1,
     }}>
-      {fil.premium && !selected && !disabled && <span style={{ position: "absolute", top: -4, right: -4, fontSize: 8 }}>✨</span>}
+      {fil.premium && !isGlow && !selected && !disabled && <span style={{ position: "absolute", top: -4, right: -4, fontSize: 8 }}>✨</span>}
+      {isGlow && !selected && !disabled && <span style={{ position: "absolute", top: -4, right: -4, fontSize: 9, filter: `drop-shadow(0 0 3px ${fil.hex})` }}>🌙</span>}
     </button>
   );
 }
@@ -1209,6 +1212,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
   const [selectedColors, setSelectedColors] = useState(fixedColours ? [...product.colors] : [product.colors[0]]);
   const [hovered, setHovered] = useState(false);
   const [sameColour, setSameColour] = useState(false);
+  const hasGlowColor = (product.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow");
   const toggleColor = (color) => {
     if (fixedColours) return;
     if (maxC === 1) { setSelectedColors([color]); return; }
@@ -1225,9 +1229,13 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
   const canAdd = selectedColors.length >= Math.min(maxC, product.colors.length);
   return (
     <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{
-      background: S.card, border: `1px solid ${S.border}`, borderRadius: 16, overflow: "hidden", position: "relative",
+      background: S.card,
+      border: hasGlowColor ? "1px solid rgba(170,255,0,0.45)" : `1px solid ${S.border}`,
+      borderRadius: 16, overflow: "hidden", position: "relative",
       transition: "all 0.4s cubic-bezier(0.16,1,0.3,1)", transform: hovered ? "translateY(-6px)" : "translateY(0)",
-      boxShadow: hovered ? "0 20px 60px rgba(0,201,167,0.15), 0 0 0 1px rgba(0,201,167,0.2)" : "0 4px 20px rgba(0,0,0,0.2)",
+      boxShadow: hasGlowColor
+        ? (hovered ? "0 0 24px rgba(170,255,0,0.5), 0 0 60px rgba(170,255,0,0.3), 0 20px 50px rgba(0,0,0,0.3)" : "0 0 16px rgba(170,255,0,0.35), 0 0 36px rgba(170,255,0,0.2), 0 4px 20px rgba(0,0,0,0.25)")
+        : (hovered ? "0 20px 60px rgba(0,201,167,0.15), 0 0 0 1px rgba(0,201,167,0.2)" : "0 4px 20px rgba(0,0,0,0.2)"),
     }}>
       {product.badge && !productInCategory(product, "Dragons") && <Badge text={product.badge} />}
       <SizeBadge product={product} />
@@ -4610,6 +4618,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [newColourHex, setNewColourHex] = useState("#888888");
   const [newColourType, setNewColourType] = useState("PLA Basic");
   const [newColourPremium, setNewColourPremium] = useState(false);
+  const [newColourGlow, setNewColourGlow] = useState(false);
  const [editingColour, setEditingColour] = useState(null);
   const [showPausedAudit, setShowPausedAudit] = useState(false);
   const [newCatName, setNewCatName] = useState("");
@@ -5242,15 +5251,19 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
               </div>
               <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: S.muted, cursor: "pointer", userSelect: "none" }}>
-                  <input type="checkbox" checked={newColourPremium} onChange={e => setNewColourPremium(e.target.checked)} style={{ width: 18, height: 18, accentColor: S.teal }} />
+                  <input type="checkbox" checked={newColourPremium} onChange={e => { setNewColourPremium(e.target.checked); if (e.target.checked) setNewColourGlow(false); }} disabled={newColourGlow} style={{ width: 18, height: 18, accentColor: S.teal }} />
                   Premium (+£3/kg)
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: newColourGlow ? "#aaff00" : S.muted, cursor: "pointer", userSelect: "none", textShadow: newColourGlow ? "0 0 8px rgba(170,255,0,0.6)" : "none" }}>
+                  <input type="checkbox" checked={newColourGlow} onChange={e => { setNewColourGlow(e.target.checked); if (e.target.checked) setNewColourPremium(false); }} style={{ width: 18, height: 18, accentColor: "#aaff00" }} />
+                  🌙 Glow (+£23/kg + nozzle wear)
                 </label>
                 <div style={{ display: "flex", gap: 8 }}>
                   {editingColour && (
                     <button
                       onClick={() => {
                         setEditingColour(null);
-                        setNewColourName(""); setNewColourHex("#888888"); setNewColourType("PLA Basic"); setNewColourPremium(false);
+                        setNewColourName(""); setNewColourHex("#888888"); setNewColourType("PLA Basic"); setNewColourPremium(false); setNewColourGlow(false);
                       }}
                       style={{ padding: "10px 16px", borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.muted, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}
                     >Cancel</button>
@@ -5266,7 +5279,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                         // Rebuild object preserving order, replacing the edited entry
                         Object.keys(FILAMENTS).forEach(key => {
                           if (key === editingColour) {
-                            updated[name] = { hex: newColourHex, type: newColourType, sortOrder: FILAMENTS[editingColour].sortOrder || COLOUR_SORT_MAP[editingColour] || 999, ...(newColourPremium ? { premium: true } : {}), ...(FILAMENTS[editingColour].paused ? { paused: true } : {}) };
+                            updated[name] = { hex: newColourHex, type: newColourType, sortOrder: FILAMENTS[editingColour].sortOrder || COLOUR_SORT_MAP[editingColour] || 999, ...(newColourGlow ? { tier: "glow" } : (newColourPremium ? { premium: true } : {})), ...(FILAMENTS[editingColour].paused ? { paused: true } : {}) };
                           } else {
                             updated[key] = FILAMENTS[key];
                           }
@@ -5286,11 +5299,11 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                         // Adding new colour — auto-assign next sortOrder
                         if (FILAMENTS[name]) { alert("Colour already exists!"); return; }
                         const maxSort = Math.max(0, ...Object.values(FILAMENTS).map(f => f.sortOrder || 0));
-                        const updated = { ...FILAMENTS, [name]: { hex: newColourHex, type: newColourType, sortOrder: maxSort + 1, ...(newColourPremium ? { premium: true } : {}) } };
+                        const updated = { ...FILAMENTS, [name]: { hex: newColourHex, type: newColourType, sortOrder: maxSort + 1, ...(newColourGlow ? { tier: "glow" } : (newColourPremium ? { premium: true } : {})) } };
                         onSaveFilaments(updated);
                         setSavedMsg("Colour added!"); setTimeout(() => setSavedMsg(""), 2000);
                       }
-                      setNewColourName(""); setNewColourHex("#888888"); setNewColourType("PLA Basic"); setNewColourPremium(false);
+                      setNewColourName(""); setNewColourHex("#888888"); setNewColourType("PLA Basic"); setNewColourPremium(false); setNewColourGlow(false);
                     }}
                     disabled={!newColourName.trim()}
                     style={{
@@ -5507,7 +5520,9 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       setNewColourName(name);
                       setNewColourHex(f.hex);
                       setNewColourType(f.type);
-                      setNewColourPremium(!!f.premium);
+                      const tier = getFilamentTier(f);
+                      setNewColourGlow(tier === "glow");
+                      setNewColourPremium(tier === "premium");
                     }}
                     title="Edit colour"
                     style={{ width: 28, height: 28, borderRadius: 8, border: "none", background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
@@ -5524,7 +5539,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                         return { ...p, colors: filtered.length > 0 ? filtered : ["Matte Charcoal"] };
                       });
                       if (cleaned.some((p, i) => p !== products[i])) onSave(cleaned);
-                      if (editingColour === name) { setEditingColour(null); setNewColourName(""); setNewColourHex("#888888"); setNewColourType("PLA Basic"); setNewColourPremium(false); }
+                      if (editingColour === name) { setEditingColour(null); setNewColourName(""); setNewColourHex("#888888"); setNewColourType("PLA Basic"); setNewColourPremium(false); setNewColourGlow(false); }
                       setSavedMsg("Colour removed!"); setTimeout(() => setSavedMsg(""), 2000);
                     }}
                     title="Remove colour"
@@ -7227,6 +7242,7 @@ class ErrorBoundary extends React.Component {
 function ElijahsPrintsInner() {
   const [products, setProducts] = useState(null);
   const [activeCat, setActiveCat] = useState("All");
+  const [glowOnly, setGlowOnly] = useState(false);
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [cartAnim, setCartAnim] = useState(null);
@@ -7437,6 +7453,7 @@ function ElijahsPrintsInner() {
     if (!products) return [];
     let p = products.filter(x => x.available !== false);
     if (activeCat !== "All") p = p.filter(x => productInCategoryOrSub(x, activeCat, categoryMeta));
+    if (glowOnly && featureFlags.glowEnabled) p = p.filter(x => (x.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow"));
     if (search.trim()) { const q = search.toLowerCase(); p = p.filter(x => x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)); }
     const badgePriority = { "Premium": 1, "New": 2, "Popular": 3, "Best Seller": 4 };
     p.sort((a, b) => {
@@ -7448,7 +7465,7 @@ function ElijahsPrintsInner() {
       return a.name.localeCompare(b.name);
     });
     return p;
-  }, [activeCat, search, products, autoBadges]);
+  }, [activeCat, search, products, autoBadges, glowOnly, featureFlags.glowEnabled, filamentVer]);
 
   const addToCart = (product, selectedColors) => {
     const adjustedPrice = getPremiumPrice(product.price, selectedColors);
@@ -7629,7 +7646,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               </p>
               <div style={{ fontSize: "clamp(96px, 17vw, 180px)", margin: "20px 0 40px", filter: "drop-shadow(0 0 20px #aaff00) drop-shadow(0 0 40px rgba(170,255,0,0.6)) drop-shadow(0 0 80px rgba(170,255,0,0.3))", animation: "glowFloat 6s ease-in-out infinite" }}>🐉</div>
               <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 18 }}>
-                <button onClick={() => { document.querySelector('.ep-product-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} style={{ padding: "14px 28px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 700, fontSize: 14, background: "#aaff00", color: "#0d0d1a", boxShadow: "0 0 20px rgba(170,255,0,0.4), 0 0 40px rgba(170,255,0,0.2)" }}>SEE GLOW PRODUCTS →</button>
+                <button onClick={() => { setGlowOnly(true); setActiveCat("All"); setTimeout(() => document.querySelector('.ep-product-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }} style={{ padding: "14px 28px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 700, fontSize: 14, background: "#aaff00", color: "#0d0d1a", boxShadow: "0 0 20px rgba(170,255,0,0.4), 0 0 40px rgba(170,255,0,0.2)" }}>SEE GLOW PRODUCTS →</button>
               </div>
               <p style={{ color: S.muted, fontSize: 12, fontFamily: S.fontMono, marginTop: 12 }}>Available on dragons · keyrings · spiral fidgets · skeleton owl · more</p>
             </div>
@@ -7650,14 +7667,21 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow")).map(name => {
                 const f = FILAMENTS[name];
                 const isGrad = f.hex.includes("linear");
-                const tipText = f.premium
-                  ? `<strong style="color:#ffd43b;">✨ ${name}</strong><br/>${f.type} · <span style="color:#ffd43b;">Premium</span>`
-                  : `<strong>${name}</strong><br/>${f.type}`;
+                const isGlow = getFilamentTier(f) === "glow";
+                const tipText = isGlow
+                  ? `<strong style="color:#aaff00;">🌙 ${name}</strong><br/>${f.type} · <span style="color:#aaff00;">Glow in the dark</span>`
+                  : f.premium
+                    ? `<strong style="color:#ffd43b;">✨ ${name}</strong><br/>${f.type} · <span style="color:#ffd43b;">Premium</span>`
+                    : `<strong>${name}</strong><br/>${f.type}`;
+                const swatchShadow = isGlow
+                  ? `0 0 8px ${f.hex}, 0 0 16px ${f.hex}80, 0 2px 8px rgba(0,0,0,0.3)`
+                  : "0 2px 8px rgba(0,0,0,0.3)";
                 return (
                   <Tooltip key={name} position="top" text={tipText}>
                     <div style={{ position: "relative", width: 20, height: 20 }}>
-                      <div style={{ width: 20, height: 20, borderRadius: "50%", ...(isGrad ? { background: f.hex } : { backgroundColor: f.hex }), border: "2px solid rgba(255,255,255,0.15)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)", cursor: "pointer" }} />
-                      {f.premium && <span style={{ position: "absolute", top: -5, right: -5, fontSize: 8, lineHeight: 1 }}>✨</span>}
+                      <div style={{ width: 20, height: 20, borderRadius: "50%", ...(isGrad ? { background: f.hex } : { backgroundColor: f.hex }), border: isGlow ? `2px solid ${f.hex}` : "2px solid rgba(255,255,255,0.15)", boxShadow: swatchShadow, cursor: "pointer" }} />
+                      {f.premium && !isGlow && <span style={{ position: "absolute", top: -5, right: -5, fontSize: 8, lineHeight: 1 }}>✨</span>}
+                      {isGlow && <span style={{ position: "absolute", top: -5, right: -5, fontSize: 9, lineHeight: 1, filter: `drop-shadow(0 0 3px ${f.hex})` }}>🌙</span>}
                     </div>
                   </Tooltip>
                 );
@@ -7682,6 +7706,14 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
             );
           })}
         </div>
+        {glowOnly && featureFlags.glowEnabled && (
+          <div style={{ maxWidth: 1200, margin: "0 auto", padding: "8px 24px 0", display: "flex", justifyContent: "center" }}>
+            <button onClick={() => setGlowOnly(false)} style={{ padding: "6px 14px", borderRadius: 16, border: "1px solid rgba(170,255,0,0.5)", background: "rgba(170,255,0,0.12)", color: "#aaff00", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 8, boxShadow: "0 0 16px rgba(170,255,0,0.25)" }}>
+              🌙 Showing glow-in-the-dark products only · {shopProducts.length} match{shopProducts.length === 1 ? "" : "es"}
+              <span style={{ fontSize: 14, opacity: 0.8 }}>✕ Clear</span>
+            </button>
+          </div>
+        )}
         {subCategoriesOfActive.length > 0 && (
           <div className="ep-subcat-bar" style={{ maxWidth: 1200, margin: "0 auto", padding: "8px 24px 8px", display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
             {subCategoriesOfActive.filter(sub => (catCounts[sub] || 0) > 0).map(sub => (
