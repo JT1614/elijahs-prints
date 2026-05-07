@@ -18,6 +18,21 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing type or templateParams" });
   }
 
+  // Internal notifications (e.g. scheduled-task summaries) bypass the order-format
+  // check that protects the public order path. Added 2026-05-07 session 11 to fix
+  // et-friday-briefing email delivery — server-side scheduled tasks were failing
+  // the order-format validation because their payload isn't a customer order.
+  // Internal notifications use the request template (already configured) and only
+  // require a non-empty description.
+  if (type === "internal") {
+    const description = (templateParams.description || "").trim();
+    if (description.length < 10) {
+      console.warn("[send-email] BLOCKED internal email — empty description");
+      return res.status(400).json({ error: "Internal notification description too short" });
+    }
+    // No order-format check; description is the only required field
+  }
+
   // Validate order emails have required fields (prevents blank spam + bot abuse)
   // Background: the client-side _tok is bundled into App.jsx so anyone viewing the
   // deployed JS can extract it. The auth token alone isn't enough — we also need
@@ -60,6 +75,9 @@ export default async function handler(req, res) {
     shipped: process.env.EMAILJS_SHIPPED_TEMPLATE_ID,
     request: process.env.EMAILJS_REQUEST_TEMPLATE_ID,
     made: process.env.EMAILJS_MADE_TEMPLATE_ID,
+    // Internal notifications reuse the request template (no new EmailJS config needed).
+    // Renders description as the email body via the existing request template fields.
+    internal: process.env.EMAILJS_REQUEST_TEMPLATE_ID,
   };
 
   const templateId = TEMPLATES[type];
