@@ -408,10 +408,13 @@ function needsAddress(shipping) {
 }
 // Filament tier system. Each filament is "standard" | "premium" | "glow".
 // Backward-compat: legacy `premium: true` flag is treated as tier="premium".
-// Uplift formulas (per John's pricing 2026-05-02):
+// Uplift formulas:
 //   standard → 0%
-//   premium  → +30% (existing)
-//   glow     → DOUBLE if base<£5; +50% if base>=£5 (reflects £23/kg + nozzle wear)
+//   premium  → +30%
+//   glow     → +50% uniform (revised 2026-05-07 session 11; previously DOUBLE
+//              under £5 + 50% above. Doubling overcorrected on small items —
+//              50g clicker £3→£6 was £2.25 extra profit on £0.75 extra material.
+//              Uniform 50% gives a clean ~2× margin on extra material cost.)
 function getFilamentTier(f) {
   if (!f) return "standard";
   if (f.tier) return f.tier;
@@ -427,7 +430,7 @@ function highestTier(selectedColors) {
 }
 function applyTierUplift(basePrice, tier) {
   if (tier === "premium") return basePrice * 1.30;
-  if (tier === "glow")    return basePrice < 5 ? basePrice * 2 : basePrice * 1.5;
+  if (tier === "glow")    return basePrice * 1.5;
   return basePrice;
 }
 function getTierPrice(basePrice, selectedColors) {
@@ -5004,7 +5007,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                   filaments become selectable AND the GLOW IN THE DARK hero appears at the top of the homepage.
                 </p>
                 <p style={{ fontSize: 12, color: featureFlags.glowEnabled ? "#aaff00" : "#f59e0b", fontWeight: 600, marginTop: 8 }}>
-                  ⚠️ Test the filament physically before turning this on. Customer prices DOUBLE for under-£5 items in glow tier (£1 keyring → £2). Don't promise customers a glow you haven't proven.
+                  ⚠️ Test the filament physically before turning this on. Customer prices add +50% in glow tier (£3 clicker → £4.50, £1 keyring → £1.50). Don't promise customers a glow you haven't proven.
                 </p>
               </div>
               <button
