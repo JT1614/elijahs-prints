@@ -7649,7 +7649,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                 GLOW IN<br />THE DARK
               </h2>
               <p style={{ fontFamily: S.fontHead, fontWeight: 700, fontSize: "clamp(16px, 2.6vw, 24px)", color: S.text, marginBottom: 32, letterSpacing: "0.5px" }}>
-                Charge it in daylight. <em style={{ color: "#aaff00", fontStyle: "normal" }}>Watch it shine all night.</em>
+                Charge it in daylight. <em style={{ color: "#aaff00", fontStyle: "normal" }}>Watch it shine.</em>
               </p>
               <div style={{ fontSize: "clamp(96px, 17vw, 180px)", margin: "20px 0 40px", filter: "drop-shadow(0 0 20px #aaff00) drop-shadow(0 0 40px rgba(170,255,0,0.6)) drop-shadow(0 0 80px rgba(170,255,0,0.3))", animation: "glowFloat 6s ease-in-out infinite" }}>🐉</div>
               <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 18 }}>
