@@ -139,6 +139,17 @@ export default async function handler(req, res) {
       }
     }
 
+    // Also expose the orders collection (one doc per paid order, written by the
+    // Stripe webhook). Briefing slides 7 + 9 use this for revenue/AOV/sell-through.
+    // Limit 1000 since orders accumulate; this covers ~2 years at current volume.
+    try {
+      const ordSnap = await db.collection("orders").limit(1000).get();
+      data["orders_collection"] = ordSnap.docs.map((d) => d.data());
+    } catch (e) {
+      errors.push({ key: "orders_collection", error: e.message });
+      data["orders_collection"] = [];
+    }
+
     return res.status(200).json({
       exported_at: new Date().toISOString(),
       data,
