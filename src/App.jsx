@@ -450,7 +450,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v155 · 2026-04-27";
+const APP_VERSION = "v156 · 2026-07-10";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1011,6 +1011,59 @@ function productUsesBoxLabels(product, categoryMeta) {
   return getProductCategories(product).some(c => (categoryMeta[c] || {}).hasBoxLabels);
 }
 
+/* ── Robust cross-device printing ─────────────────────────────────────────
+   Prints a self-contained HTML document via a hidden, same-origin iframe.
+   Replaces the old window.open("","_blank")+document.write() pattern, which
+   mobile browsers progressively block. A blocked popup left the label
+   unprinted and — because document.write clobbers/navigates the tab — reloaded
+   the whole SPA on phones and tablets (desktop browsers still allowed it, so
+   the laptop kept working). An iframe needs no popup and never touches the
+   main document, so it prints reliably on desktop + mobile and can never
+   reload the app. One helper for every print button. */
+function printDocument(html) {
+  // Generated docs auto-print via an inline <script>; strip it and drive the
+  // print from the parent instead (inline scripts don't run inside a srcdoc
+  // iframe under CSP, and parent-driven printing is more reliable on mobile).
+  const clean = String(html).replace(/<script[\s\S]*?<\/script>/gi, "");
+
+  const existing = document.getElementById("ep-print-frame");
+  if (existing) existing.remove();
+
+  const frame = document.createElement("iframe");
+  frame.id = "ep-print-frame";
+  frame.setAttribute("aria-hidden", "true");
+  // Invisible but still rendered: some browsers refuse to print a display:none
+  // or zero-size iframe, so keep it 1px, transparent and off the pointer layer.
+  frame.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;border:0;pointer-events:none;z-index:-1;";
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    setTimeout(() => { try { frame.remove(); } catch (e) {} }, 1000);
+  };
+
+  frame.onload = () => {
+    const w = frame.contentWindow;
+    if (!w) { cleanup(); return; }
+    try { w.addEventListener("afterprint", cleanup); } catch (e) {}
+    // Let @import fonts and images settle before invoking print.
+    setTimeout(() => {
+      try { w.focus(); w.print(); }
+      catch (e) {
+        // Last-resort desktop fallback: open in a new tab.
+        try { const nw = window.open("", "_blank"); if (nw) { nw.document.write(clean); nw.document.close(); } } catch (e2) {}
+      }
+      setTimeout(cleanup, 60000); // safety net if afterprint never fires (mobile)
+    }, 350);
+  };
+
+  // Set srcdoc before connecting so the first (and only) load already has
+  // content — avoids printing a blank initial about:blank document.
+  frame.srcdoc = clean;
+  document.body.appendChild(frame);
+}
+
 function generateBoxLabelHTML(labelProducts, copies = 2) {
   const sheetsPerProduct = Math.ceil(copies / 2);
   let pages = "";
@@ -1542,9 +1595,7 @@ function ProductEditor({ product, onSave, onAutoSave, onDelete, onCancel, isNew,
                 </div>
                 {p.labelDrawing && (
                   <button onClick={() => {
-                    const w = window.open("", "_blank");
-                    w.document.write(generateBoxLabelHTML([p], 2));
-                    w.document.close();
+                    printDocument(generateBoxLabelHTML([p], 2));
                   }} style={{ marginTop: 8, padding: "6px 14px", borderRadius: 8, border: `1px solid rgba(245,158,11,0.3)`, background: "rgba(245,158,11,0.08)", color: "#f59e0b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>🏷️ Print Box Label (×2)</button>
                 )}
               </div>
@@ -2133,8 +2184,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 <script>window.onload = () => { window.print(); }</script>
 </body></html>`;
 
-    const win = window.open("", "_blank", "width=800,height=1000");
-    if (win) { win.document.write(html); win.document.close(); }
+    printDocument(html);
 
     // Mark as label printed (skip for test prints)
     if (!isTest && !order.status.labelPrinted) {
@@ -2507,7 +2557,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
           return <button onClick={() => {
             const allBoxProducts = [];
             boxOrders.forEach(o => { (o.items || []).filter(i => !i.isTip).forEach(i => { const prod = products.find(p => p.id === i.id); if (prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing) { for (let q = 0; q < (i.qty || 1); q++) allBoxProducts.push(prod); } }); });
-            if (allBoxProducts.length > 0) { const w = window.open("", "_blank"); w.document.write(generateBoxLabelHTML(allBoxProducts, 2)); w.document.close(); }
+            if (allBoxProducts.length > 0) { printDocument(generateBoxLabelHTML(allBoxProducts, 2)); }
           }} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(16,185,129,0.3)", cursor: "pointer", background: "rgba(16,185,129,0.08)", color: "#10b981", fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 8 }}>📦 Print Box Labels ({totalBoxLabels})</button>;
         })()}
         <button onClick={() => {
@@ -2758,7 +2808,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
               {(() => { const boxItems = (order.items || []).filter(i => !i.isTip && (() => { const prod = products.find(p => p.id === i.id); return prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing; })()); if (boxItems.length === 0) return <div className="ep-order-check" />; const totalQty = boxItems.reduce((s, i) => s + (i.qty || 1), 0); return (
               <div className="ep-order-check" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                 <Tooltip position="left" text={`Print ${totalQty} box label${totalQty !== 1 ? "s" : ""} for kraft packaging.<br/><br/>Opens a print-ready page for 140mm kraft labels.`}>
-                <button onClick={() => { const boxProds = []; (order.items || []).filter(i => !i.isTip).forEach(i => { const prod = products.find(p => p.id === i.id); if (prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing) { for (let q = 0; q < (i.qty || 1); q++) boxProds.push(prod); } }); if (boxProds.length > 0) { const w = window.open("", "_blank"); w.document.write(generateBoxLabelHTML(boxProds, 2)); w.document.close(); } }} title="Print box labels" style={{
+                <button onClick={() => { const boxProds = []; (order.items || []).filter(i => !i.isTip).forEach(i => { const prod = products.find(p => p.id === i.id); if (prod && productUsesBoxLabels(prod, categoryMeta) && prod.labelDrawing) { for (let q = 0; q < (i.qty || 1); q++) boxProds.push(prod); } }); if (boxProds.length > 0) { printDocument(generateBoxLabelHTML(boxProds, 2)); } }} title="Print box labels" style={{
                   width: 22, height: 22, borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                   border: "2px solid rgba(16,185,129,0.4)", background: "rgba(16,185,129,0.1)", transition: "all 0.2s", flexShrink: 0, padding: 0, fontSize: 11,
                 }}>📦</button>
@@ -5034,9 +5084,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
             <Tooltip position="bottom" text="Generate a printable A4 sheet of colour dots for Label Planet LP117/19R 19mm circle stickers. Dots are oversized for alignment tolerance. Premium colours get a gold star (bottom-right).">
               <button onClick={() => {
-                const w = window.open("", "_blank");
-                w.document.write(generateColourDotsHTML(FILAMENTS, ALL_COLORS));
-                w.document.close();
+                printDocument(generateColourDotsHTML(FILAMENTS, ALL_COLORS));
               }} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.08)", color: "#f59e0b", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>🟡 Print Colour Dots ({ALL_COLORS.length} colours)</button>
             </Tooltip>
             <Tooltip position="bottom" text="Pick specific colours and get equal numbers of each filling the full sheet (117 dots).">
@@ -6452,9 +6500,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     <button onClick={() => {
                       const chosen = ALL_COLORS.filter(k => customDotsSelected[k]);
                       if (chosen.length === 0) return;
-                      const w = window.open("", "_blank");
-                      w.document.write(generateColourDotsHTML(FILAMENTS, chosen));
-                      w.document.close();
+                      printDocument(generateColourDotsHTML(FILAMENTS, chosen));
                       setShowCustomDots(false);
                     }} disabled={selectedCount === 0} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: selectedCount > 0 ? `linear-gradient(135deg, ${S.teal}, #00a88a)` : "rgba(255,255,255,0.05)", color: selectedCount > 0 ? "#1a1a2e" : S.dimmer, fontSize: 14, fontWeight: 800, cursor: selectedCount > 0 ? "pointer" : "default", fontFamily: S.fontHead }}>🖨️ Print ({selectedCount > 0 ? `${dotsEach}${remainder > 0 ? "+" : ""} each` : "..."})</button>
                   </div>
@@ -6611,9 +6657,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     <button onClick={() => {
                       const selected = labelReady.filter(p => batchLabelSelected[p.id]);
                       if (selected.length === 0) return;
-                      const w = window.open("", "_blank");
-                      w.document.write(generateBoxLabelHTML(selected, batchLabelCopies));
-                      w.document.close();
+                      printDocument(generateBoxLabelHTML(selected, batchLabelCopies));
                       setShowBatchLabels(false);
                     }} disabled={Object.values(batchLabelSelected).filter(Boolean).length === 0} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: Object.values(batchLabelSelected).filter(Boolean).length > 0 ? "linear-gradient(135deg, #f59e0b, #d97706)" : "rgba(255,255,255,0.05)", color: Object.values(batchLabelSelected).filter(Boolean).length > 0 ? "#1a1a2e" : S.dimmer, fontSize: 14, fontWeight: 800, cursor: Object.values(batchLabelSelected).filter(Boolean).length > 0 ? "pointer" : "default", fontFamily: S.fontHead }}>🖨️ Print</button>
                   </div>
