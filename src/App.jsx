@@ -450,7 +450,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v156 · 2026-07-10";
+const APP_VERSION = "v157 · 2026-07-11";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -1011,6 +1011,18 @@ function productUsesBoxLabels(product, categoryMeta) {
   return getProductCategories(product).some(c => (categoryMeta[c] || {}).hasBoxLabels);
 }
 
+/* HTML-escape a dynamic value before interpolating it into any print-generator
+   HTML string. Customer-controlled order fields (name, address, item names,
+   colours) are rendered in the admin's print view; without escaping, a payload
+   like <img src=x onerror=...> typed into a delivery name would execute JS in
+   the admin's own session when a label is printed (stored XSS -> account
+   takeover). Escaping renders the payload as inert text. Added 2026-07-11. */
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
 /* ── Robust cross-device printing ─────────────────────────────────────────
    Prints a self-contained HTML document via a hidden, same-origin iframe.
    Replaces the old window.open("","_blank")+document.write() pattern, which
@@ -1076,17 +1088,17 @@ function generateBoxLabelHTML(labelProducts, copies = 2) {
       for (let l = 0; l < labelsOnSheet; l++) {
         const nameLen = (p.name || "").length;
         const nameFontSize = nameLen > 20 ? "20pt" : nameLen > 16 ? "22pt" : "28pt";
-        const subtitleHTML = p.labelSubtitle ? `<div style="font-size:13pt; color:#333; font-weight:400; margin-top:2px; font-family:'DM Sans',Helvetica,sans-serif;">${p.labelSubtitle}</div>` : "";
+        const subtitleHTML = p.labelSubtitle ? `<div style="font-size:13pt; color:#333; font-weight:400; margin-top:2px; font-family:'DM Sans',Helvetica,sans-serif;">${esc(p.labelSubtitle)}</div>` : "";
         labels += `<div style="width:140mm; height:140mm; box-sizing:border-box; padding:8mm 8mm 6mm 8mm; position:relative; display:flex; flex-direction:column; align-items:center; overflow:hidden;">
             <div style="width:100%; display:flex; align-items:flex-start; justify-content:center; position:relative; margin-bottom:4mm;">
               <div style="text-align:center; flex:1;">
-                <div style="font-size:${nameFontSize}; font-weight:800; color:#1a1a1a; font-family:'DM Sans',Helvetica,sans-serif; line-height:1.1;">${p.name || ""}</div>
+                <div style="font-size:${nameFontSize}; font-weight:800; color:#1a1a1a; font-family:'DM Sans',Helvetica,sans-serif; line-height:1.1;">${esc(p.name || "")}</div>
                 ${subtitleHTML}
               </div>
               <div style="width:19mm; height:19mm; border-radius:50%; background:#aaa; flex-shrink:0; margin-left:3mm;"></div>
             </div>
             <div style="flex:1; display:flex; align-items:center; justify-content:center; width:100%; overflow:hidden;">
-              ${p.labelDrawing ? `<img src="${p.labelDrawing}" style="max-width:100%; max-height:100%; object-fit:contain;" referrerpolicy="no-referrer" onerror="this.dataset.failed='1';" />` : `<div style="width:80mm; height:80mm; border:2px dashed #ccc; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#999; font-size:14pt;">No drawing</div>`}
+              ${p.labelDrawing ? `<img src="${esc(p.labelDrawing)}" style="max-width:100%; max-height:100%; object-fit:contain;" referrerpolicy="no-referrer" onerror="this.dataset.failed='1';" />` : `<div style="width:80mm; height:80mm; border:2px dashed #ccc; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#999; font-size:14pt;">No drawing</div>`}
             </div>
             <div style="font-size:16pt; font-weight:700; color:#555; font-family:'DM Sans',Helvetica,sans-serif; margin-top:4mm;">etprintworld.com</div>
           </div>`;
@@ -1140,7 +1152,7 @@ function generateColourDotsHTML(filaments, filamentKeys) {
     const hex = f.hex || "#ccc";
     const star = f.premium ? " ★" : "";
     const count = dots.filter(d => d === k).length;
-    return `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 8px"><span style="width:12px;height:12px;border-radius:50%;background:${hex};border:1px solid #ccc;display:inline-block;flex-shrink:0"></span><span style="font-size:10px">${k}${star} (${count})</span></span>`;
+    return `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 8px"><span style="width:12px;height:12px;border-radius:50%;background:${hex};border:1px solid #ccc;display:inline-block;flex-shrink:0"></span><span style="font-size:10px">${esc(k)}${star} (${count})</span></span>`;
   }).join("");
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Colour Dots</title>
@@ -2035,12 +2047,12 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     // Address
     const addr = isPickupShipping(order.shipping)
       ? (order.shipping.id === "collection-local" && order.customer?.address1
-          ? [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join("\n")
-          : `${order.shipping.icon || "🎒"} ${order.shipping.name || "School Collection"}`)
-      : [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join("\n");
+          ? [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).map(esc).join("\n")
+          : `${esc(order.shipping.icon || "🎒")} ${esc(order.shipping.name || "School Collection")}`)
+      : [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).map(esc).join("\n");
 
     // Items list
-    const itemsList = order.items.filter(i => !i.isTip).map(i => `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`).join("\n");
+    const itemsList = order.items.filter(i => !i.isTip).map(i => `${i.qty}× ${esc(i.name)} (${(i.selectedColors || []).map(esc).join(" + ")})`).join("\n");
     const tipItem = order.items.find(i => i.isTip);
     const orderDate = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
@@ -2053,20 +2065,20 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     const productLabel = (product, heading) => {
       const displayHeading = isKidsOrder ? `🐉 ${heading}` : heading;
       if (!product) return `<div class="label"><div class="label-inner product-label ${dragonAccent}"><div class="accent-bar"></div><div class="heading">${displayHeading}</div><div class="sub" style="margin:auto;text-align:center;">More coming soon!</div><div class="url">etprintworld.com</div></div></div>`;
-      const imgHtml = product.img ? `<img src="${product.img}" class="prod-img" />` : `<div class="prod-placeholder">📷</div>`;
+      const imgHtml = product.img ? `<img src="${esc(product.img)}" class="prod-img" />` : `<div class="prod-placeholder">📷</div>`;
       return `<div class="label"><div class="label-inner product-label ${dragonAccent}">
         <div class="accent-bar"></div>
         <div class="heading">${displayHeading}</div>
         <div class="prod-row">${imgHtml}<div class="prod-info">
-          <div class="prod-name">${product.name}</div>
+          <div class="prod-name">${esc(product.name)}</div>
           <div class="prod-price">£${product.price.toFixed(2)}</div>
-          <div class="prod-desc">${product.description || ""}</div>
+          <div class="prod-desc">${esc(product.description || "")}</div>
         </div></div>
         <div class="url">etprintworld.com</div>
       </div></div>`;
     };
 
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Labels — ${order.id}</title>
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Labels — ${esc(order.id)}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;700&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -2135,7 +2147,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
   <div class="label"><div class="label-inner address-label">
     <div class="from">FROM: etprintworld.com</div>
     <div class="heading">DELIVER TO</div>
-    <div class="to-name">${order.customer.name}</div>
+    <div class="to-name">${esc(order.customer.name)}</div>
     <div class="to-addr">${addr}</div>
   </div></div>
 
@@ -2151,7 +2163,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
   <!-- Label 3: Order Details -->
   <div class="label"><div class="label-inner order-label">
     <div class="heading">YOUR ORDER</div>
-    <div class="ref">${order.id}</div>
+    <div class="ref">${esc(order.id)}</div>
     <div class="date">${orderDate}</div>
     <div class="items">${itemsList}${tipItem ? "\n🧡 Tip: £" + tipItem.price.toFixed(2) : ""}</div>
     <div class="total">Total: £${order.total.toFixed(2)}</div>
@@ -2171,7 +2183,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
 
   <!-- Label 8: Elijah / Brand (full-bleed photo) -->
   <div class="label"><div class="label-inner elijah-label">
-    ${photoSrc ? `<img src="${photoSrc}" class="photo-bg" />
+    ${photoSrc ? `<img src="${esc(photoSrc)}" class="photo-bg" />
     <div class="overlay">
       <span class="tagline">I got <b>BANNED</b> from selling 3D prints at school — so I built this website instead.</span>
       <span class="url">etprintworld.com</span>
@@ -4703,14 +4715,11 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
     const existingColours = Object.entries(FILAMENTS).map(([name, f]) => ({
       name, hex: f.hex, type: f.type, premium: !!f.premium,
     }));
-    const modeInstruction = scannerMode === "match"
-      ? `This image is a FILAMENT SPOOL. Use MATCH mode — identify the filament colour and match it against the existing library.`
-      : `This image is FILAMENT PACKAGING/BOX. Use SCAN mode — read all details from the packaging.`;
     try {
       const response = await fetch("/api/scan-filament", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ base64Data, mediaType, existingColours, modeInstruction }),
+        body: JSON.stringify({ _tok: EMAILJS_CONFIG._tok, base64Data, mediaType, existingColours, mode: scannerMode }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Scan failed");

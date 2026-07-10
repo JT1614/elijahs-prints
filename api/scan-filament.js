@@ -2,15 +2,42 @@
 // Proxies Anthropic API calls server-side so the API key stays hidden
 // and avoids CORS issues from browser-direct calls
 
+// Instructions are built server-side and keyed by a whitelisted `mode` so no
+// attacker-controlled free text ever reaches the model prompt (prevents this
+// endpoint being used as a free Claude proxy on the owner's API key).
+const MODE_INSTRUCTIONS = {
+  match: `This image is a FILAMENT SPOOL. Use MATCH mode — identify the filament colour and match it against the existing library.`,
+  scan: `This image is FILAMENT PACKAGING/BOX. Use SCAN mode — read all details from the packaging.`,
+};
+const ALLOWED_MEDIA = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const MAX_B64 = 8 * 1024 * 1024; // ~6 MB image
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { base64Data, mediaType, existingColours, modeInstruction } = req.body;
+  const { base64Data, mediaType, existingColours, mode, _tok } = req.body || {};
 
-  if (!base64Data || !mediaType || !existingColours || !modeInstruction) {
+  // Soft auth — same shared token the sibling endpoints (send-email, save-request)
+  // use. Bundled in the client so it is a drive-by barrier, not a hard boundary;
+  // the real anti-abuse control is the server-side `mode` whitelist below.
+  if (!process.env.EMAIL_API_TOKEN || _tok !== process.env.EMAIL_API_TOKEN) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  if (!base64Data || !mediaType || !existingColours) {
     return res.status(400).json({ error: "Missing required fields" });
+  }
+  const modeInstruction = MODE_INSTRUCTIONS[mode];
+  if (!modeInstruction) {
+    return res.status(400).json({ error: "Invalid mode" });
+  }
+  if (!ALLOWED_MEDIA.includes(mediaType)) {
+    return res.status(400).json({ error: "Unsupported media type" });
+  }
+  if (typeof base64Data !== "string" || base64Data.length > MAX_B64) {
+    return res.status(413).json({ error: "Image too large" });
   }
 
   const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
