@@ -1051,7 +1051,9 @@ function printDocument(html) {
     setTimeout(() => {
       try { w.focus(); w.print(); }
       catch (e) {
-        // Last-resort desktop fallback: open in a new tab.
+        // Last-resort desktop fallback: open in a new tab. (The only sanctioned
+        // window.open("",…) in the app — every other print path uses this helper.)
+        // eslint-disable-next-line no-restricted-syntax
         try { const nw = window.open("", "_blank"); if (nw) { nw.document.write(clean); nw.document.close(); } } catch (e2) {}
       }
       setTimeout(cleanup, 60000); // safety net if afterprint never fires (mobile)
