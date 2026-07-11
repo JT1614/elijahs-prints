@@ -163,6 +163,24 @@ export default async function handler(req, res) {
         orderData.items.length > 0 &&
         orderData.items.every((i) => i.isTip);
 
+      // Reconcile against what Stripe ACTUALLY captured — a defence-in-depth backstop
+      // to the server-side pricing in create-checkout-session.js. The signature check
+      // proves the event is genuine; this proves the amount is right. A mismatch (or a
+      // session that wasn't actually paid) is flagged needsReview and NOT auto-fulfilled.
+      const expectedPence = parseInt(session.metadata?.expected_total_pence || "0", 10);
+      const amountPaid = typeof session.amount_total === "number" ? session.amount_total : null;
+      const paidOk = session.payment_status === "paid";
+      const amountOk = expectedPence > 0 && amountPaid === expectedPence;
+      const needsReview = !paidOk || !amountOk;
+      if (needsReview) {
+        console.error(
+          "⚠️ Webhook: payment reconciliation FAILED for", session.id,
+          "— payment_status:", session.payment_status,
+          "amount_total(pence):", amountPaid, "expected(pence):", expectedPence,
+          "→ order flagged needsReview, NOT auto-fulfilled"
+        );
+      }
+
       const order = {
         id: orderData.orderId || "EP-" + Date.now().toString(36).toUpperCase(),
         date: new Date().toISOString(),
@@ -174,10 +192,13 @@ export default async function handler(req, res) {
         discountAmount: orderData.discountAmount || 0,
         shippingCost: orderData.shippingCost,
         stripeFee: orderData.stripeFee,
-        total: orderData.total,
-        status: isTipOnly
-          ? { paid: true, produced: true, labelPrinted: true, despatched: true }
-          : { paid: true, produced: false, labelPrinted: false, despatched: false },
+        // Authoritative total = what Stripe captured, not the client-claimed value.
+        total: amountPaid != null ? amountPaid / 100 : orderData.total,
+        status: needsReview
+          ? { paid: false, produced: false, labelPrinted: false, despatched: false, needsReview: true }
+          : isTipOnly
+            ? { paid: true, produced: true, labelPrinted: true, despatched: true }
+            : { paid: true, produced: false, labelPrinted: false, despatched: false },
         _createdBy: "stripe-webhook",
         _stripeSessionId: session.id,
       };

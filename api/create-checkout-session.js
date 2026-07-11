@@ -1,90 +1,218 @@
-// Vercel Serverless Function — creates a Stripe Checkout Session
-// This file goes in: elijahs-prints/api/create-checkout-session.js
+// Vercel Serverless Function — creates a Stripe Checkout Session.
+//
+// SECURITY (rewritten 2026-07-11): every monetary value is recomputed SERVER-SIDE
+// from the trusted Firestore catalogue. The previous version charged whatever
+// price / shipping / fee / discount the browser POSTed, so a crafted request
+// could buy real goods for pennies or apply an arbitrary discount. Client-supplied
+// prices, shipping cost, card fee and discount amount are now IGNORED — only the
+// item id + quantity (+ tip amount + customer details + chosen shipping id + promo
+// CODE) are taken from the client; the amounts are derived here from server data.
+//
+// Required env vars in Vercel:
+//   STRIPE_SECRET_KEY
+//   FIREBASE_SERVICE_ACCOUNT — JSON string of the Firebase service-account key
 import Stripe from "stripe";
+import admin from "firebase-admin";
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+if (!admin.apps.length) {
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)),
+    });
+  } catch (e) {
+    console.error("[create-checkout-session] Firebase Admin init failed:", e);
+  }
+}
+const db = admin.apps.length ? admin.firestore() : null;
+
+// --- Trusted money config — mirrors src/App.jsx (single source of truth is the
+//     client for DISPLAY; this server copy is authoritative for CHARGING). ---
+const SHIPPING_OPTIONS = {
+  "collection-school": { name: "School drop-off", price: 0, pickup: true },
+  "collection-local": { name: "Free local delivery", price: 0, pickup: true },
+  standard: { name: "Royal Mail Tracked 48", price: 3.49, pickup: false },
+};
+const FREE_SHIPPING_THRESHOLD = 30;
+const PROMO_CODES = { GWERN10: { rate: 0.1 } };
+const TIP_MAX = 1000;
+const QTY_MAX = 1000;
+const getStripeFee = (amount) => Math.ceil((0.2 + amount * 0.015) * 100) / 100;
+const round2 = (n) => Math.round(n * 100) / 100;
+
+async function loadTrustedProducts() {
+  if (!db) return null;
+  const snap = await db.collection("shop").doc("products-v2").get();
+  if (!snap.exists) return null;
+  let parsed = snap.data().value;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); } catch { return null; }
+  }
+  return Array.isArray(parsed) ? parsed : null;
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
+
   try {
-    const { items, shipping, customerEmail, customerName, stripeFee, orderData, promoCode, discountAmount } = req.body;
+    const { items, shipping, customerEmail, customerName, promoCode, orderData } = req.body || {};
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: "No items in cart" });
+    }
 
-    // Build line items for Stripe (always at full price — discount applied via Stripe coupon below)
-    const lineItems = items.map((item) => ({
-      price_data: {
-        currency: "gbp",
-        product_data: {
-          name: item.name,
-          description: item.selectedColors
-            ? `Colour: ${item.selectedColors.join(" + ")}`
-            : undefined,
-        },
-        unit_amount: Math.round(item.price * 100),
-      },
-      quantity: item.qty,
-    }));
+    const products = await loadTrustedProducts();
+    if (!products) {
+      return res.status(503).json({ error: "Catalogue unavailable — please try again in a moment" });
+    }
+    const byId = new Map(products.map((p) => [String(p.id), p]));
 
-    // Add shipping as a line item (if not free)
-    if (shipping && shipping.price > 0) {
+    // --- Recompute every line item from trusted prices ---
+    const lineItems = [];
+    const trustedItems = [];
+    let subtotal = 0; // includes tips
+    let productSubtotal = 0; // excludes tips (promo + free-shipping basis)
+
+    for (const it of items) {
+      const qty = Math.floor(Number(it.qty) || 0);
+      if (qty < 1 || qty > QTY_MAX) {
+        return res.status(400).json({ error: "Invalid quantity" });
+      }
+
+      if (it.isTip) {
+        // A tip is a donation TO the shop — the customer legitimately chooses the
+        // amount, so the client value is allowed (only sanity-bounded).
+        const tip = round2(Number(it.price) || 0);
+        if (!(tip > 0) || tip > TIP_MAX) {
+          return res.status(400).json({ error: "Invalid tip amount" });
+        }
+        subtotal += tip * qty;
+        lineItems.push({
+          price_data: { currency: "gbp", product_data: { name: it.name || "Tip" }, unit_amount: Math.round(tip * 100) },
+          quantity: qty,
+        });
+        trustedItems.push({ name: it.name || "Tip", price: tip, qty, isTip: true });
+        continue;
+      }
+
+      const prod = byId.get(String(it.id));
+      if (!prod) {
+        return res.status(400).json({ error: `Product not available: ${String(it.name || it.id).slice(0, 60)}` });
+      }
+      if (prod.available === false) {
+        return res.status(400).json({ error: `Product unavailable: ${String(prod.name).slice(0, 60)}` });
+      }
+      const price = round2(Number(prod.price));
+      if (!(price >= 0)) {
+        return res.status(400).json({ error: `Product has no valid price: ${String(prod.name).slice(0, 60)}` });
+      }
+      subtotal += price * qty;
+      productSubtotal += price * qty;
       lineItems.push({
         price_data: {
           currency: "gbp",
-          product_data: { name: `Shipping: ${shipping.name}` },
-          unit_amount: Math.round(shipping.price * 100),
+          product_data: {
+            name: prod.name,
+            description: it.selectedColors ? `Colour: ${(it.selectedColors || []).join(" + ")}` : undefined,
+          },
+          unit_amount: Math.round(price * 100),
         },
+        quantity: qty,
+      });
+      trustedItems.push({ id: prod.id, name: prod.name, price, qty, selectedColors: it.selectedColors || [] });
+    }
+    subtotal = round2(subtotal);
+    productSubtotal = round2(productSubtotal);
+
+    // --- Promo — validate the CODE against the server registry; derive the amount ---
+    let discountAmount = 0;
+    let appliedPromoCode = null;
+    if (promoCode) {
+      const promo = PROMO_CODES[String(promoCode).trim().toUpperCase()];
+      if (promo) {
+        appliedPromoCode = String(promoCode).trim().toUpperCase();
+        discountAmount = Math.min(round2(productSubtotal * promo.rate), productSubtotal);
+      }
+      // Unknown code → silently no discount (client already validated; never trust it).
+    }
+
+    // --- Shipping — validate id; compute cost server-side ---
+    const shipOpt = SHIPPING_OPTIONS[shipping?.id];
+    if (!shipOpt) {
+      return res.status(400).json({ error: "Invalid shipping option" });
+    }
+    const qualifiesFree = productSubtotal >= FREE_SHIPPING_THRESHOLD;
+    const shippingCost = shipOpt.pickup ? 0 : qualifiesFree ? 0 : shipOpt.price;
+    if (shippingCost > 0) {
+      lineItems.push({
+        price_data: { currency: "gbp", product_data: { name: `Shipping: ${shipOpt.name}` }, unit_amount: Math.round(shippingCost * 100) },
         quantity: 1,
       });
     }
 
-    // Add card fee as a line item (already computed client-side on discounted subtotal)
-    if (stripeFee && stripeFee > 0) {
+    // --- Card fee — server-side (same formula as the client display) ---
+    const subtotalAfterDiscount = round2(subtotal - discountAmount);
+    const stripeFee = getStripeFee(subtotalAfterDiscount + shippingCost);
+    if (stripeFee > 0) {
       lineItems.push({
-        price_data: {
-          currency: "gbp",
-          product_data: { name: "Card processing fee" },
-          unit_amount: Math.round(stripeFee * 100),
-        },
+        price_data: { currency: "gbp", product_data: { name: "Card processing fee" }, unit_amount: Math.round(stripeFee * 100) },
         quantity: 1,
       });
     }
 
-    // Build a Stripe coupon when a promo discount is applied. Stripe handles the math
-    // and shows the discount line natively in checkout.
+    const total = round2(subtotalAfterDiscount + shippingCost + stripeFee);
+    const expectedTotalPence = Math.round(total * 100);
+
+    // --- Discount coupon (Stripe applies it natively) using the SERVER amount ---
     let discounts;
-    if (promoCode && discountAmount && discountAmount > 0) {
+    if (appliedPromoCode && discountAmount > 0) {
       try {
         const coupon = await stripe.coupons.create({
           amount_off: Math.round(discountAmount * 100),
           currency: "gbp",
           duration: "once",
-          name: `${promoCode} (-£${discountAmount.toFixed(2)})`,
+          name: `${appliedPromoCode} (-£${discountAmount.toFixed(2)})`,
         });
         discounts = [{ coupon: coupon.id }];
       } catch (e) {
-        // If coupon creation fails, log and continue without discount rather than blocking checkout.
-        console.error("Coupon creation failed for", promoCode, "—", e.message);
+        console.error("Coupon creation failed for", appliedPromoCode, "—", e.message);
       }
     }
 
-    // Store full order data as chunked metadata (values limited to 500 chars each)
-    const metadata = {
-      customer_name: customerName,
-      shipping_method: shipping?.name || "Collection",
-      shipping_id: shipping?.id || "collection",
+    // --- Order data for the webhook: customer details come from the client (their
+    //     own info), but ALL money fields are the server-computed trusted values. ---
+    const trustedOrderData = {
+      orderId: orderData?.orderId,
+      customer: orderData?.customer || {},
+      shipping: { id: shipping.id, name: shipOpt.name },
+      items: trustedItems,
+      subtotal,
+      productSubtotal,
+      shippingCost,
+      stripeFee,
+      total,
+      promoCode: appliedPromoCode,
+      discountAmount,
     };
-    if (promoCode) metadata.promo_code = promoCode;
+
+    const metadata = {
+      customer_name: customerName || trustedOrderData.customer.name || "",
+      shipping_method: shipOpt.name,
+      shipping_id: shipping.id,
+      expected_total_pence: String(expectedTotalPence),
+    };
+    if (appliedPromoCode) metadata.promo_code = appliedPromoCode;
     if (discountAmount) metadata.discount_amount = String(discountAmount);
 
-    if (orderData) {
-      const orderJson = JSON.stringify(orderData);
-      const CHUNK_SIZE = 490;
-      const numChunks = Math.ceil(orderJson.length / CHUNK_SIZE);
-      metadata.order_chunks = String(numChunks);
-      for (let i = 0; i < numChunks; i++) {
-        metadata[`order_data_${i}`] = orderJson.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-      }
+    const orderJson = JSON.stringify(trustedOrderData);
+    const CHUNK_SIZE = 490;
+    const numChunks = Math.ceil(orderJson.length / CHUNK_SIZE);
+    metadata.order_chunks = String(numChunks);
+    for (let i = 0; i < numChunks; i++) {
+      metadata[`order_data_${i}`] = orderJson.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
     }
 
     const origin =
@@ -104,7 +232,6 @@ export default async function handler(req, res) {
     if (discounts) sessionParams.discounts = discounts;
 
     const session = await stripe.checkout.sessions.create(sessionParams);
-
     return res.status(200).json({ url: session.url });
   } catch (error) {
     console.error("Stripe session error:", error);
