@@ -450,7 +450,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v157 · 2026-07-11";
+const APP_VERSION = "v158 · 2026-07-12";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -545,16 +545,28 @@ const SEED_PRODUCTS = [
 /* ═══════════════════════════════════════════════
    STORAGE
    ═══════════════════════════════════════════════ */
+// Throws on read failure; resolves null ONLY when the doc genuinely doesn't exist.
+// Callers must never treat a thrown error as "no data": on 11 Jul 2026 a transient
+// read failure in a signed-in admin tab was treated as empty and the boot path
+// overwrote the live 130-product catalogue with SEED_PRODUCTS.
 async function loadProducts() {
-  try {
-    const r = await storageGet("products-v2");
-    return r ? JSON.parse(r) : null;
-  } catch { return null; }
+  const r = await storageGet("products-v2");
+  return r ? JSON.parse(r) : null;
 }
 
+// Last catalogue size successfully read from or written to Firestore this session.
+// Guards saveProducts against catastrophic shrink (the seed-overwrite failure shape).
+let _lastKnownProductCount = 0;
+
 async function saveProducts(products) {
+  if (_lastKnownProductCount >= 40 && products.length < _lastKnownProductCount / 2) {
+    console.error(`Blocked products save: ${products.length} would replace ${_lastKnownProductCount}`);
+    alert(`⚠️ Save blocked: this would shrink the catalogue from ${_lastKnownProductCount} to ${products.length} products. If that is genuinely intended, remove products in smaller batches.`);
+    return;
+  }
   try {
     await storageSet("products-v2", JSON.stringify(products));
+    _lastKnownProductCount = products.length;
   } catch (e) { console.error("❌ Save failed:", e); alert("⚠️ Product save failed! Check your connection and try again."); }
 }
 
@@ -6427,7 +6439,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                   const badCats = items.filter(d => { const cats = Array.isArray(d.category) ? d.category : [d.category]; return cats.some(c => c && !categories.includes(c)); });
                   if (badCats.length > 0) { alert("Category mismatch in " + badCats.length + " product(s). Expected: " + categories.join(", ")); return; }
                   setSaving(true);
-                  const freshProducts = await loadProducts() || products;
+                  const freshProducts = await loadProducts().catch(() => null) || products;
                   let maxId = freshProducts.reduce((m, p) => Math.max(m, p.id), 0);
                   const newProducts = items.map(data => ({
                     id: ++maxId,
@@ -7343,8 +7355,14 @@ function ElijahsPrintsInner() {
       meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
       document.head.appendChild(meta);
     }
-    loadProducts().then(p => {
-      if (!p) { setProducts([...SEED_PRODUCTS]); saveProducts([...SEED_PRODUCTS]); return; }
+    const bootLoadProducts = (attempt) => loadProducts().then(p => {
+      if (!p) {
+        // Doc genuinely absent (fresh project only). Display seed; NEVER write it —
+        // seeding the DB is an explicit admin decision, not a boot side-effect.
+        setProducts([...SEED_PRODUCTS]);
+        return;
+      }
+      _lastKnownProductCount = p.length;
       // Ensure all products have addedDate (set today for existing products without one)
       const today = new Date().toISOString();
       let needsSave = false;
@@ -7366,7 +7384,14 @@ function ElijahsPrintsInner() {
       // Previously, any tab that loaded (including stale mobile tabs) would
       // save the ENTIRE product list back to Firestore, overwriting changes
       // made by other tabs. This caused loss of 47 line drawings on 25 Mar.
+    }).catch(err => {
+      console.error(`Product load failed (attempt ${attempt + 1}/3):`, err);
+      if (attempt < 2) { setTimeout(() => bootLoadProducts(attempt + 1), 1500 * (attempt + 1)); return; }
+      // Read path down after 3 attempts — show seed DISPLAY-ONLY so the shop still
+      // renders something. The Firestore catalogue is intact; do not touch it.
+      setProducts([...SEED_PRODUCTS]);
     });
+    bootLoadProducts(0);
     loadOrders().then(o => setOrders(o || []));
     loadFilaments().then(f => {
       if (f) {

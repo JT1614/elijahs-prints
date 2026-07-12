@@ -42,7 +42,10 @@ const READ_KEYS = [
   "feature-flags-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1"];
+// TEMPORARY (2026-07-12 catalogue restore): "products-v2" added for the one-off
+// restore of the seeded-over catalogue. REVERT to ["assessment-v1"] immediately
+// after the restore is verified — see Brain/state.md incident entry.
+const WRITE_KEYS = ["assessment-v1", "products-v2"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
