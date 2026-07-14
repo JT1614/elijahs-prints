@@ -461,7 +461,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v160 · 2026-07-14";
+const APP_VERSION = "v161 · 2026-07-14";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -7809,7 +7809,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               I got <span style={{ color: S.teal, fontWeight: 800, fontStyle: "normal", fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "1px" }}>BANNED</span> from selling 3D prints at school…<br /><span style={{ color: S.teal, fontWeight: 700, fontStyle: "normal" }}>so I built this website instead!!</span>
             </div>
             <p style={{ fontSize: "clamp(13px, 2.5vw, 16px)", color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.7, fontStyle: "italic" }}>Bambu Lab P1S Combo · Ships from Wales 🏴󠁧󠁢󠁷󠁬󠁳󠁿</p>
-            <p style={{ fontSize: 15, color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {heroStats.colourCount} colours · {heroStats.comboCount.toLocaleString()} product-colour combos · Free school &amp; local drop-off or UK-wide shipping</p>
+            <p style={{ fontSize: 15, color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {heroStats.colourCount} colours · {heroStats.comboCount.toLocaleString()} product-colour combinations<br />Free school &amp; local drop-off or UK-wide shipping</p>
             <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap", maxWidth: 340, margin: "0 auto" }}>
               {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow")).map(name => {
                 const f = FILAMENTS[name];
