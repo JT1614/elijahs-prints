@@ -75,6 +75,38 @@ export default async function handler(req, res) {
       }
 
       const stored = typeof value === "string" ? value : JSON.stringify(value);
+
+      // Server-side shrink guard — the v158 saveProducts protection, applied on the
+      // admin-SDK path (which bypasses Firestore rules AND is pointed at products-v2
+      // during the temporary-WRITE_KEYS restore runbook). A full-doc replace must not
+      // silently halve a substantial store. Count = array length (products-v2) or key
+      // count (assessment-v1). `force:true` in the body is the explicit override.
+      const entryCount = (str) => {
+        try {
+          const v = JSON.parse(str);
+          if (Array.isArray(v)) return v.length;
+          if (v && typeof v === "object") return Object.keys(v).length;
+          return null;
+        } catch { return null; }
+      };
+      if (req.body.force !== true) {
+        let prevCount = null;
+        try {
+          const prevSnap = await db.collection("shop").doc(key).get();
+          if (prevSnap.exists) prevCount = entryCount(prevSnap.data().value);
+        } catch (e) {
+          // Can't verify prior state → refuse rather than risk an unguarded overwrite.
+          return res.status(503).json({ error: `Shrink guard: could not read current '${key}' to verify the write is safe (${e.message}). Retry, or send force:true if intentional.` });
+        }
+        const newCount = entryCount(stored);
+        if (prevCount != null && newCount != null && prevCount >= 40 && newCount < prevCount / 2) {
+          return res.status(409).json({
+            error: `Shrink guard blocked write to '${key}': ${prevCount} entries → ${newCount}. This is the catalogue-wipe failure shape. Send force:true only if the shrink is intended.`,
+            prevCount, newCount,
+          });
+        }
+      }
+
       await db.collection("shop").doc(key).set({
         value: stored,
         updatedAt: new Date().toISOString(),

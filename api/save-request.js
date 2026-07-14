@@ -86,7 +86,17 @@ export default async function handler(req, res) {
       _createdBy: "save-request-api",
     };
 
-    await db.collection("requests").doc(id).set(doc);
+    // Never overwrite an existing request: the doc id is client-supplied behind a
+    // bundled soft token, so a blind .set() let a double-submit reset admin status
+    // to 'new' — or a token-holder overwrite a genuine customer request wholesale.
+    // Idempotent: report success without touching the stored original.
+    const ref = db.collection("requests").doc(id);
+    const existing = await ref.get();
+    if (existing.exists) {
+      console.warn("[save-request] id already exists — not overwriting:", id);
+      return res.status(200).json({ success: true, id, alreadyExists: true });
+    }
+    await ref.set(doc);
     console.log("[save-request] Saved:", id);
     return res.status(200).json({ success: true, id });
   } catch (e) {

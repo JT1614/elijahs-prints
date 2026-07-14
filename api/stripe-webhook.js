@@ -182,7 +182,10 @@ export default async function handler(req, res) {
       }
 
       const order = {
-        id: orderData.orderId || "EP-" + Date.now().toString(36).toUpperCase(),
+        // Stable fallback id: derive from the Stripe session (constant across
+        // redeliveries) rather than Date.now(), which minted a NEW duplicate order
+        // on every redelivery/resend.
+        id: orderData.orderId || "EP-" + session.id.slice(-12).toUpperCase(),
         date: new Date().toISOString(),
         customer: orderData.customer,
         shipping: orderData.shipping,
@@ -203,10 +206,24 @@ export default async function handler(req, res) {
         _stripeSessionId: session.id,
       };
 
-      // Write to Firebase (setDoc is idempotent — safe if client also writes)
+      // Write to Firebase inside a transaction so a Stripe REDELIVERY (secret
+      // rotation → ~3-day retries, or a dashboard "Resend") can never reset a
+      // progressed order's fulfilment flags or restamp its date. setDoc was only
+      // idempotent for identical payloads — a redelivery after admin ticked
+      // produced/labelPrinted/despatched used to full-replace it back to day-one.
       if (db) {
-        await db.collection("orders").doc(order.id).set(order);
-        console.log("✅ Webhook: order saved to Firebase:", order.id);
+        const ref = db.collection("orders").doc(order.id);
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          if (!snap.exists) { tx.set(ref, order); return; }
+          const cur = snap.data() || {};
+          const progressed = cur.status?.produced || cur.status?.labelPrinted || cur.status?.despatched;
+          if (progressed) return; // already in fulfilment — leave entirely as-is
+          // Exists but not progressed: keep the original date/id, reconcile the
+          // authoritative total + paid/needsReview status only, never overwrite wholesale.
+          tx.set(ref, { total: order.total, status: order.status, _reconciledBy: "stripe-webhook" }, { merge: true });
+        });
+        console.log("✅ Webhook: order saved/reconciled in Firebase:", order.id);
       } else {
         console.error("Webhook: Firebase not initialised — order NOT saved:", order.id);
         // Still return 200 so Stripe doesn't retry endlessly

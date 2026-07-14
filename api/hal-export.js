@@ -56,7 +56,12 @@ export default async function handler(req, res) {
 
       const raw = stockDoc.data();
       const parsed = typeof raw.value === "string" ? JSON.parse(raw.value) : raw.value;
-      const orders = Array.isArray(parsed) ? parsed : [];
+      // Do NOT coerce an unexpected shape to [] and write it back — that would wipe
+      // the whole batch queue (the 11-Jul read-anomaly-becomes-empty failure shape).
+      if (!Array.isArray(parsed)) {
+        return res.status(422).json({ error: "stock-orders-v1 is not an array — refusing to modify. Manual check needed." });
+      }
+      const orders = parsed;
 
       // Find unticked items matching productId + colour in active orders, tick up to count
       let ticked = 0;
@@ -74,7 +79,14 @@ export default async function handler(req, res) {
         if (ticked >= toTick) break;
       }
 
-      // Write back
+      // Nothing matched → don't rewrite the whole doc (avoids a needless full-replace
+      // and its lost-update race with the admin tab). NOTE: if this endpoint is ever
+      // re-armed with a live concurrent caller, wrap the read-modify-write in
+      // db.runTransaction — today it has no live caller so the guard above suffices.
+      if (ticked === 0) {
+        return res.status(200).json({ ticked: 0, productId, colour, requested: toTick, note: "no matching unticked items — no write made" });
+      }
+
       await db.collection("shop").doc("stock-orders-v1").set({
         value: JSON.stringify(orders),
         updatedAt: new Date().toISOString(),

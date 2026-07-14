@@ -179,14 +179,25 @@ async function saveCategoryMeta(meta) {
    it has ever evaluated. 3 statuses: live / draft / rejected. statusReason is free
    text. Source-of-truth for the et-creator-watcher routine; surfaced via morning
    briefings, not via a UI tab. */
+// Throws on read failure; resolves {} ONLY when the doc genuinely doesn't exist.
+// Same v158 discipline as loadProducts: a transient read error must NOT be
+// mistaken for an empty ledger — that is the 11-Jul catalogue-wipe failure shape,
+// and this ledger's Reseed path has the identical read-spread-save structure.
+let _lastKnownLedgerCount = 0;
 async function loadAssessmentLedger() {
-  try {
-    const r = await storageGet("assessment-v1");
-    return r ? JSON.parse(r) : {};
-  } catch { return {}; }
+  const r = await storageGet("assessment-v1");
+  const ledger = r ? JSON.parse(r) : {};
+  _lastKnownLedgerCount = Object.keys(ledger).length;
+  return ledger;
 }
 async function saveAssessmentLedger(ledger) {
-  try { await storageSet("assessment-v1", JSON.stringify(ledger)); } catch (e) { console.error("Save ledger failed:", e); }
+  const count = Object.keys(ledger || {}).length;
+  if (_lastKnownLedgerCount >= 40 && count < _lastKnownLedgerCount / 2) {
+    console.error(`Blocked ledger save: ${count} would replace ${_lastKnownLedgerCount}`);
+    alert(`⚠️ Save blocked: this would shrink the assessment ledger from ${_lastKnownLedgerCount} to ${count} entries. If genuinely intended, remove entries in smaller batches.`);
+    return;
+  }
+  try { await storageSet("assessment-v1", JSON.stringify(ledger)); _lastKnownLedgerCount = count; } catch (e) { console.error("Save ledger failed:", e); }
 }
 function extractMakerWorldId(sourceUrl) {
   const m = (sourceUrl || "").match(/\/models\/(\d+)/);
@@ -450,7 +461,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v158 · 2026-07-12";
+const APP_VERSION = "v159 · 2026-07-14";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -5691,7 +5702,14 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
               if (!products) return;
               const eligible = products.filter(p => p.creator && p.sourceUrl && extractMakerWorldId(p.sourceUrl));
               if (eligible.length === 0) { alert("No products with creator + sourceUrl + valid MakerWorld URL found. Cannot seed."); return; }
-              const existing = await loadAssessmentLedger();
+              let existing;
+              try {
+                existing = await loadAssessmentLedger();
+              } catch (e) {
+                console.error("Reseed aborted — ledger read failed:", e);
+                alert("⚠️ Couldn't read the current ledger (connection issue). Reseed aborted so the existing ledger is NOT overwritten. Try again in a moment.");
+                return;
+              }
               const today = new Date().toISOString().slice(0, 10);
               let added = 0, refreshed = 0;
               const next = { ...existing };
