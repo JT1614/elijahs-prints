@@ -461,7 +461,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v159 · 2026-07-14";
+const APP_VERSION = "v160 · 2026-07-14";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -7624,6 +7624,17 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
     categories.forEach(cat => { c[cat] = avail.filter(p => productInCategoryOrSub(p, cat, categoryMeta)).length; });
     return c;
   }, [products, catVer, categoryMeta]);
+
+  /* Live hero stats — colours = visible (non-paused, glow-aware) filaments; combos =
+     for every available product, how many of those visible colours it's offered in,
+     summed. All three hero numbers derive from live catalogue + filament state. */
+  const heroStats = useMemo(() => {
+    const visible = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow"));
+    const visibleSet = new Set(visible);
+    const avail = (products || []).filter(x => x.available !== false);
+    const comboCount = avail.reduce((sum, p) => sum + (p.colors || []).filter(c => visibleSet.has(c)).length, 0);
+    return { colourCount: visible.length, comboCount };
+  }, [products, filamentVer, featureFlags.glowEnabled]);
   if (!products) return <div style={{ minHeight: "100vh", background: S.dark, display: "flex", alignItems: "center", justifyContent: "center", color: S.teal, fontFamily: S.fontHead, fontSize: 18 }}>Loading...</div>;
 
   return (
@@ -7798,7 +7809,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               I got <span style={{ color: S.teal, fontWeight: 800, fontStyle: "normal", fontFamily: S.fontHead, textTransform: "uppercase", letterSpacing: "1px" }}>BANNED</span> from selling 3D prints at school…<br /><span style={{ color: S.teal, fontWeight: 700, fontStyle: "normal" }}>so I built this website instead!!</span>
             </div>
             <p style={{ fontSize: "clamp(13px, 2.5vw, 16px)", color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.7, fontStyle: "italic" }}>Bambu Lab P1S Combo · Ships from Wales 🏴󠁧󠁢󠁷󠁬󠁳󠁿</p>
-            <p style={{ fontSize: 15, color: S.muted, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow")).length} colours · Free school &amp; local drop-off or UK-wide shipping</p>
+            <p style={{ fontSize: 15, color: S.muted, maxWidth: 520, margin: "0 auto 20px", lineHeight: 1.6 }}>{catCounts.All || 0} products · {heroStats.colourCount} colours · {heroStats.comboCount.toLocaleString()} product-colour combos · Free school &amp; local drop-off or UK-wide shipping</p>
             <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap", maxWidth: 340, margin: "0 auto" }}>
               {ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow")).map(name => {
                 const f = FILAMENTS[name];
