@@ -561,15 +561,37 @@ const SEED_PRODUCTS = [
 // read failure in a signed-in admin tab was treated as empty and the boot path
 // overwrote the live 130-product catalogue with SEED_PRODUCTS.
 async function loadProducts() {
-  const r = await storageGet("products-v2");
-  return r ? JSON.parse(r) : null;
+  try {
+    const r = await storageGet("products-v2");
+    _catalogueReadFailed = false;
+    return r ? JSON.parse(r) : null;
+  } catch (e) {
+    // 14-Jul irreversible-loss-review finding: a read failure must arm the guard
+    // too, not just a successful read. Previously _lastKnownProductCount stayed
+    // at its last-good value (or 0 on first boot) while the guard only fired on
+    // count math — a caller that swallowed this throw (as the bulk-import path
+    // at the JSON-import button used to) could save a small in-memory fallback
+    // straight over the live catalogue with the guard never tripping.
+    _catalogueReadFailed = true;
+    throw e;
+  }
 }
 
 // Last catalogue size successfully read from or written to Firestore this session.
 // Guards saveProducts against catastrophic shrink (the seed-overwrite failure shape).
 let _lastKnownProductCount = 0;
+// True whenever the most recent loadProducts() call threw. Blocks ALL saves
+// until a successful read clears it — closes the gap where the shrink-guard
+// (armed only by a successful read/save) is disarmed in exactly the state
+// (read failing) it exists to guard against.
+let _catalogueReadFailed = false;
 
 async function saveProducts(products) {
+  if (_catalogueReadFailed) {
+    console.error(`Blocked products save: last catalogue read failed — refusing to save until a successful read.`);
+    alert(`⚠️ Save blocked: the last catalogue read failed, so saving now risks overwriting the live catalogue with stale or incomplete data. Reload the page and try again once it loads successfully.`);
+    return;
+  }
   if (_lastKnownProductCount >= 40 && products.length < _lastKnownProductCount / 2) {
     console.error(`Blocked products save: ${products.length} would replace ${_lastKnownProductCount}`);
     alert(`⚠️ Save blocked: this would shrink the catalogue from ${_lastKnownProductCount} to ${products.length} products. If that is genuinely intended, remove products in smaller batches.`);
@@ -6457,7 +6479,20 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                   const badCats = items.filter(d => { const cats = Array.isArray(d.category) ? d.category : [d.category]; return cats.some(c => c && !categories.includes(c)); });
                   if (badCats.length > 0) { alert("Category mismatch in " + badCats.length + " product(s). Expected: " + categories.join(", ")); return; }
                   setSaving(true);
-                  const freshProducts = await loadProducts().catch(() => null) || products;
+                  let freshProducts;
+                  try {
+                    // Must NOT swallow a read failure into null->products fallback: `products`
+                    // is React state, which after a boot read-failure is display-only SEED_PRODUCTS.
+                    // Falling back to it here was the exact mechanism that let a bulk import
+                    // write ~20 seed products over the live 130-product catalogue (14-Jul finding).
+                    freshProducts = await loadProducts();
+                    if (!freshProducts) freshProducts = products; // doc genuinely absent (fresh project) — safe
+                  } catch (e) {
+                    console.error("Import aborted — product read failed:", e);
+                    alert("⚠️ Couldn't read the current catalogue (connection issue). Import aborted so nothing is overwritten. Try again in a moment.");
+                    setSaving(false);
+                    return;
+                  }
                   let maxId = freshProducts.reduce((m, p) => Math.max(m, p.id), 0);
                   const newProducts = items.map(data => ({
                     id: ++maxId,
