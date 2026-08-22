@@ -534,15 +534,18 @@ const FALLBACK_ADMIN_PASSWORD = "elijah3d"; // Only used when Firebase is NOT co
 //   printTime, grams, available, maxColors, ...optional fields (addedDate, creator,
 //   sourceUrl, premiumOverride, categoryMeta parent/child, etc.) }
 //
-// quantityTiers (optional, added 2026-08-22 — first use: FootballLab Medal bulk order):
-//   an array of { qty, price, label } objects, e.g.
-//   [{ qty: 10, price: 2.30, label: "10 medals" }, ...]. When present and non-empty,
-//   ProductCard renders one button per tier above the normal single-unit Add to Cart
-//   button. Clicking a tier calls addToCart(product, selectedColors, tier.qty) with the
-//   product's price temporarily overridden to tier.price / tier.qty, so the cart's
-//   existing qty * price display math produces the correct tier total without any
-//   changes to cart/checkout/order-email code. Purely additive — products without this
-//   field are unaffected.
+// quantityTiers (optional, added 2026-08-22 — first use: FootballLab Medal bulk order;
+//   shape changed same day from a stored total to a per-unit price so admins enter the
+//   PER-UNIT rate directly and never have to do the qty×price math by hand):
+//   an array of { qty, pricePerUnit, label } objects, e.g.
+//   [{ qty: 50, pricePerUnit: 1.00, label: "50 medals" }, ...]. When present and
+//   non-empty, ProductCard renders one button per tier above the normal single-unit Add
+//   to Cart button, showing qty × pricePerUnit as the computed total. Clicking a tier
+//   calls addToCart(product, selectedColors, tier.qty) with the product's price
+//   temporarily overridden to tier.pricePerUnit, so the cart's existing qty * price
+//   display math produces the correct tier total without any changes to
+//   cart/checkout/order-email code. Purely additive — products without this field are
+//   unaffected. Admin UI: ProductEditor's "Volume Pricing" section.
 const SEED_PRODUCTS = [
   { id: 100, name: "Tiny Character Figure", price: 1.00, category: "Fidgets & Toys", description: "Ultra-tiny detailed character figure. Smaller than a 50p coin!", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "30 min", grams: 3, available: true, maxColors: 1 },
   { id: 101, name: "Spiral Cone Ornament", price: 1.00, category: "Fidgets & Toys", description: "Stunning multi-colour spiral cone with layered petal design.", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "6 hrs", grams: 80, available: true, maxColors: 1 },
@@ -1406,7 +1409,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
             {product.quantityTiers.map((tier, i) => (
               <button
                 key={i}
-                onClick={() => canAdd && onAddToCart({ ...product, price: tier.price / tier.qty }, selectedColors, tier.qty)}
+                onClick={() => canAdd && onAddToCart({ ...product, price: tier.pricePerUnit }, selectedColors, tier.qty)}
                 disabled={!canAdd}
                 style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -1417,7 +1420,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
                 }}
               >
                 <span>{tier.label}</span>
-                <span style={{ color: S.teal, fontFamily: S.fontMono }}>£{tier.price.toFixed(2)}</span>
+                <span style={{ color: S.teal, fontFamily: S.fontMono }}>£{(tier.qty * tier.pricePerUnit).toFixed(2)}</span>
               </button>
             ))}
           </div>
@@ -1735,6 +1738,47 @@ function ProductEditor({ product, onSave, onAutoSave, onDelete, onCancel, isNew,
               <span style={{ fontSize: 12, color: p.premiumOverride ? "#ffd43b" : S.dimmer, fontWeight: 600 }}>{p.premiumOverride ? "⭐ ON" : "OFF"}</span>
             </button>
             </Tooltip>
+          </div>
+        </div>
+
+        {/* Volume Pricing (optional) — general wholesale-tier pattern, works for any product
+            that carries a quantityTiers array; nothing here is specific to any one product. */}
+        <div style={sectionStyle}>
+          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 6 }}>
+            Volume Pricing (optional)
+            <Tooltip position="right" text="Add quantity price breaks for bulk orders. Enter the PER-UNIT price for each tier — the total is calculated for you. Shown to customers as extra buttons below the normal Add to Cart button.">
+              <span style={{ fontSize: 11, color: S.purple, fontFamily: S.fontHead, cursor: "help", border: `1px solid ${S.purple}`, borderRadius: "50%", width: 16, height: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700, opacity: 0.8 }}>?</span>
+            </Tooltip>
+          </label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+            {(p.quantityTiers || []).map((tier, i) => {
+              const qtyNum = Number(tier.qty) || 0;
+              const rateNum = Number(tier.pricePerUnit) || 0;
+              const updateTier = (key, val) => {
+                const tiers = [...(p.quantityTiers || [])];
+                tiers[i] = { ...tiers[i], [key]: val };
+                set("quantityTiers", tiers);
+              };
+              return (
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 10px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.02)", flexWrap: "wrap" }}>
+                  <div style={{ width: 80 }}>
+                    <label style={{ fontSize: 9, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", display: "block", marginBottom: 2 }}>Qty</label>
+                    <input style={{ ...inputStyle, padding: "6px 8px", fontSize: 13 }} type="number" min="1" value={tier.qty ?? ""} onChange={e => updateTier("qty", e.target.value === "" ? "" : parseInt(e.target.value))} onBlur={() => { if (tier.qty === "" || isNaN(tier.qty)) updateTier("qty", 0); }} />
+                  </div>
+                  <div style={{ width: 100 }}>
+                    <label style={{ fontSize: 9, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", display: "block", marginBottom: 2 }}>£ per unit</label>
+                    <input style={{ ...inputStyle, padding: "6px 8px", fontSize: 13 }} type="number" step="0.01" min="0" value={tier.pricePerUnit ?? ""} onChange={e => updateTier("pricePerUnit", e.target.value === "" ? "" : parseFloat(e.target.value))} onBlur={() => { if (tier.pricePerUnit === "" || isNaN(tier.pricePerUnit)) updateTier("pricePerUnit", 0); }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 100 }}>
+                    <label style={{ fontSize: 9, color: S.dimmer, fontFamily: S.fontHead, textTransform: "uppercase", display: "block", marginBottom: 2 }}>Label</label>
+                    <input style={{ ...inputStyle, padding: "6px 8px", fontSize: 13 }} value={tier.label ?? ""} onChange={e => updateTier("label", e.target.value)} placeholder={`${qtyNum || 0} units`} />
+                  </div>
+                  <div style={{ fontSize: 11, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", padding: "6px 0" }}>= £{(qtyNum * rateNum).toFixed(2)} total</div>
+                  <button onClick={() => set("quantityTiers", (p.quantityTiers || []).filter((_, idx) => idx !== i))} style={{ background: "rgba(255,107,107,0.08)", border: "1px solid rgba(255,107,107,0.3)", color: "#ff6b6b", width: 28, height: 28, borderRadius: 8, cursor: "pointer", fontSize: 14, flexShrink: 0 }}>✕</button>
+                </div>
+              );
+            })}
+            <button onClick={() => set("quantityTiers", [...(p.quantityTiers || []), { qty: "", pricePerUnit: "", label: "" }])} style={{ padding: "8px 14px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, alignSelf: "flex-start" }}>+ Add volume break</button>
           </div>
         </div>
 

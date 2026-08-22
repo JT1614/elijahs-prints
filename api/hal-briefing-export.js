@@ -42,7 +42,10 @@ const READ_KEYS = [
   "feature-flags-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1"];
+// TEMPORARY: products-v2 added to migrate FootballLab Medal (id 250) to
+// John-confirmed real pricing (pricePerUnit quantityTiers shape) via the
+// read-verify-write-reread-verify runbook. Revert to ["assessment-v1"] after use.
+const WRITE_KEYS = ["assessment-v1", "products-v2"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
