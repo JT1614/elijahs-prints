@@ -42,12 +42,7 @@ const READ_KEYS = [
   "feature-flags-v1",
 ];
 
-// TEMPORARY EXTENSION (2026-08-22) — categories-v1 + products-v2 added to run the
-// FootballLab Medal one-off product addition (Tom, The Football Lab) through the
-// established runbook (extend WRITE_KEYS, do the write, revert with a follow-up
-// commit — see 2026-07-12 precedent in ET Print World CLAUDE.md "catalogue-wipe
-// class of bug" section). REVERT to ["assessment-v1"] once the write is confirmed.
-const WRITE_KEYS = ["assessment-v1", "categories-v1", "products-v2"];
+const WRITE_KEYS = ["assessment-v1"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
