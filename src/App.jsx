@@ -530,6 +530,19 @@ const FALLBACK_ADMIN_PASSWORD = "elijah3d"; // Only used when Firebase is NOT co
 /* ═══════════════════════════════════════════════
    DEFAULT PRODUCTS (seed data)
    ═══════════════════════════════════════════════ */
+// Product schema: { id, name, price, category, description, colors, emoji, img, badge,
+//   printTime, grams, available, maxColors, ...optional fields (addedDate, creator,
+//   sourceUrl, premiumOverride, categoryMeta parent/child, etc.) }
+//
+// quantityTiers (optional, added 2026-08-22 — first use: FootballLab Medal bulk order):
+//   an array of { qty, price, label } objects, e.g.
+//   [{ qty: 10, price: 2.30, label: "10 medals" }, ...]. When present and non-empty,
+//   ProductCard renders one button per tier above the normal single-unit Add to Cart
+//   button. Clicking a tier calls addToCart(product, selectedColors, tier.qty) with the
+//   product's price temporarily overridden to tier.price / tier.qty, so the cart's
+//   existing qty * price display math produces the correct tier total without any
+//   changes to cart/checkout/order-email code. Purely additive — products without this
+//   field are unaffected.
 const SEED_PRODUCTS = [
   { id: 100, name: "Tiny Character Figure", price: 1.00, category: "Fidgets & Toys", description: "Ultra-tiny detailed character figure. Smaller than a 50p coin!", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "30 min", grams: 3, available: true, maxColors: 1 },
   { id: 101, name: "Spiral Cone Ornament", price: 1.00, category: "Fidgets & Toys", description: "Stunning multi-colour spiral cone with layered petal design.", colors: ["Matte Charcoal"], emoji: "", img: "", badge: null, printTime: "6 hrs", grams: 80, available: true, maxColors: 1 },
@@ -1387,13 +1400,35 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
           }
         </div>
         {maxC > 1 && !sameColour && !fixedColours && <div style={{ fontSize: 9, color: S.purple, fontStyle: "italic", marginBottom: 2, lineHeight: 1.4, opacity: 0.8 }}>1st colour = largest part, last = smallest detail</div>}
+        {Array.isArray(product.quantityTiers) && product.quantityTiers.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 6 }}>
+            <div style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono, letterSpacing: "0.5px", textTransform: "uppercase" }}>Bulk pricing</div>
+            {product.quantityTiers.map((tier, i) => (
+              <button
+                key={i}
+                onClick={() => canAdd && onAddToCart({ ...product, price: tier.price / tier.qty }, selectedColors, tier.qty)}
+                disabled={!canAdd}
+                style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  width: "100%", padding: "8px 12px", borderRadius: 10, border: `1px solid ${S.border}`,
+                  background: canAdd ? "rgba(0,201,167,0.06)" : "rgba(255,255,255,0.03)",
+                  color: canAdd ? S.text : "rgba(255,255,255,0.2)",
+                  fontSize: 12, fontWeight: 700, cursor: canAdd ? "pointer" : "default", fontFamily: S.fontHead,
+                }}
+              >
+                <span>{tier.label}</span>
+                <span style={{ color: S.teal, fontFamily: S.fontMono }}>£{tier.price.toFixed(2)}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <button onClick={() => canAdd && onAddToCart(product, selectedColors)} disabled={!canAdd} style={{
           width: "100%", padding: "10px 0", borderRadius: 10, border: "none", marginTop: 6,
           background: cartAnimation === product.id ? S.teal : canAdd ? "linear-gradient(135deg, rgba(0,201,167,0.15), rgba(0,201,167,0.08))" : "rgba(255,255,255,0.03)",
           color: cartAnimation === product.id ? "#1a1a2e" : canAdd ? S.teal : "rgba(255,255,255,0.2)",
           fontSize: 12, fontWeight: 700, cursor: canAdd ? "pointer" : "default",
           fontFamily: S.fontHead, letterSpacing: "0.5px", textTransform: "uppercase",
-        }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? `Select ${maxC} colours` : "Add to Cart"}</button>
+        }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? `Select ${maxC} colours` : Array.isArray(product.quantityTiers) && product.quantityTiers.length > 0 ? "Add 1 (single)" : "Add to Cart"}</button>
       </div>
     </div>
   );
@@ -7603,12 +7638,16 @@ function ElijahsPrintsInner() {
     return p;
   }, [activeCat, search, products, autoBadges, glowOnly, featureFlags.glowEnabled, filamentVer]);
 
-  const addToCart = (product, selectedColors) => {
+  // initialQty (added for quantityTiers, 2026-08-22): optional 4th param, defaults to 1
+  // so every existing call site (single-unit add) is unchanged. Only the "new line"
+  // branch uses it — an existing matching line still increments by 1 per click, same
+  // as before this change.
+  const addToCart = (product, selectedColors, initialQty = 1) => {
     const adjustedPrice = getPremiumPrice(product.price, selectedColors);
     const key = product.id + "-" + selectedColors.join(",");
     const i = cart.findIndex(c => (c.id + "-" + c.selectedColors.join(",")) === key);
     if (i >= 0) { const u = [...cart]; u[i].qty += 1; setCart(u); }
-    else setCart([...cart, { ...product, price: adjustedPrice, selectedColors, qty: 1 }]);
+    else setCart([...cart, { ...product, price: adjustedPrice, selectedColors, qty: initialQty }]);
     setCartAnim(product.id); setTimeout(() => setCartAnim(null), 1200);
   };
 
