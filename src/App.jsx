@@ -7683,14 +7683,20 @@ function ElijahsPrintsInner() {
   }, [activeCat, search, products, autoBadges, glowOnly, featureFlags.glowEnabled, filamentVer]);
 
   // initialQty (added for quantityTiers, 2026-08-22): optional 4th param, defaults to 1
-  // so every existing call site (single-unit add) is unchanged. Only the "new line"
-  // branch uses it — an existing matching line still increments by 1 per click, same
-  // as before this change.
+  // so every existing call site (single-unit add) is unchanged.
+  //
+  // Bug fixed 2026-08-27: the match key didn't include price, so clicking a SECOND,
+  // different bulk tier for the same product+colours matched the line the FIRST tier
+  // created and just bumped its qty by a hardcoded 1 — silently corrupting both the
+  // quantity and leaving the price stuck at the first tier's rate. Price is now part
+  // of the key, so each distinct tier (a distinct pricePerUnit) always starts its own
+  // line; a genuinely repeated click (same tier, same price) still merges — but now
+  // adds that tier's own qty each time, not a flat 1.
   const addToCart = (product, selectedColors, initialQty = 1) => {
     const adjustedPrice = getPremiumPrice(product.price, selectedColors);
-    const key = product.id + "-" + selectedColors.join(",");
-    const i = cart.findIndex(c => (c.id + "-" + c.selectedColors.join(",")) === key);
-    if (i >= 0) { const u = [...cart]; u[i].qty += 1; setCart(u); }
+    const key = product.id + "-" + selectedColors.join(",") + "-" + adjustedPrice;
+    const i = cart.findIndex(c => (c.id + "-" + c.selectedColors.join(",") + "-" + c.price) === key);
+    if (i >= 0) { const u = [...cart]; u[i].qty += initialQty; setCart(u); }
     else setCart([...cart, { ...product, price: adjustedPrice, selectedColors, qty: initialQty }]);
     setCartAnim(product.id); setTimeout(() => setCartAnim(null), 1200);
   };

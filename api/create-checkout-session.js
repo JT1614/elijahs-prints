@@ -105,22 +105,42 @@ export default async function handler(req, res) {
       if (prod.available === false) {
         return res.status(400).json({ error: `Product unavailable: ${String(prod.name).slice(0, 60)}` });
       }
-      const price = round2(Number(prod.price));
-      if (!(price >= 0)) {
+
+      // Bulk quantity-tier pricing (found 2026-08-27 while fixing the client cart bug —
+      // this endpoint never knew quantityTiers existed, so ANY bulk order was silently
+      // recomputed at the full base price x qty, e.g. a 50-unit £50 order would have been
+      // charged £125). If this exact qty matches a defined tier, price the WHOLE line as
+      // that tier's total, computed before rounding: Stripe's unit_amount is whole pence,
+      // and rounding a fractional-penny tier rate first (e.g. £0.625 -> £0.63) overcharges
+      // once multiplied back up (63p x 200 = £126, not £125). Non-tier lines are untouched.
+      const tier = Array.isArray(prod.quantityTiers)
+        ? prod.quantityTiers.find((t) => Number(t.qty) === qty)
+        : null;
+      let price, lineAmount, stripeQty;
+      if (tier) {
+        lineAmount = round2(qty * Number(tier.pricePerUnit));
+        price = round2(lineAmount / qty); // display/record only — the trusted charge is lineAmount
+        stripeQty = 1; // one Stripe "unit" = the whole bundle, priced at its exact total
+      } else {
+        price = round2(Number(prod.price));
+        lineAmount = round2(price * qty);
+        stripeQty = qty;
+      }
+      if (!(lineAmount >= 0)) {
         return res.status(400).json({ error: `Product has no valid price: ${String(prod.name).slice(0, 60)}` });
       }
-      subtotal += price * qty;
-      productSubtotal += price * qty;
+      subtotal += lineAmount;
+      productSubtotal += lineAmount;
       lineItems.push({
         price_data: {
           currency: "gbp",
           product_data: {
-            name: prod.name,
+            name: tier ? `${prod.name} — ${tier.label || qty + " pack"}` : prod.name,
             description: it.selectedColors ? `Colour: ${(it.selectedColors || []).join(" + ")}` : undefined,
           },
-          unit_amount: Math.round(price * 100),
+          unit_amount: Math.round((tier ? lineAmount : price) * 100),
         },
-        quantity: qty,
+        quantity: stripeQty,
       });
       trustedItems.push({ id: prod.id, name: prod.name, price, qty, selectedColors: it.selectedColors || [] });
     }
