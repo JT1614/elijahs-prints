@@ -245,6 +245,17 @@ function isSubCategory(cat, meta) {
 function isCategoryPaused(cat, meta) {
   return !!(meta[cat] || {}).paused;
 }
+/* Password-protected categories (added 2026-08-29 for exclusive-customer drops, e.g.
+   FootballLab): a category can carry passwordProtected+password in its own meta entry,
+   reusing the same store every other category flag (paused, audience, ...) already lives
+   in. isCategoryLocked checks the flag; isCategoryUnlocked also needs the per-browser
+   unlocked-category list, since the flag alone doesn't know what's been entered. */
+function isCategoryLocked(cat, meta) {
+  return !!(meta[cat] || {}).passwordProtected;
+}
+function isCategoryUnlocked(cat, meta, unlockedCategories) {
+  return !isCategoryLocked(cat, meta) || unlockedCategories.includes(cat);
+}
 async function loadCreators() {
   try {
     console.log("loadCreators: step 1 — calling storageGet");
@@ -5817,6 +5828,14 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                       {/* Box Labels toggle */}
                       <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, hasBoxLabels: !meta.hasBoxLabels }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.hasBoxLabels ? "rgba(245,158,11,0.4)" : S.border}`, background: meta.hasBoxLabels ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.02)", color: meta.hasBoxLabels ? "#f59e0b" : S.dimmer, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.hasBoxLabels ? "🏷️ Labels ON" : "🏷️ Labels"}</button>
                       <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, paused: !meta.paused }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.paused ? "rgba(255,107,107,0.4)" : S.border}`, background: meta.paused ? "rgba(255,107,107,0.1)" : "rgba(255,255,255,0.02)", color: meta.paused ? "#ff6b6b" : S.dimmer, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.paused ? "⏸️ Paused" : "⏸️ Pause"}</button>
+                      {/* Password protection — hides this category's products from public
+                          browsing/search until the correct password is entered; the same
+                          category-meta store as every other flag here, so a future
+                          exclusive-customer drop reuses this with no code change. */}
+                      <button onClick={() => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, passwordProtected: !meta.passwordProtected }; onSaveCategoryMeta(newMeta); }} style={{ padding: "4px 10px", borderRadius: 8, border: `1px solid ${meta.passwordProtected ? "rgba(132,94,247,0.4)" : S.border}`, background: meta.passwordProtected ? "rgba(132,94,247,0.1)" : "rgba(255,255,255,0.02)", color: meta.passwordProtected ? S.purple : S.dimmer, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>{meta.passwordProtected ? "🔒 Locked" : "🔒 Lock"}</button>
+                      {meta.passwordProtected && (
+                        <input value={meta.password || ""} onChange={e => { const newMeta = {...categoryMeta}; newMeta[cat] = { ...meta, password: e.target.value }; onSaveCategoryMeta(newMeta); }} placeholder="Password" style={{ width: 160, padding: "4px 8px", borderRadius: 8, border: `1px solid rgba(132,94,247,0.4)`, background: "rgba(132,94,247,0.06)", color: S.text, fontSize: 11, fontFamily: S.fontMono, outline: "none" }} />
+                      )}
                       <button onClick={() => { setEditingCat(idx); setEditCatName(cat); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.muted, fontSize: 11, cursor: "pointer", fontFamily: S.fontHead }}>✏️ Rename</button>
                       <button onClick={() => { if (count > 0) { if (!window.confirm(`"${cat}" has ${count} product${count !== 1 ? "s" : ""}. They'll keep their category label but it won't appear in filters. Delete anyway?`)) return; } const newMeta = {...categoryMeta}; delete newMeta[cat]; onSaveCategoryMeta(newMeta); onSaveCategories(categories.filter((_, i) => i !== idx)); }} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid rgba(255,107,107,0.3)`, background: "transparent", color: "#ff6b6b", fontSize: 11, cursor: "pointer", fontFamily: S.fontHead }}>🗑️ Delete</button>
                     </>
@@ -6922,6 +6941,39 @@ function AdminLogin({ onLogin }) {
   );
 }
 
+/* Password gate shown in place of the product grid when the active category is
+   password-protected (categoryMeta[cat].passwordProtected) and this browser hasn't
+   unlocked it yet. Mirrors AdminLogin's compare-and-reveal shape. This is a client-side
+   gate, not real security — it hides a category from casual browsing/search and removes
+   its Add to Cart buttons until unlocked, same level of protection as this business
+   already uses for "Private" MakerWorld listings, not a defence against a technical
+   adversary. */
+function CategoryPasswordGate({ category, categoryMeta, onUnlock }) {
+  const [pw, setPw] = useState("");
+  const [error, setError] = useState("");
+
+  const attempt = () => {
+    const correct = (categoryMeta[category] || {}).password;
+    if (correct && pw === correct) { onUnlock(category); setPw(""); setError(""); }
+    else { setError("Wrong password"); setTimeout(() => setError(""), 2000); }
+  };
+
+  return (
+    <div style={{ maxWidth: 380, margin: "60px auto 100px", padding: "0 24px", textAlign: "center" }}>
+      <div style={{ width: 64, height: 64, borderRadius: 16, background: `linear-gradient(135deg, ${S.purple}, ${S.teal})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, margin: "0 auto 24px" }}>🔒</div>
+      <h2 style={{ fontSize: 22, fontWeight: 800, fontFamily: S.fontHead, color: S.text, marginBottom: 8 }}>{category}</h2>
+      <p style={{ fontSize: 13, color: S.muted, marginBottom: 24 }}>This collection is private. Enter the password to view it.</p>
+      <input value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === "Enter" && attempt()} type="password" placeholder="Password" autoComplete="off" style={{
+        width: "100%", padding: "14px 16px", borderRadius: 12, fontSize: 16, textAlign: "center",
+        border: error ? "1.5px solid #ff6b6b" : `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)",
+        color: S.text, fontFamily: S.font, outline: "none", boxSizing: "border-box",
+      }} />
+      {error && <p style={{ fontSize: 12, color: "#ff6b6b", marginTop: 8 }}>{error}</p>}
+      <button onClick={attempt} style={{ marginTop: 16, width: "100%", padding: "14px 0", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.purple}, #6c3ce0)`, color: "#fff", fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead }}>Unlock</button>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════
    CHECKOUT + CART (simplified)
    ═══════════════════════════════════════════════ */
@@ -7490,6 +7542,21 @@ function ElijahsPrintsInner() {
   const [filamentVer, setFilamentVer] = useState(0);
   const [catVer, setCatVer] = useState(0);
   const [categoryMeta, setCategoryMeta] = useState({...DEFAULT_CATEGORY_META});
+  // Password-protected categories: which ones this browser has already unlocked.
+  // Persisted indefinitely on this device (not per-session) — John's call, so a repeat
+  // customer like Tom doesn't have to re-enter the password on every visit.
+  const [unlockedCategories, setUnlockedCategories] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("ep_unlocked_categories") || "[]"); }
+    catch { return []; }
+  });
+  const handleUnlockCategory = (cat) => {
+    setUnlockedCategories(prev => {
+      if (prev.includes(cat)) return prev;
+      const next = [...prev, cat];
+      try { localStorage.setItem("ep_unlocked_categories", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
   const [authChecked, setAuthChecked] = useState(!USE_FIREBASE); // skip auth check if no Firebase
   const [stripeSuccess, setStripeSuccess] = useState(null); // holds completed order after Stripe redirect
   const [featureFlags, setFeatureFlags] = useState({ ...DEFAULT_FEATURE_FLAGS });
@@ -7700,6 +7767,10 @@ function ElijahsPrintsInner() {
   const shopProducts = useMemo(() => {
     if (!products) return [];
     let p = products.filter(x => x.available !== false);
+    // Hide products in a password-protected category from anyone who hasn't unlocked it —
+    // this applies everywhere (the "All" tab, search) not just the category's own tab, so
+    // there's no path to a locked product other than entering its password first.
+    p = p.filter(x => getProductCategories(x).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories)));
     if (activeCat !== "All") p = p.filter(x => productInCategoryOrSub(x, activeCat, categoryMeta));
     if (glowOnly && featureFlags.glowEnabled) p = p.filter(x => (x.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow"));
     if (search.trim()) { const q = search.toLowerCase(); p = p.filter(x => x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)); }
@@ -7713,7 +7784,7 @@ function ElijahsPrintsInner() {
       return a.name.localeCompare(b.name);
     });
     return p;
-  }, [activeCat, search, products, autoBadges, glowOnly, featureFlags.glowEnabled, filamentVer]);
+  }, [activeCat, search, products, autoBadges, glowOnly, featureFlags.glowEnabled, filamentVer, categoryMeta, unlockedCategories]);
 
   // initialQty (added for quantityTiers, 2026-08-22): optional 4th param, defaults to 1
   // so every existing call site (single-unit add) is unchanged.
@@ -7782,11 +7853,16 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
   const catCounts = useMemo(() => {
     if (!products) return {};
     const avail = products.filter(x => x.available !== false);
-    const c = { All: avail.length };
+    // "All" excludes anything still locked, so a password-protected category's products
+    // don't leak into the public total — but each category's OWN count below stays real
+    // (unfiltered by lock) so its tab doesn't disappear; the tab renders a 🔒 badge instead
+    // of that number while locked, see the category-bar render.
+    const publiclyVisible = avail.filter(p => getProductCategories(p).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories)));
+    const c = { All: publiclyVisible.length };
     /* Top-level cat counts include products in any descendant sub-cat. */
     categories.forEach(cat => { c[cat] = avail.filter(p => productInCategoryOrSub(p, cat, categoryMeta)).length; });
     return c;
-  }, [products, catVer, categoryMeta]);
+  }, [products, catVer, categoryMeta, unlockedCategories]);
 
   /* Live hero stats — colours = visible (non-paused, glow-aware) filaments; combos =
      for every available product, how many of those visible colours it's offered in,
@@ -7794,10 +7870,10 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
   const heroStats = useMemo(() => {
     const visible = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow"));
     const visibleSet = new Set(visible);
-    const avail = (products || []).filter(x => x.available !== false);
+    const avail = (products || []).filter(x => x.available !== false && getProductCategories(x).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories)));
     const comboCount = avail.reduce((sum, p) => sum + (p.colors || []).filter(c => visibleSet.has(c)).length, 0);
     return { colourCount: visible.length, comboCount };
-  }, [products, filamentVer, featureFlags.glowEnabled]);
+  }, [products, filamentVer, featureFlags.glowEnabled, categoryMeta, unlockedCategories]);
   if (!products) return <div style={{ minHeight: "100vh", background: S.dark, display: "flex", alignItems: "center", justifyContent: "center", color: S.teal, fontFamily: S.fontHead, fontSize: 18 }}>Loading...</div>;
 
   return (
@@ -8009,9 +8085,10 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           {displayCategories.filter(cat => cat === "All" || (catCounts[cat] || 0) > 0).map(cat => {
             // A top-level cat is "active" when itself OR any of its sub-cats is the activeCat.
             const isActive = activeCat === cat || (categoryMeta[activeCat]?.parent === cat);
+            const locked = !isCategoryUnlocked(cat, categoryMeta, unlockedCategories);
             return (
             <button key={cat} onClick={() => setActiveCat(cat)} style={{ padding: "8px 16px", borderRadius: 20, border: isActive ? `1.5px solid ${S.teal}` : `1px solid rgba(255,255,255,0.15)`, background: isActive ? "rgba(0,201,167,0.12)" : "rgba(255,255,255,0.05)", color: isActive ? S.teal : S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 6 }}>
-              {cat}<span style={{ fontSize: 11, color: isActive ? "rgba(0,201,167,0.6)" : S.muted, fontFamily: S.fontMono }}>{catCounts[cat] || 0}</span>
+              {cat}{locked ? <span style={{ fontSize: 11 }}>🔒</span> : <span style={{ fontSize: 11, color: isActive ? "rgba(0,201,167,0.6)" : S.muted, fontFamily: S.fontMono }}>{catCounts[cat] || 0}</span>}
             </button>
             );
           })}
@@ -8034,6 +8111,9 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           </div>
         )}
 
+        {activeCat !== "All" && !isCategoryUnlocked(activeCat, categoryMeta, unlockedCategories) ? (
+          <CategoryPasswordGate category={activeCat} categoryMeta={categoryMeta} onUnlock={handleUnlockCategory} />
+        ) : (
         <div className="ep-product-grid" style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 60px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 18 }}>
           {shopProducts.length === 0 ? <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px 0", color: S.dimmer }}>{search ? `Nothing found for "${search}"` : "No products available"}</div>
           : shopProducts.map((product, i) => {
@@ -8049,6 +8129,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
             );
           })}
         </div>
+        )}
 
         <div style={{ maxWidth: 800, margin: "0 auto 60px", padding: "0 24px" }}>
           <div className="ep-cta-box" style={{ background: `linear-gradient(135deg, rgba(0,201,167,0.08), rgba(132,94,247,0.08))`, border: "1px solid rgba(0,201,167,0.12)", borderRadius: 20, padding: "36px 28px", textAlign: "center" }}>
