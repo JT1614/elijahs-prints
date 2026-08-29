@@ -65,7 +65,7 @@ async function sendEmailNotification(order) {
       .map((i) =>
         i.isTip
           ? `🧡 Tip: £${i.price.toFixed(2)}`
-          : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`
+          : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
       )
       .join("\n");
 

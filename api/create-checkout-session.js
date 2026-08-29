@@ -116,13 +116,25 @@ export default async function handler(req, res) {
       const tier = Array.isArray(prod.quantityTiers)
         ? prod.quantityTiers.find((t) => Number(t.qty) === qty)
         : null;
+
+      // Keyring add-on (found 2026-08-29 while adding the toggle — same class of gap as
+      // the quantityTiers bug above: this endpoint must know about EVERY pricing feature,
+      // not just base price, or it silently falls back to charging as if the add-on
+      // wasn't requested). The client sends only a boolean WANT (it.hasKeyring); the PRICE
+      // is always trusted from the catalogue's own keyringPrice, never from the client.
+      // Folded into the per-unit rate BEFORE rounding (same fractional-penny-safe pattern
+      // as the tier math below) so it's a flat, never-discounted per-unit cost — it must
+      // scale 1:1 with qty even at a bulk-price break (John: "the 7p is 100% variable").
+      const keyringWanted = !!it.hasKeyring && Number(prod.keyringPrice) > 0;
+      const keyringUnitPrice = keyringWanted ? Number(prod.keyringPrice) : 0;
+
       let price, lineAmount, stripeQty;
       if (tier) {
-        lineAmount = round2(qty * Number(tier.pricePerUnit));
+        lineAmount = round2(qty * (Number(tier.pricePerUnit) + keyringUnitPrice));
         price = round2(lineAmount / qty); // display/record only — the trusted charge is lineAmount
         stripeQty = 1; // one Stripe "unit" = the whole bundle, priced at its exact total
       } else {
-        price = round2(Number(prod.price));
+        price = round2(Number(prod.price) + keyringUnitPrice);
         lineAmount = round2(price * qty);
         stripeQty = qty;
       }
@@ -135,14 +147,14 @@ export default async function handler(req, res) {
         price_data: {
           currency: "gbp",
           product_data: {
-            name: tier ? `${prod.name} — ${tier.label || qty + " pack"}` : prod.name,
+            name: (tier ? `${prod.name} — ${tier.label || qty + " pack"}` : prod.name) + (keyringWanted ? " + Keyring" : ""),
             description: it.selectedColors ? `Colour: ${(it.selectedColors || []).join(" + ")}` : undefined,
           },
           unit_amount: Math.round((tier ? lineAmount : price) * 100),
         },
         quantity: stripeQty,
       });
-      trustedItems.push({ id: prod.id, name: prod.name, price, qty, selectedColors: it.selectedColors || [] });
+      trustedItems.push({ id: prod.id, name: prod.name, price, qty, selectedColors: it.selectedColors || [], ...(keyringWanted ? { hasKeyring: true } : {}) });
     }
     subtotal = round2(subtotal);
     productSubtotal = round2(productSubtotal);

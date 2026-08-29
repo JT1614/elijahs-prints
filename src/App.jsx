@@ -461,7 +461,7 @@ const USE_STRIPE = STRIPE_CONFIG.publishableKey !== "";
 const DEFAULT_CATEGORIES = ["Planters", "Household", "Bird Feeders", "Fidgets & Toys", "Clickers", "Key Rings"];
 let categories = [...DEFAULT_CATEGORIES];
 const BADGE_OPTIONS = [null, "Popular", "Best Seller", "New", "Premium"];
-const APP_VERSION = "v161 · 2026-07-14";
+const APP_VERSION = "v165 · 2026-08-29";
 
 /* ═══════════════════════════════════════════════
    AUTO-BADGE COMPUTATION
@@ -796,7 +796,7 @@ async function sendOrderEmail(order) {
   }
   try {
     const itemsList = order.items.map(i =>
-      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
     ).join("\n");
     const address = isPickupShipping(order.shipping)
       ? `${order.shipping.icon || "🎒"} ${order.shipping.name || "Collection"}` + (order.shipping.id === "collection-local" && order.customer?.address1 ? ` — ${[order.customer.address1, order.customer.postcode].filter(Boolean).join(", ")}` : "")
@@ -831,7 +831,7 @@ async function sendShippedEmail(order) {
   if (!EMAILJS_CONFIG.enabled) return;
   try {
     const itemsList = order.items.map(i =>
-      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
     ).join("\n");
     const isCollection = isPickupShipping(order.shipping);
     await fetch("/api/send-email", {
@@ -862,7 +862,7 @@ async function sendMadeEmail(order) {
   if (!EMAILJS_CONFIG.enabled) return;
   try {
     const itemsList = order.items.map(i =>
-      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
     ).join("\n");
     await fetch("/api/send-email", {
       method: "POST",
@@ -1343,6 +1343,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
   const [selectedColors, setSelectedColors] = useState(fixedColours ? [...product.colors] : [product.colors[0]]);
   const [hovered, setHovered] = useState(false);
   const [sameColour, setSameColour] = useState(false);
+  const [wantsKeyring, setWantsKeyring] = useState(false);
   const hasGlowColor = (product.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow");
   const toggleColor = (color) => {
     if (fixedColours) return;
@@ -1403,13 +1404,28 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
           }
         </div>
         {maxC > 1 && !sameColour && !fixedColours && <div style={{ fontSize: 9, color: S.purple, fontStyle: "italic", marginBottom: 2, lineHeight: 1.4, opacity: 0.8 }}>1st colour = largest part, last = smallest detail</div>}
+        {product.keyringPrice > 0 && (
+          <button onClick={() => setWantsKeyring(!wantsKeyring)} style={{
+            display: "flex", alignItems: "center", gap: 6, marginTop: 6, marginBottom: 2, padding: "4px 0",
+            background: "none", border: "none", cursor: "pointer", fontSize: 11, color: wantsKeyring ? S.teal : S.dimmer,
+            fontFamily: S.fontHead, fontWeight: 600, transition: "color 0.2s",
+          }}>
+            <div style={{
+              width: 28, height: 16, borderRadius: 8, position: "relative", transition: "background 0.2s",
+              background: wantsKeyring ? S.teal : "rgba(255,255,255,0.1)",
+            }}>
+              <div style={{ width: 12, height: 12, borderRadius: 6, background: "#fff", position: "absolute", top: 2, left: wantsKeyring ? 14 : 2, transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+            </div>
+            🔑 Add a keyring (+£{product.keyringPrice.toFixed(2)})
+          </button>
+        )}
         {Array.isArray(product.quantityTiers) && product.quantityTiers.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 6 }}>
             <div style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono, letterSpacing: "0.5px", textTransform: "uppercase" }}>Bulk pricing</div>
             {product.quantityTiers.map((tier, i) => (
               <button
                 key={i}
-                onClick={() => canAdd && onAddToCart({ ...product, price: tier.pricePerUnit }, selectedColors, tier.qty)}
+                onClick={() => canAdd && onAddToCart({ ...product, price: tier.pricePerUnit }, selectedColors, tier.qty, wantsKeyring)}
                 disabled={!canAdd}
                 style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -1419,13 +1435,13 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
                   fontSize: 12, fontWeight: 700, cursor: canAdd ? "pointer" : "default", fontFamily: S.fontHead,
                 }}
               >
-                <span>{tier.label}</span>
-                <span style={{ color: S.teal, fontFamily: S.fontMono }}>£{(tier.qty * tier.pricePerUnit).toFixed(2)}</span>
+                <span>{tier.label}{wantsKeyring && " + keyrings"}</span>
+                <span style={{ color: S.teal, fontFamily: S.fontMono }}>£{(tier.qty * (tier.pricePerUnit + (wantsKeyring ? product.keyringPrice : 0))).toFixed(2)}</span>
               </button>
             ))}
           </div>
         )}
-        <button onClick={() => canAdd && onAddToCart(product, selectedColors)} disabled={!canAdd} style={{
+        <button onClick={() => canAdd && onAddToCart(product, selectedColors, 1, wantsKeyring)} disabled={!canAdd} style={{
           width: "100%", padding: "10px 0", borderRadius: 10, border: "none", marginTop: 6,
           background: cartAnimation === product.id ? S.teal : canAdd ? "linear-gradient(135deg, rgba(0,201,167,0.15), rgba(0,201,167,0.08))" : "rgba(255,255,255,0.03)",
           color: cartAnimation === product.id ? "#1a1a2e" : canAdd ? S.teal : "rgba(255,255,255,0.2)",
@@ -1779,6 +1795,21 @@ function ProductEditor({ product, onSave, onAutoSave, onDelete, onCancel, isNew,
               );
             })}
             <button onClick={() => set("quantityTiers", [...(p.quantityTiers || []), { qty: "", pricePerUnit: "", label: "" }])} style={{ padding: "8px 14px", borderRadius: 10, border: `1px solid rgba(0,201,167,0.3)`, background: "rgba(0,201,167,0.08)", color: S.teal, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, alignSelf: "flex-start" }}>+ Add volume break</button>
+          </div>
+        </div>
+
+        {/* Keyring add-on (optional) — general pattern, works for any product that carries
+            a keyringPrice. Flat per-unit surcharge, no bulk discount (it's a pass-through
+            cost with no margin) — see addToCart and api/create-checkout-session.js. */}
+        <div style={sectionStyle}>
+          <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 6 }}>
+            Keyring add-on (optional)
+            <Tooltip position="right" text="If set, customers see a toggle to add a keyring for this flat per-unit price — pass-through cost, no bulk discount. Leave blank/0 to hide the toggle.">
+              <span style={{ fontSize: 11, color: S.purple, fontFamily: S.fontHead, cursor: "help", border: `1px solid ${S.purple}`, borderRadius: "50%", width: 16, height: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700, opacity: 0.8 }}>?</span>
+            </Tooltip>
+          </label>
+          <div style={{ width: 140, marginTop: 4 }}>
+            <input style={inputStyle} type="number" step="0.01" min="0" value={p.keyringPrice ?? ""} onChange={e => set("keyringPrice", e.target.value === "" ? "" : parseFloat(e.target.value))} onBlur={() => { if (p.keyringPrice === "") set("keyringPrice", 0); else if (isNaN(p.keyringPrice)) set("keyringPrice", 0); }} placeholder="e.g. 0.07" />
           </div>
         </div>
 
@@ -2913,6 +2944,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                         <span style={{ fontSize: 10, color: S.dimmer }}>({(item.selectedColors || []).join(" + ")})</span>
                         {(() => { const prod = products.find(p => p.id === item.id); if (!prod?.sourceUrl) return null; return <a href={prod.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2, textDecoration: "none" }} title={`Open: ${prod.sourceUrl}`}>🔗 {prod.creator || "Source"}</a>; })()}
                         {(() => { const prod = products.find(p => p.id === item.id); if (!prod) return null; const isBox = productUsesBoxLabels(prod, categoryMeta); return <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, marginLeft: 2, fontWeight: 700, background: isBox ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.04)", color: isBox ? "#10b981" : S.dimmer }}>{isBox ? "📦 Box" : "📬 Bag"}</span>; })()}
+                        {item.hasKeyring && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, marginLeft: 2, fontWeight: 700, background: "rgba(245,159,0,0.12)", color: "#f59f00" }}>🔑 Keyring</span>}
                       </>)}
                     </div>
                   ))}
@@ -6948,7 +6980,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
       // Generate order ID and nonce before redirect
       const orderId = "EP-" + Date.now().toString(36).toUpperCase();
       const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-      const orderItems = cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}) }));
+      const orderItems = cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}) }));
       // Save pending order to localStorage (backup in case webhook is delayed)
       const pendingOrder = {
         orderId,
@@ -7010,7 +7042,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
       date: new Date().toISOString(),
       customer: { ...form },
       shipping: { id: shipping.id, name: shipping.name },
-      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}) })),
+      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}) })),
       subtotal, shippingCost, stripeFee, total,
       promoCode: appliedPromo?.code || null,
       discountAmount,
@@ -7163,7 +7195,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
               <div style={{ width: 32, height: 32, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: item.isTip ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {item.isTip ? <span style={{ fontSize: 16 }}>🧡</span> : item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 14, opacity: 0.4 }}>📷</span>}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: item.isTip ? S.teal : S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>{!item.isTip && <div style={{ fontSize: 10, color: S.dimmer }}>{(item.selectedColors || []).join(" + ")} × {item.qty}</div>}</div>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: item.isTip ? S.teal : S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>{!item.isTip && <div style={{ fontSize: 10, color: S.dimmer }}>{(item.selectedColors || []).join(" + ")} × {item.qty}{item.hasKeyring && " · 🔑 Keyring"}</div>}</div>
               <span style={{ fontSize: 12, fontWeight: 700, color: item.isTip ? S.teal : S.text, fontFamily: S.fontMono }}>£{(item.price * item.qty).toFixed(2)}</span>
             </div>
           ))}
@@ -7208,8 +7240,9 @@ function CartDrawer({ cart, onClose, onRemove, onUpdateQty, onCheckout }) {
                   <button onClick={() => onRemove(i)} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 14 }}>✕</button>
                 </div>
                 {!item.isTip && (
-                  <div style={{ fontSize: 11, color: S.dimmer, marginTop: 2, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  <div style={{ fontSize: 11, color: S.dimmer, marginTop: 2, display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                     {item.selectedColors.map((c, ci) => <span key={ci} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>{ci > 0 && "+"}<span style={{ width: 8, height: 8, borderRadius: "50%", background: FILAMENTS[c]?.hex || "#666" }} />{c}</span>)}
+                    {item.hasKeyring && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 6, background: "rgba(245,159,0,0.12)", color: "#f59f00", fontWeight: 700, fontFamily: S.fontHead }}>🔑 Keyring</span>}
                   </div>
                 )}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
@@ -7692,12 +7725,18 @@ function ElijahsPrintsInner() {
   // of the key, so each distinct tier (a distinct pricePerUnit) always starts its own
   // line; a genuinely repeated click (same tier, same price) still merges — but now
   // adds that tier's own qty each time, not a flat 1.
-  const addToCart = (product, selectedColors, initialQty = 1) => {
-    const adjustedPrice = getPremiumPrice(product.price, selectedColors);
-    const key = product.id + "-" + selectedColors.join(",") + "-" + adjustedPrice;
-    const i = cart.findIndex(c => (c.id + "-" + c.selectedColors.join(",") + "-" + c.price) === key);
+  // hasKeyring (added 2026-08-29 — FootballLab medal keyring add-on): optional 5th param,
+  // defaults to false so every existing call site is unchanged. A flat per-unit surcharge
+  // (product.keyringPrice) is added to the line price BEFORE the merge key is computed, so
+  // it never gets discounted at a bulk-price break (John: "12p is 100% variable") and a
+  // keyring vs non-keyring line for the same product+colours never silently merges.
+  const addToCart = (product, selectedColors, initialQty = 1, hasKeyring = false) => {
+    const keyringSurcharge = hasKeyring && product.keyringPrice ? product.keyringPrice : 0;
+    const adjustedPrice = getPremiumPrice(product.price, selectedColors) + keyringSurcharge;
+    const key = product.id + "-" + selectedColors.join(",") + "-" + adjustedPrice + "-" + hasKeyring;
+    const i = cart.findIndex(c => (c.id + "-" + c.selectedColors.join(",") + "-" + c.price + "-" + !!c.hasKeyring) === key);
     if (i >= 0) { const u = [...cart]; u[i].qty += initialQty; setCart(u); }
-    else setCart([...cart, { ...product, price: adjustedPrice, selectedColors, qty: initialQty }]);
+    else setCart([...cart, { ...product, price: adjustedPrice, selectedColors, qty: initialQty, ...(hasKeyring ? { hasKeyring: true } : {}) }]);
     setCartAnim(product.id); setTimeout(() => setCartAnim(null), 1200);
   };
 
