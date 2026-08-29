@@ -42,7 +42,7 @@ const READ_KEYS = [
   "feature-flags-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1", "categories-v1", "category-meta-v1", "products-v2"];
+const WRITE_KEYS = ["assessment-v1"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
