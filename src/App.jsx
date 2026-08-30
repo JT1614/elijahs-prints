@@ -1440,27 +1440,47 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
         {Array.isArray(product.quantityTiers) && product.quantityTiers.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 6 }}>
             <div style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono, letterSpacing: "0.5px", textTransform: "uppercase" }}>Bulk pricing</div>
-            {product.quantityTiers.map((tier, i) => (
+            {product.quantityTiers.map((tier, i) => {
+              // Bug fixed 2026-08-30: this showed the raw tier rate with no premium/glow
+              // colour uplift, so a customer picking e.g. a Silk trophy finish saw "£40.00"
+              // here but addToCart (which does apply getTierPrice) put £52.00 in their cart —
+              // a bait-and-switch-looking mismatch. Now mirrors the top-of-card price exactly.
+              const unitPrice = getTierPrice(tier.pricePerUnit, selectedColors, product.noColourUplift) + (wantsKeyring ? product.keyringPrice : 0);
+              const totalPrice = tier.qty * unitPrice;
+              // Bug fixed 2026-08-30: onClick used to pass a copy of product with price
+              // already substituted to the tier rate, so addToCart's own basePrice
+              // snapshot captured the tier rate instead of the real base price. Any
+              // later qty change (merge-bump or the cart stepper) then recomputed from
+              // that corrupted base. Passing the real product lets addToCart's own
+              // tier lookup, keyed on this same qty, do the job once, correctly.
+              return (
               <button
                 key={i}
-                onClick={() => canAdd && onAddToCart({ ...product, price: tier.pricePerUnit }, selectedColors, tier.qty, wantsKeyring)}
+                onClick={() => canAdd && onAddToCart(product, selectedColors, tier.qty, wantsKeyring)}
                 disabled={!canAdd}
                 style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
                   width: "100%", padding: "8px 12px", borderRadius: 10, border: `1px solid ${S.border}`,
                   background: canAdd ? "rgba(0,201,167,0.06)" : "rgba(255,255,255,0.03)",
                   color: canAdd ? S.text : "rgba(255,255,255,0.2)",
                   fontSize: 12, fontWeight: 700, cursor: canAdd ? "pointer" : "default", fontFamily: S.fontHead,
                 }}
               >
-                <span>{tier.label}{wantsKeyring && " + keyrings"}</span>
-                {/* Bug fixed 2026-08-30: this showed the raw tier rate with no premium/glow
-                    colour uplift, so a customer picking e.g. a Silk trophy finish saw "£40.00"
-                    here but addToCart (which does apply getTierPrice) put £52.00 in their cart —
-                    a bait-and-switch-looking mismatch. Now mirrors the top-of-card price exactly. */}
-                <span style={{ color: S.teal, fontFamily: S.fontMono }}>£{(tier.qty * (getTierPrice(tier.pricePerUnit, selectedColors, product.noColourUplift) + (wantsKeyring ? product.keyringPrice : 0))).toFixed(2)}</span>
+                {/* Qty + per-unit + total all shown explicitly (John, 2026-08-30) — a
+                    customer must never have to divide the total to find the unit price,
+                    on any screen size. Wraps to 2 lines on narrow/mobile widths since
+                    the container is flex-wrap and each span has its own white-space. */}
+                <span style={{ display: "flex", flexWrap: "wrap", columnGap: 6, rowGap: 2 }}>
+                  {/* Falls back to "Qty N" if a tier is ever added without a label — never
+                      silently ambiguous the way an empty label used to render (see the
+                      Medium-trophy empty-label fix, same session). */}
+                  <span style={{ whiteSpace: "nowrap" }}>{tier.label || `Qty ${tier.qty}`}{wantsKeyring && " + keyrings"}</span>
+                  <span style={{ color: S.dimmer, fontWeight: 600, fontFamily: S.fontMono, whiteSpace: "nowrap" }}>£{unitPrice.toFixed(2)} each</span>
+                </span>
+                <span style={{ color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", flexShrink: 0 }}>Total £{totalPrice.toFixed(2)}</span>
               </button>
-            ))}
+              );
+            })}
           </div>
         )}
         <button onClick={() => canAdd && onAddToCart(product, selectedColors, 1, wantsKeyring)} disabled={!canAdd} style={{
@@ -7258,8 +7278,8 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
               <div style={{ width: 32, height: 32, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: item.isTip ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {item.isTip ? <span style={{ fontSize: 16 }}>🧡</span> : item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 14, opacity: 0.4 }}>📷</span>}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: item.isTip ? S.teal : S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>{!item.isTip && <div style={{ fontSize: 10, color: S.dimmer }}>{(item.selectedColors || []).join(" + ")} × {item.qty}{item.hasKeyring && " · 🔑 Keyring"}</div>}</div>
-              <span style={{ fontSize: 12, fontWeight: 700, color: item.isTip ? S.teal : S.text, fontFamily: S.fontMono }}>£{(item.price * item.qty).toFixed(2)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: item.isTip ? S.teal : S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>{!item.isTip && <div style={{ fontSize: 10, color: S.dimmer }}>{(item.selectedColors || []).join(" + ")} × {item.qty}{item.qty > 1 && ` (£${item.price.toFixed(2)} each)`}{item.hasKeyring && " · 🔑 Keyring"}</div>}</div>
+              <span style={{ fontSize: 12, fontWeight: 700, color: item.isTip ? S.teal : S.text, fontFamily: S.fontMono, whiteSpace: "nowrap" }}>£{(item.price * item.qty).toFixed(2)}</span>
             </div>
           ))}
           <div style={{ borderTop: `1px solid ${S.border}`, paddingTop: 10, marginTop: 8 }}>
@@ -7318,7 +7338,13 @@ function CartDrawer({ cart, onClose, onRemove, onUpdateQty, onCheckout }) {
                   ) : (
                     <span style={{ fontSize: 11, color: S.muted, fontFamily: S.fontHead }}>Filament fund</span>
                   )}
-                  <span style={{ fontSize: 14, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{(item.price * item.qty).toFixed(2)}</span>
+                  {/* £ each shown whenever qty > 1 — added 2026-08-30 so a bulk line's
+                      per-unit rate is never something the customer has to work out by
+                      dividing the total themselves, on any screen size. */}
+                  <div style={{ textAlign: "right", lineHeight: 1.3 }}>
+                    {!item.isTip && item.qty > 1 && <div style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontMono, whiteSpace: "nowrap" }}>£{item.price.toFixed(2)} each</div>}
+                    <div style={{ fontSize: 14, fontWeight: 700, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap" }}>£{(item.price * item.qty).toFixed(2)}</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -7817,18 +7843,50 @@ function ElijahsPrintsInner() {
   // (product.keyringPrice) is added to the line price BEFORE the merge key is computed, so
   // it never gets discounted at a bulk-price break (John: "12p is 100% variable") and a
   // keyring vs non-keyring line for the same product+colours never silently merges.
+  // Bug fixed 2026-08-30: cart lines used to freeze `price` at whatever rate applied
+  // when a line was created, never re-checking it as qty changed. Stepping a bulk-tier
+  // line's qty away from its exact tier quantity (or stepping a plain line's qty UP to
+  // exactly match a tier) silently desynced the displayed cart total from what checkout
+  // would actually charge — checkout recomputes price purely from qty + quantityTiers,
+  // with no memory of how the line was created. This is the single source of truth for
+  // "what should a line's per-unit price be at qty N", used when adding, when a merge
+  // bumps an existing line's qty, and when the qty stepper changes it — so the three
+  // paths can't drift apart. Takes basePrice explicitly rather than reading `item.price`,
+  // because a cart item's `price` is already tier/colour/keyring-adjusted; re-deriving
+  // from an already-adjusted number would compound the adjustments on every recompute.
+  const tierAdjustedPrice = (basePrice, quantityTiers, qty, selectedColors, noColourUplift, keyringPrice, hasKeyring) => {
+    const tier = Array.isArray(quantityTiers) ? quantityTiers.find(t => Number(t.qty) === qty) : null;
+    const baseUnitRate = tier ? Number(tier.pricePerUnit) : Number(basePrice);
+    const keyringSurcharge = hasKeyring && keyringPrice ? keyringPrice : 0;
+    return getPremiumPrice(baseUnitRate, selectedColors, noColourUplift) + keyringSurcharge;
+  };
+  const priceForQty = (item, qty) => tierAdjustedPrice(item.basePrice ?? item.price, item.quantityTiers, qty, item.selectedColors, item.noColourUplift, item.keyringPrice, item.hasKeyring);
+
   const addToCart = (product, selectedColors, initialQty = 1, hasKeyring = false) => {
-    const keyringSurcharge = hasKeyring && product.keyringPrice ? product.keyringPrice : 0;
-    const adjustedPrice = getPremiumPrice(product.price, selectedColors, product.noColourUplift) + keyringSurcharge;
+    // product.price is trusted as the TRUE base rate here — callers (tier buttons
+    // included) must pass the real product, not a copy with price pre-substituted to
+    // a tier rate, or basePrice below would snapshot the tier rate as if it were base.
+    const adjustedPrice = tierAdjustedPrice(product.price, product.quantityTiers, initialQty, selectedColors, product.noColourUplift, product.keyringPrice, hasKeyring);
     const key = product.id + "-" + selectedColors.join(",") + "-" + adjustedPrice + "-" + hasKeyring;
     const i = cart.findIndex(c => (c.id + "-" + c.selectedColors.join(",") + "-" + c.price + "-" + !!c.hasKeyring) === key);
-    if (i >= 0) { const u = [...cart]; u[i].qty += initialQty; setCart(u); }
-    else setCart([...cart, { ...product, price: adjustedPrice, selectedColors, qty: initialQty, ...(hasKeyring ? { hasKeyring: true } : {}) }]);
+    if (i >= 0) {
+      const u = [...cart];
+      const newQty = u[i].qty + initialQty;
+      u[i] = { ...u[i], qty: newQty, price: priceForQty(u[i], newQty) };
+      setCart(u);
+    }
+    else setCart([...cart, { ...product, price: adjustedPrice, basePrice: product.price, selectedColors, qty: initialQty, ...(hasKeyring ? { hasKeyring: true } : {}) }]);
     setCartAnim(product.id); setTimeout(() => setCartAnim(null), 1200);
   };
 
   const removeFromCart = i => setCart(cart.filter((_, idx) => idx !== i));
-  const updateQty = (i, q) => { const u = [...cart]; u[i].qty = q; setCart(u); };
+  const updateQty = (i, q) => {
+    const u = [...cart];
+    const item = u[i];
+    const newQty = Math.max(1, q);
+    u[i] = item.isTip ? { ...item, qty: newQty } : { ...item, qty: newQty, price: priceForQty(item, newQty) };
+    setCart(u);
+  };
   const totalItems = cart.reduce((s, i) => s + i.qty, 0);
   const addTip = (amount) => {
     const withoutTip = cart.filter(i => !i.isTip);
