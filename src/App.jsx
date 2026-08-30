@@ -7776,6 +7776,11 @@ function ElijahsPrintsInner() {
     if (search.trim()) { const q = search.toLowerCase(); p = p.filter(x => x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)); }
     const badgePriority = { "Premium": 1, "New": 2, "Popular": 3, "Best Seller": 4 };
     p.sort((a, b) => {
+      // Manual per-product sortOrder (added 2026-08-30 for FootballLab: medal variants
+      // then trophies small→large, not the site's default price-descending) — only
+      // applies within a single category's own tab, never on "All", and only when BOTH
+      // products carry it, so every other category's price-based sort is untouched.
+      if (activeCat !== "All" && a.sortOrder != null && b.sortOrder != null) return a.sortOrder - b.sortOrder;
       const ab = autoBadges[a.id]; const bb = autoBadges[b.id];
       const ap = ab ? (badgePriority[ab] || 5) : 6;
       const bp = bb ? (badgePriority[bb] || 5) : 6;

@@ -41,6 +41,44 @@ const QTY_MAX = 1000;
 const getStripeFee = (amount) => Math.ceil((0.2 + amount * 0.015) * 100) / 100;
 const round2 = (n) => Math.round(n * 100) / 100;
 
+// --- Filament colour-tier price uplift — mirrors src/App.jsx getFilamentTier /
+// highestTier / applyTierUplift / getTierPrice. Added 2026-08-30, found while
+// reviewing FootballLab's trophies (3 of their 4 finish options are premium Silk+
+// filaments): this endpoint recomputed price from prod.price (+ keyring) only and
+// never knew a "premium"/"glow" filament selection should uplift the price by
+// 30%/50% — the SAME class of gap as the quantityTiers/keyringPrice fixes above,
+// just for a pricing feature that predates both of them. Every order where the
+// customer picked a premium or glow colour was silently charged the base price.
+// Interaction with bulk quantityTiers is a genuine judgement call with no prior
+// precedent (no tiered product has ever also offered a premium colour before the
+// FootballLab trophies) — this applies the uplift to whichever unit rate is in
+// play (base price or the matched tier's rate), consistent with how every other
+// product on the site already treats "premium colour always adds the uplift".
+// Flagged to John: confirm this is the intended behaviour for bulk trophy orders.
+function getFilamentTier(f) {
+  if (!f) return "standard";
+  if (f.tier) return f.tier;
+  if (f.premium) return "premium";
+  return "standard";
+}
+const COLOUR_TIER_RANK = { standard: 0, premium: 1, glow: 2 };
+function highestColourTier(selectedColors, filaments) {
+  return (selectedColors || []).reduce((acc, c) => {
+    const t = getFilamentTier(filaments[c]);
+    return COLOUR_TIER_RANK[t] > COLOUR_TIER_RANK[acc] ? t : acc;
+  }, "standard");
+}
+function applyColourTierUplift(basePrice, tier) {
+  if (tier === "premium") return basePrice * 1.30;
+  if (tier === "glow") return basePrice * 1.5;
+  return basePrice;
+}
+function getColourTierPrice(basePrice, selectedColors, filaments) {
+  const tier = highestColourTier(selectedColors, filaments);
+  if (tier === "standard") return basePrice;
+  return Math.ceil(applyColourTierUplift(basePrice, tier) * 20) / 20; // round UP to nearest 5p, matches client
+}
+
 async function loadTrustedProducts() {
   if (!db) return null;
   const snap = await db.collection("shop").doc("products-v2").get();
@@ -50,6 +88,17 @@ async function loadTrustedProducts() {
     try { parsed = JSON.parse(parsed); } catch { return null; }
   }
   return Array.isArray(parsed) ? parsed : null;
+}
+
+async function loadTrustedFilaments() {
+  if (!db) return {};
+  const snap = await db.collection("shop").doc("filaments-v1").get();
+  if (!snap.exists) return {};
+  let parsed = snap.data().value;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); } catch { return {}; }
+  }
+  return parsed && typeof parsed === "object" ? parsed : {};
 }
 
 export default async function handler(req, res) {
@@ -64,7 +113,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "No items in cart" });
     }
 
-    const products = await loadTrustedProducts();
+    const [products, filaments] = await Promise.all([loadTrustedProducts(), loadTrustedFilaments()]);
     if (!products) {
       return res.status(503).json({ error: "Catalogue unavailable — please try again in a moment" });
     }
@@ -128,13 +177,19 @@ export default async function handler(req, res) {
       const keyringWanted = !!it.hasKeyring && Number(prod.keyringPrice) > 0;
       const keyringUnitPrice = keyringWanted ? Number(prod.keyringPrice) : 0;
 
+      // Colour-tier uplift applies to whichever unit rate is in play — the base price,
+      // or the matched bulk tier's rate — BEFORE the keyring add-on (which is always a
+      // flat, un-uplifted pass-through cost regardless of colour).
+      const baseUnitRate = tier ? Number(tier.pricePerUnit) : Number(prod.price);
+      const unitRate = getColourTierPrice(baseUnitRate, it.selectedColors, filaments);
+
       let price, lineAmount, stripeQty;
       if (tier) {
-        lineAmount = round2(qty * (Number(tier.pricePerUnit) + keyringUnitPrice));
+        lineAmount = round2(qty * (unitRate + keyringUnitPrice));
         price = round2(lineAmount / qty); // display/record only — the trusted charge is lineAmount
         stripeQty = 1; // one Stripe "unit" = the whole bundle, priced at its exact total
       } else {
-        price = round2(Number(prod.price) + keyringUnitPrice);
+        price = round2(unitRate + keyringUnitPrice);
         lineAmount = round2(price * qty);
         stripeQty = qty;
       }
