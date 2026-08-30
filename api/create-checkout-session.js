@@ -53,8 +53,9 @@ const round2 = (n) => Math.round(n * 100) / 100;
 // precedent (no tiered product has ever also offered a premium colour before the
 // FootballLab trophies) — this applies the uplift to whichever unit rate is in
 // play (base price or the matched tier's rate), consistent with how every other
-// product on the site already treats "premium colour always adds the uplift".
-// Flagged to John: confirm this is the intended behaviour for bulk trophy orders.
+// product on the site already treats "premium colour always adds the uplift" —
+// EXCEPT a product carrying noColourUplift:true (John's call 2026-08-30 for the
+// FootballLab trophies: flat £5/£15/£1.50 regardless of Gold/Silver/Bronze finish).
 function getFilamentTier(f) {
   if (!f) return "standard";
   if (f.tier) return f.tier;
@@ -73,7 +74,8 @@ function applyColourTierUplift(basePrice, tier) {
   if (tier === "glow") return basePrice * 1.5;
   return basePrice;
 }
-function getColourTierPrice(basePrice, selectedColors, filaments) {
+function getColourTierPrice(basePrice, selectedColors, filaments, noColourUplift) {
+  if (noColourUplift) return basePrice;
   const tier = highestColourTier(selectedColors, filaments);
   if (tier === "standard") return basePrice;
   return Math.ceil(applyColourTierUplift(basePrice, tier) * 20) / 20; // round UP to nearest 5p, matches client
@@ -181,7 +183,7 @@ export default async function handler(req, res) {
       // or the matched bulk tier's rate — BEFORE the keyring add-on (which is always a
       // flat, un-uplifted pass-through cost regardless of colour).
       const baseUnitRate = tier ? Number(tier.pricePerUnit) : Number(prod.price);
-      const unitRate = getColourTierPrice(baseUnitRate, it.selectedColors, filaments);
+      const unitRate = getColourTierPrice(baseUnitRate, it.selectedColors, filaments, prod.noColourUplift);
 
       let price, lineAmount, stripeQty;
       if (tier) {

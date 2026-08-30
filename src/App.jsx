@@ -455,7 +455,14 @@ function applyTierUplift(basePrice, tier) {
   if (tier === "glow")    return basePrice * 1.5;
   return basePrice;
 }
-function getTierPrice(basePrice, selectedColors) {
+// noColourUplift (added 2026-08-30 for the FootballLab trophies): John's explicit call —
+// once Gold/Silver/Bronze became the ONLY finish options, the sitewide premium uplift would
+// have silently raised £5/£15/£1.50 to £6.50/£19.50/£1.95. He wants the flat listed price
+// regardless of finish, so a product can opt out of the uplift entirely while the filament
+// itself still correctly costs more in the admin margin panel — this only affects what the
+// CUSTOMER pays, not the real material cost.
+function getTierPrice(basePrice, selectedColors, noColourUplift) {
+  if (noColourUplift) return basePrice;
   const tier = highestTier(selectedColors);
   if (tier === "standard") return basePrice;
   return Math.ceil(applyTierUplift(basePrice, tier) * 20) / 20; // round UP to nearest 5p
@@ -1386,7 +1393,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
       <div style={{ padding: "14px 16px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
-          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{highestTier(selectedColors) !== "standard" ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getTierPrice(product.price, selectedColors).toFixed(2)}</> : `£${product.price.toFixed(2)}`}</span>
+          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{!product.noColourUplift && highestTier(selectedColors) !== "standard" ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getTierPrice(product.price, selectedColors, product.noColourUplift).toFixed(2)}</> : `£${product.price.toFixed(2)}`}</span>
         </div>
         <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.widthMm && product.heightMm ? `${product.widthMm}mm wide × ${product.heightMm}mm tall. ` : ""}{product.description}</p>
         {!fixedColours && maxC > 1 && <div style={{ fontSize: 11, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 6, background: "rgba(132,94,247,0.08)", padding: "4px 8px", borderRadius: 6, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
@@ -1451,7 +1458,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
                     colour uplift, so a customer picking e.g. a Silk trophy finish saw "£40.00"
                     here but addToCart (which does apply getTierPrice) put £52.00 in their cart —
                     a bait-and-switch-looking mismatch. Now mirrors the top-of-card price exactly. */}
-                <span style={{ color: S.teal, fontFamily: S.fontMono }}>£{(tier.qty * (getTierPrice(tier.pricePerUnit, selectedColors) + (wantsKeyring ? product.keyringPrice : 0))).toFixed(2)}</span>
+                <span style={{ color: S.teal, fontFamily: S.fontMono }}>£{(tier.qty * (getTierPrice(tier.pricePerUnit, selectedColors, product.noColourUplift) + (wantsKeyring ? product.keyringPrice : 0))).toFixed(2)}</span>
               </button>
             ))}
           </div>
@@ -1492,8 +1499,8 @@ function CrossSellCard({ product, onAddToCart }) {
     else setSelectedColors([selectedColors[0]]);
   };
   const canAdd = selectedColors.length >= Math.min(maxC, product.colors.length);
-  const hasPremium = highestTier(selectedColors) !== "standard";
-  const displayPrice = hasPremium ? getTierPrice(product.price, selectedColors) : product.price;
+  const hasPremium = !product.noColourUplift && highestTier(selectedColors) !== "standard";
+  const displayPrice = hasPremium ? getTierPrice(product.price, selectedColors, product.noColourUplift) : product.price;
   const handleAdd = () => {
     if (!canAdd) return;
     onAddToCart(product, selectedColors);
@@ -3424,7 +3431,7 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
         const filCost = (colors) => {
           const tier = highestTier(colors || []);
           if (tier === "glow") return 0.025;     // £23/kg material + ~£2/kg amortised nozzle wear
-          if (tier === "premium") return 0.013;  // existing premium silk/gradient cost
+          if (tier === "premium") return 0.015;  // £15/kg — John-confirmed 2026-08-30 (Silk+ gold/silver/bronze); was £13/kg
           return 0.01;                            // standard PLA Basic
         };
 
@@ -7812,7 +7819,7 @@ function ElijahsPrintsInner() {
   // keyring vs non-keyring line for the same product+colours never silently merges.
   const addToCart = (product, selectedColors, initialQty = 1, hasKeyring = false) => {
     const keyringSurcharge = hasKeyring && product.keyringPrice ? product.keyringPrice : 0;
-    const adjustedPrice = getPremiumPrice(product.price, selectedColors) + keyringSurcharge;
+    const adjustedPrice = getPremiumPrice(product.price, selectedColors, product.noColourUplift) + keyringSurcharge;
     const key = product.id + "-" + selectedColors.join(",") + "-" + adjustedPrice + "-" + hasKeyring;
     const i = cart.findIndex(c => (c.id + "-" + c.selectedColors.join(",") + "-" + c.price + "-" + !!c.hasKeyring) === key);
     if (i >= 0) { const u = [...cart]; u[i].qty += initialQty; setCart(u); }
