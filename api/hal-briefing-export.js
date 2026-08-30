@@ -42,13 +42,7 @@ const READ_KEYS = [
   "feature-flags-v1",
 ];
 
-// TEMP: products-v2 write access reopened 2026-08-30 to REAPPLY the glow-red
-// rollout -- the first write (commit baf762e) was confirmed live and correct,
-// then silently reverted by a concurrent admin-panel save (saveProducts()
-// writes products-v2 directly via storageSet, a separate path from this
-// endpoint -- this WRITE_KEYS gate never protected against that). John has
-// now confirmed the admin tab is closed. Revert to ["assessment-v1"] immediately after.
-const WRITE_KEYS = ["assessment-v1", "products-v2"];
+const WRITE_KEYS = ["assessment-v1"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
