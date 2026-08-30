@@ -42,7 +42,7 @@ const READ_KEYS = [
   "feature-flags-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1", "products-v2"]; // TEMP 2026-08-30 (3rd pass) — John's final trophy pricing (1-off/10-off), revert immediately after
+const WRITE_KEYS = ["assessment-v1"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
