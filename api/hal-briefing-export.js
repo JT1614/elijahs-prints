@@ -42,10 +42,7 @@ const READ_KEYS = [
   "feature-flags-v1",
 ];
 
-// TEMP: products-v2 write access opened 2026-08-30 for the glow-red colour
-// rollout (add "Glow in dark - Red" to every product that already offers
-// "Glow in dark - Green"). Revert to ["assessment-v1"] immediately after.
-const WRITE_KEYS = ["assessment-v1", "products-v2"];
+const WRITE_KEYS = ["assessment-v1"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
