@@ -1447,7 +1447,11 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
                 }}
               >
                 <span>{tier.label}{wantsKeyring && " + keyrings"}</span>
-                <span style={{ color: S.teal, fontFamily: S.fontMono }}>£{(tier.qty * (tier.pricePerUnit + (wantsKeyring ? product.keyringPrice : 0))).toFixed(2)}</span>
+                {/* Bug fixed 2026-08-30: this showed the raw tier rate with no premium/glow
+                    colour uplift, so a customer picking e.g. a Silk trophy finish saw "£40.00"
+                    here but addToCart (which does apply getTierPrice) put £52.00 in their cart —
+                    a bait-and-switch-looking mismatch. Now mirrors the top-of-card price exactly. */}
+                <span style={{ color: S.teal, fontFamily: S.fontMono }}>£{(tier.qty * (getTierPrice(tier.pricePerUnit, selectedColors) + (wantsKeyring ? product.keyringPrice : 0))).toFixed(2)}</span>
               </button>
             ))}
           </div>
