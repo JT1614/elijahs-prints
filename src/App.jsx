@@ -7864,6 +7864,19 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
     return c;
   }, [products, catVer, categoryMeta, unlockedCategories]);
 
+  /* A password-locked category (e.g. FootballLab) must keep its nav tab even when every
+     product assigned to it is currently paused/unavailable (e.g. pricing not yet live) —
+     the lock, not product availability, is what's meant to gate it. Without this, a locked
+     category with zero AVAILABLE products vanishes from the nav entirely and customers have
+     nowhere to click to enter the password. catCounts (availability-filtered) still drives
+     the badge number once unlocked, so it never overstates what's actually buyable. */
+  const catHasAssignedProducts = useMemo(() => {
+    if (!products) return {};
+    const h = {};
+    categories.forEach(cat => { h[cat] = products.some(p => productInCategoryOrSub(p, cat, categoryMeta)); });
+    return h;
+  }, [products, catVer, categoryMeta]);
+
   /* Live hero stats — colours = visible (non-paused, glow-aware) filaments; combos =
      for every available product, how many of those visible colours it's offered in,
      summed. All three hero numbers derive from live catalogue + filament state. */
@@ -8082,7 +8095,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           </div>
         </div>
         <div className="ep-cat-bar" style={{ maxWidth: 1200, margin: "0 auto", padding: "12px 24px 12px", display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", position: "sticky", top: 64, zIndex: 90, background: "rgba(13,13,26,0.95)", backdropFilter: "blur(12px)", borderBottom: `1px solid ${S.border}` }}>
-          {displayCategories.filter(cat => cat === "All" || (catCounts[cat] || 0) > 0).map(cat => {
+          {displayCategories.filter(cat => cat === "All" || (catCounts[cat] || 0) > 0 || (isCategoryLocked(cat, categoryMeta) && catHasAssignedProducts[cat])).map(cat => {
             // A top-level cat is "active" when itself OR any of its sub-cats is the activeCat.
             const isActive = activeCat === cat || (categoryMeta[activeCat]?.parent === cat);
             const locked = !isCategoryUnlocked(cat, categoryMeta, unlockedCategories);
@@ -8103,7 +8116,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
         )}
         {subCategoriesOfActive.length > 0 && (
           <div className="ep-subcat-bar" style={{ maxWidth: 1200, margin: "0 auto", padding: "8px 24px 8px", display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
-            {subCategoriesOfActive.filter(sub => (catCounts[sub] || 0) > 0).map(sub => (
+            {subCategoriesOfActive.filter(sub => (catCounts[sub] || 0) > 0 || (isCategoryLocked(sub, categoryMeta) && catHasAssignedProducts[sub])).map(sub => (
               <button key={sub} onClick={() => setActiveCat(sub)} style={{ padding: "5px 12px", borderRadius: 14, border: activeCat === sub ? `1px solid ${S.purple}` : `1px solid rgba(255,255,255,0.1)`, background: activeCat === sub ? "rgba(132,94,247,0.14)" : "rgba(255,255,255,0.03)", color: activeCat === sub ? S.purple : S.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 5 }}>
                 {sub}<span style={{ fontSize: 10, color: activeCat === sub ? "rgba(132,94,247,0.6)" : S.dimmer, fontFamily: S.fontMono }}>{catCounts[sub] || 0}</span>
               </button>
