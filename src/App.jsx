@@ -7808,6 +7808,11 @@ function ElijahsPrintsInner() {
     // this applies everywhere (the "All" tab, search) not just the category's own tab, so
     // there's no path to a locked product other than entering its password first.
     p = p.filter(x => getProductCategories(x).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories)));
+    // Same principle for paused categories (added 2026-09-01): isCategoryPaused was only
+    // ever checked when building the category tab list, so a paused category's own button
+    // correctly disappeared but its products stayed fully visible under "All" — found when
+    // paused Planters products kept showing on the front page. Mirrors the lock-check above.
+    p = p.filter(x => getProductCategories(x).every(c => !isCategoryPaused(c, categoryMeta)));
     if (activeCat !== "All") p = p.filter(x => productInCategoryOrSub(x, activeCat, categoryMeta));
     if (glowOnly && featureFlags.glowEnabled) p = p.filter(x => (x.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow"));
     if (search.trim()) { const q = search.toLowerCase(); p = p.filter(x => x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)); }
