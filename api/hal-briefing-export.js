@@ -42,7 +42,7 @@ const READ_KEYS = [
   "feature-flags-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1", "products-v2"]; // TEMP — glow price override + local-delivery note on the 6 alien products, revert immediately after (see Brain/state.md session 26)
+const WRITE_KEYS = ["assessment-v1"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
