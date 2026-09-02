@@ -74,10 +74,16 @@ function applyColourTierUplift(basePrice, tier) {
   if (tier === "glow") return basePrice * 1.5;
   return basePrice;
 }
-function getColourTierPrice(basePrice, selectedColors, filaments, noColourUplift) {
+// glowPriceOverride (added 2026-09-02, mirrors src/App.jsx getTierPrice) — a specific
+// product's flat glow price instead of the computed 50% uplift; see the client-side
+// comment for why (glow filament's real cost/supervision burden outstrips the uplift
+// on heavy prints). Must travel here too, or checkout would silently recompute the
+// old uplifted price regardless of what the customer saw in the cart.
+function getColourTierPrice(basePrice, selectedColors, filaments, noColourUplift, glowPriceOverride) {
   if (noColourUplift) return basePrice;
   const tier = highestColourTier(selectedColors, filaments);
   if (tier === "standard") return basePrice;
+  if (tier === "glow" && glowPriceOverride != null) return glowPriceOverride;
   return Math.ceil(applyColourTierUplift(basePrice, tier) * 20) / 20; // round UP to nearest 5p, matches client
 }
 
@@ -183,7 +189,7 @@ export default async function handler(req, res) {
       // or the matched bulk tier's rate — BEFORE the keyring add-on (which is always a
       // flat, un-uplifted pass-through cost regardless of colour).
       const baseUnitRate = tier ? Number(tier.pricePerUnit) : Number(prod.price);
-      const unitRate = getColourTierPrice(baseUnitRate, it.selectedColors, filaments, prod.noColourUplift);
+      const unitRate = getColourTierPrice(baseUnitRate, it.selectedColors, filaments, prod.noColourUplift, prod.glowPriceOverride);
 
       let price, lineAmount, stripeQty;
       if (tier) {

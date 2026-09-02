@@ -461,10 +461,17 @@ function applyTierUplift(basePrice, tier) {
 // regardless of finish, so a product can opt out of the uplift entirely while the filament
 // itself still correctly costs more in the admin margin panel — this only affects what the
 // CUSTOMER pays, not the real material cost.
-function getTierPrice(basePrice, selectedColors, noColourUplift) {
+// glowPriceOverride (added 2026-09-02 for the Halloween glow-in-the-dark aliens): the
+// sitewide 50% glow uplift doesn't cover real cost on heavy prints — £23/kg glow filament
+// runs the 3ft aliens' materials alone past the uplift, before counting the printer needing
+// active supervision to clear clogs. Lets a specific product set its own flat glow price
+// instead of the computed uplift, without disabling the uplift for every other tier (a
+// customer picking a Silk/Premium colour on the same product still gets the normal +30%).
+function getTierPrice(basePrice, selectedColors, noColourUplift, glowPriceOverride) {
   if (noColourUplift) return basePrice;
   const tier = highestTier(selectedColors);
   if (tier === "standard") return basePrice;
+  if (tier === "glow" && glowPriceOverride != null) return glowPriceOverride;
   return Math.ceil(applyTierUplift(basePrice, tier) * 20) / 20; // round UP to nearest 5p
 }
 // Legacy alias — keep so any external script or skill referencing the old name still works.
@@ -1393,7 +1400,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
       <div style={{ padding: "14px 16px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
-          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{!product.noColourUplift && highestTier(selectedColors) !== "standard" ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getTierPrice(product.price, selectedColors, product.noColourUplift).toFixed(2)}</> : `£${product.price.toFixed(2)}`}</span>
+          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{!product.noColourUplift && highestTier(selectedColors) !== "standard" ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getTierPrice(product.price, selectedColors, product.noColourUplift, product.glowPriceOverride).toFixed(2)}</> : `£${product.price.toFixed(2)}`}</span>
         </div>
         <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.widthMm && product.heightMm ? `${product.widthMm}mm wide × ${product.heightMm}mm tall. ` : ""}{product.description}</p>
         {!fixedColours && maxC > 1 && <div style={{ fontSize: 11, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 6, background: "rgba(132,94,247,0.08)", padding: "4px 8px", borderRadius: 6, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
@@ -1445,7 +1452,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
               // colour uplift, so a customer picking e.g. a Silk trophy finish saw "£40.00"
               // here but addToCart (which does apply getTierPrice) put £52.00 in their cart —
               // a bait-and-switch-looking mismatch. Now mirrors the top-of-card price exactly.
-              const unitPrice = getTierPrice(tier.pricePerUnit, selectedColors, product.noColourUplift) + (wantsKeyring ? product.keyringPrice : 0);
+              const unitPrice = getTierPrice(tier.pricePerUnit, selectedColors, product.noColourUplift, product.glowPriceOverride) + (wantsKeyring ? product.keyringPrice : 0);
               const totalPrice = tier.qty * unitPrice;
               // Bug fixed 2026-08-30: onClick used to pass a copy of product with price
               // already substituted to the tier rate, so addToCart's own basePrice
@@ -1520,7 +1527,7 @@ function CrossSellCard({ product, onAddToCart }) {
   };
   const canAdd = selectedColors.length >= Math.min(maxC, product.colors.length);
   const hasPremium = !product.noColourUplift && highestTier(selectedColors) !== "standard";
-  const displayPrice = hasPremium ? getTierPrice(product.price, selectedColors, product.noColourUplift) : product.price;
+  const displayPrice = hasPremium ? getTierPrice(product.price, selectedColors, product.noColourUplift, product.glowPriceOverride) : product.price;
   const handleAdd = () => {
     if (!canAdd) return;
     onAddToCart(product, selectedColors);
@@ -7859,19 +7866,19 @@ function ElijahsPrintsInner() {
   // paths can't drift apart. Takes basePrice explicitly rather than reading `item.price`,
   // because a cart item's `price` is already tier/colour/keyring-adjusted; re-deriving
   // from an already-adjusted number would compound the adjustments on every recompute.
-  const tierAdjustedPrice = (basePrice, quantityTiers, qty, selectedColors, noColourUplift, keyringPrice, hasKeyring) => {
+  const tierAdjustedPrice = (basePrice, quantityTiers, qty, selectedColors, noColourUplift, keyringPrice, hasKeyring, glowPriceOverride) => {
     const tier = Array.isArray(quantityTiers) ? quantityTiers.find(t => Number(t.qty) === qty) : null;
     const baseUnitRate = tier ? Number(tier.pricePerUnit) : Number(basePrice);
     const keyringSurcharge = hasKeyring && keyringPrice ? keyringPrice : 0;
-    return getPremiumPrice(baseUnitRate, selectedColors, noColourUplift) + keyringSurcharge;
+    return getPremiumPrice(baseUnitRate, selectedColors, noColourUplift, glowPriceOverride) + keyringSurcharge;
   };
-  const priceForQty = (item, qty) => tierAdjustedPrice(item.basePrice ?? item.price, item.quantityTiers, qty, item.selectedColors, item.noColourUplift, item.keyringPrice, item.hasKeyring);
+  const priceForQty = (item, qty) => tierAdjustedPrice(item.basePrice ?? item.price, item.quantityTiers, qty, item.selectedColors, item.noColourUplift, item.keyringPrice, item.hasKeyring, item.glowPriceOverride);
 
   const addToCart = (product, selectedColors, initialQty = 1, hasKeyring = false) => {
     // product.price is trusted as the TRUE base rate here — callers (tier buttons
     // included) must pass the real product, not a copy with price pre-substituted to
     // a tier rate, or basePrice below would snapshot the tier rate as if it were base.
-    const adjustedPrice = tierAdjustedPrice(product.price, product.quantityTiers, initialQty, selectedColors, product.noColourUplift, product.keyringPrice, hasKeyring);
+    const adjustedPrice = tierAdjustedPrice(product.price, product.quantityTiers, initialQty, selectedColors, product.noColourUplift, product.keyringPrice, hasKeyring, product.glowPriceOverride);
     const key = product.id + "-" + selectedColors.join(",") + "-" + adjustedPrice + "-" + hasKeyring;
     const i = cart.findIndex(c => (c.id + "-" + c.selectedColors.join(",") + "-" + c.price + "-" + !!c.hasKeyring) === key);
     if (i >= 0) {
