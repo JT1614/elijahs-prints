@@ -147,15 +147,18 @@ async function saveFilaments(f) {
 
 // Feature flags — gate hardware-dependent features (e.g. glow filament) until physically tested.
 // Default OFF for any new flag. Flip ON via admin Colours tab once verified.
-const DEFAULT_FEATURE_FLAGS = { glowEnabled: false };
+const DEFAULT_FEATURE_FLAGS = { glowEnabled: false, halloweenEnabled: false };
 async function loadFeatureFlags() {
   try {
     const r = await storageGet("feature-flags-v1");
     return r ? { ...DEFAULT_FEATURE_FLAGS, ...JSON.parse(r) } : { ...DEFAULT_FEATURE_FLAGS };
   } catch { return { ...DEFAULT_FEATURE_FLAGS }; }
 }
+// Throws on failure (added 2026-09 for Halloween) — a launch switch must never let the
+// admin panel show a state Firestore doesn't actually hold. handleSaveFeatureFlags below
+// rolls the UI back to the pre-click state on this throwing.
 async function saveFeatureFlags(flags) {
-  try { await storageSet("feature-flags-v1", JSON.stringify(flags)); } catch (e) { console.error("Save feature flags failed:", e); }
+  await storageSet("feature-flags-v1", JSON.stringify(flags));
 }
 async function loadCategories() {
   try {
@@ -244,6 +247,19 @@ function isSubCategory(cat, meta) {
 }
 function isCategoryPaused(cat, meta) {
   return !!(meta[cat] || {}).paused;
+}
+/* Seasonal-launch gate (added 2026-09 for Halloween 2026): a category can carry
+   launchFlag: "someFeatureFlagName" in its own meta entry, resolving visibility
+   against that flag rather than a hardcoded category name — renaming the category
+   in admin can never silently orphan the gate. Two brakes, both fail-closed:
+   `paused` is John's manual emergency stop, `launchFlag` is the seasonal switch.
+   Either one hides the category; isCategoryPaused is left unchanged and still used
+   on its own where only the manual brake matters. */
+function isCategoryHidden(cat, meta, flags) {
+  const m = (meta || {})[cat] || {};
+  if (m.paused) return true;
+  if (m.launchFlag) return !((flags || {})[m.launchFlag]);
+  return false;
 }
 /* Password-protected categories (added 2026-08-29 for exclusive-customer drops, e.g.
    FootballLab): a category can carry passwordProtected+password in its own meta entry,
@@ -4418,6 +4434,47 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [requests, setRequests] = useState([]);
   const [requestStatusFilter, setRequestStatusFilter] = useState("all");
 
+  // Halloween 2026 launch readiness (added 2026-09) — computed unconditionally, at the
+  // top of AdminPanel, so the hook order never depends on which admin tab is open.
+  // Deliberately does NOT depend on filamentVer (it doesn't exist in AdminPanel's
+  // props/state — an earlier draft of this gate crashed on exactly that), does NOT
+  // hard-block on `status` (the available-toggle at the product editor forces
+  // status:"live" whenever available:true, so a status!=="approved" check can never
+  // go green for a live product and would lock the button forever), and reads the
+  // `photoSource`/`photoRights` fields every product/creator already carries rather
+  // than regexing a URL (there is no `image` field anywhere in products-v2).
+  const hwReadiness = useMemo(() => {
+    const hwProducts = (products || []).filter(p => getProductCategories(p).includes("Halloween"));
+    const creatorByName = new Map((creators || []).map(c => [c.name, c]));
+    const clearStatuses = new Set(["subscribed", "free", "no_licence_needed"]);
+    const creatorNames = [...new Set(hwProducts.map(p => p.creator).filter(Boolean))];
+    const unpaidCreators = creatorNames.filter(name => {
+      const cr = creatorByName.get(name);
+      return !cr || !clearStatuses.has(cr.licenceStatus);
+    });
+    const noColours = hwProducts.filter(p => !(p.colors || []).length);
+    const stillHotlinked = hwProducts.filter(p => p.photoSource !== "own");
+    const photoBlockers = creatorNames.filter(name => {
+      const cr = creatorByName.get(name);
+      const hasOwnPhotos = hwProducts.some(p => p.creator === name && p.photoSource === "own");
+      return !hasOwnPhotos && (!cr || cr.photoRights !== "included");
+    });
+    const glowCount = hwProducts.filter(p => (p.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow")).length;
+    // Informational only — the ET pricing ladder. Large/bespoke items (the 3ft aliens)
+    // are expected to sit off it; this is a nudge to check, not a rule that's been broken.
+    const LADDER = [2, 3, 4.5, 5, 7.5, 10, 12.5];
+    const offLadder = hwProducts.filter(p => typeof p.price === "number" && !LADDER.includes(p.price));
+
+    const blockers = [];
+    if (hwProducts.length === 0) blockers.push("No Halloween products exist yet");
+    if (unpaidCreators.length) blockers.push(`${unpaidCreators.length} creator${unpaidCreators.length === 1 ? "" : "s"} not paid or licence-free: ${unpaidCreators.join(", ")}`);
+    if (noColours.length) blockers.push(`${noColours.length} product${noColours.length === 1 ? "" : "s"} with no colours to pick`);
+    if (stillHotlinked.length) blockers.push(`${stillHotlinked.length} photo${stillHotlinked.length === 1 ? "" : "s"} still on MakerWorld`);
+    if (photoBlockers.length) blockers.push(`${photoBlockers.length} creator${photoBlockers.length === 1 ? "" : "s"} haven't confirmed photo rights: ${photoBlockers.join(", ")}`);
+
+    return { hwProducts, unpaidCreators, noColours, stillHotlinked, photoBlockers, glowCount, offLadder, blockers };
+  }, [products, creators]);
+
   const handleUpdateRequest = async (id, status) => {
     await updateRequestStatus(id, status);
     setRequests(prev => prev.map(r => r.id === id ? { ...r, status } : r));
@@ -5296,6 +5353,100 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             </div>
           </div>
 
+          {/* Halloween 2026 Launch — master switch + readiness gate (added 2026-09).
+              Same panel pattern as Glow above: one place, two switches, deliberately —
+              John already has muscle memory for "launch switches live under Colours". */}
+          {(() => {
+            const hwLive = !!featureFlags.halloweenEnabled;
+            const hwBlocked = hwReadiness.blockers.length > 0;
+            const hwConnected = categoryMeta?.Halloween?.launchFlag === "halloweenEnabled";
+            const accent = "#ff7518";
+            const rows = [
+              { ok: hwReadiness.hwProducts.length > 0, text: `${hwReadiness.hwProducts.length} Halloween products ready to go live` },
+              { ok: hwReadiness.unpaidCreators.length === 0, text: hwReadiness.unpaidCreators.length === 0 ? "Every creator behind a live product is paid" : `${hwReadiness.unpaidCreators.length} creator(s) not paid: ${hwReadiness.unpaidCreators.join(", ")}` },
+              { ok: hwReadiness.noColours.length === 0, text: hwReadiness.noColours.length === 0 ? "Every live product has colours to pick" : `${hwReadiness.noColours.length} product(s) have no colours` },
+              { ok: hwReadiness.stillHotlinked.length === 0, text: hwReadiness.stillHotlinked.length === 0 ? "All photos are hosted on our own storage" : `${hwReadiness.stillHotlinked.length} photo(s) still from MakerWorld` },
+              { ok: hwReadiness.photoBlockers.length === 0, text: hwReadiness.photoBlockers.length === 0 ? "Photo rights confirmed for every creator" : `${hwReadiness.photoBlockers.length} creator(s) haven't confirmed photo rights` },
+            ];
+            return (
+              <div style={{
+                marginBottom: 24, borderRadius: 16, padding: "18px 20px",
+                background: hwLive ? "rgba(255,117,24,0.06)" : "rgba(255,117,24,0.02)",
+                border: `1px solid ${hwLive ? "rgba(255,117,24,0.4)" : "rgba(255,117,24,0.15)"}`,
+                boxShadow: hwLive ? "0 0 24px rgba(255,117,24,0.1)" : "none",
+              }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: 240 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: accent, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                      🎃 Halloween 2026 Launch
+                      <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 999, background: hwLive ? accent : hwBlocked ? "rgba(220,53,69,0.15)" : "rgba(255,255,255,0.08)", color: hwLive ? "#1a0d00" : hwBlocked ? "#dc3545" : S.muted, fontFamily: S.fontMono, fontWeight: 700 }}>
+                        {hwLive ? "LIVE" : hwBlocked ? `BLOCKED · ${hwReadiness.blockers.length} TO FIX` : "READY · NOT LIVE"}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 13, color: S.muted, lineHeight: 1.6, marginBottom: 8 }}>
+                      Master switch for the whole Halloween range. When ON, the <strong style={{ color: S.text }}>Halloween</strong> tab appears in the shop,
+                      every Halloween product you've made available becomes visible, and the <strong style={{ color: S.text }}>HALLOWEEN IN THE DARK</strong> hero
+                      takes over the top of the homepage — with the lights-off demo. When OFF, the shop looks exactly as it did before Halloween, and the
+                      glow hero above comes straight back if the Glow Filament Program is still live. Nothing is deleted either way.
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+                      {rows.map((r, i) => (
+                        <span key={i} style={{ fontSize: 12, color: r.ok ? "#2fbf71" : "#dc3545", fontFamily: S.fontMono }}>{r.ok ? "✓" : "✕"} {r.text}</span>
+                      ))}
+                      <span style={{ fontSize: 12, color: "#f59e0b", fontFamily: S.fontMono }}>! {hwReadiness.glowCount} of them glow in the dark</span>
+                      {hwReadiness.offLadder.length > 0 && (
+                        <span style={{ fontSize: 12, color: "#f59e0b", fontFamily: S.fontMono }}>! {hwReadiness.offLadder.length} price(s) off the standard ladder (expected for the big aliens — worth a glance for the rest): {hwReadiness.offLadder.map(p => `#${p.id} £${p.price}`).join(", ")}</span>
+                      )}
+                    </div>
+                    <p style={{ fontSize: 12, color: hwLive ? accent : "#f59e0b", fontWeight: 600, marginTop: 8 }}>
+                      ⚠️ This puts real products on sale for real money. Every creator behind them has to be paid first — selling a print under a licence you
+                      haven't bought is the same mistake as the FootballLab trophies. The red checks have to be green before this switch will work.
+                    </p>
+                    {!hwConnected && (
+                      <button
+                        onClick={async () => { await onSaveCategoryMeta({ ...categoryMeta, Halloween: { ...(categoryMeta.Halloween || {}), launchFlag: "halloweenEnabled", paused: false } }); }}
+                        style={{ marginTop: 4, padding: "8px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}
+                      >
+                        🔧 Connect "Halloween" to this switch (safe — stays hidden until you go live)
+                      </button>
+                    )}
+                    {hwConnected && <span style={{ fontSize: 12, color: "#2fbf71", fontFamily: S.fontMono }}>✓ "Halloween" category is connected to this switch</span>}
+                  </div>
+                  <button
+                    disabled={!hwLive && hwBlocked}
+                    onClick={() => {
+                      if (hwLive) { onSaveFeatureFlags({ ...featureFlags, halloweenEnabled: false }); return; }
+                      if (hwBlocked) return;
+                      const ok = window.confirm(`Go LIVE with Halloween? ${hwReadiness.hwProducts.length} products will become visible and buyable on etprintworld.com immediately. Only click OK if the creator subscriptions are paid and every one of those ${hwReadiness.hwProducts.length} prices is one you set yourself.`);
+                      if (ok) onSaveFeatureFlags({ ...featureFlags, halloweenEnabled: true });
+                    }}
+                    style={{
+                      padding: "12px 20px", borderRadius: 12, cursor: (!hwLive && hwBlocked) ? "not-allowed" : "pointer",
+                      background: hwLive ? accent : hwBlocked ? "rgba(255,255,255,0.04)" : "rgba(255,117,24,0.08)",
+                      color: hwLive ? "#1a0d00" : hwBlocked ? S.dimmer : accent,
+                      border: `1px solid ${hwLive ? accent : hwBlocked ? S.border : "rgba(255,117,24,0.4)"}`,
+                      fontSize: 14, fontWeight: 800, fontFamily: S.fontHead,
+                      display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap",
+                      opacity: (!hwLive && hwBlocked) ? 0.6 : 1,
+                      boxShadow: hwLive ? "0 0 20px rgba(255,117,24,0.4)" : "none",
+                    }}
+                  >
+                    <span style={{ width: 36, height: 20, borderRadius: 999, background: hwLive ? "rgba(0,0,0,0.25)" : "rgba(255,117,24,0.2)", position: "relative", display: "inline-block" }}>
+                      <span style={{ position: "absolute", top: 2, left: hwLive ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: hwLive ? "#1a0d00" : accent, transition: "left 0.2s" }} />
+                    </span>
+                    {hwLive ? "HALLOWEEN IS LIVE — click to end it" : hwBlocked ? `FIX ${hwReadiness.blockers.length} CHECK${hwReadiness.blockers.length === 1 ? "" : "S"} FIRST` : "GO LIVE WITH HALLOWEEN"}
+                  </button>
+                </div>
+                {hwLive && (
+                  <p style={{ fontSize: 12, color: S.muted, lineHeight: 1.6, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${S.border}` }}>
+                    🎃 Halloween Takeover is running the homepage hero right now — glow is the star of that story ({hwReadiness.glowCount} glowing products, lights-off mode, GLOWS badges).
+                    Products that only come in glow colours will drop out of the shop if you switch glow off until it's back on. Turn Halloween off and the GLOW IN THE DARK hero comes straight back.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Print Colour Dots button */}
           <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
             <Tooltip position="bottom" text="Generate a printable A4 sheet of colour dots for Label Planet LP117/19R 19mm circle stickers. Dots are oversized for alignment tolerance. Premium colours get a gold star (bottom-right).">
@@ -5939,8 +6090,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
             const liveProds = products.filter(p => getProductStatus(p) === "live");
             const getRag = (c) => {
               if (c.licenceStatus === "deleted") return "grey";
-              if (c.licenceStatus === "subscribed" || c.licenceStatus === "free") return "green";
-              if (c.licenceStatus === "known_risk" || c.licenceStatus === "pending_subscribe" || c.licenceStatus === "dm_sent") return "amber";
+              if (c.licenceStatus === "subscribed" || c.licenceStatus === "free" || c.licenceStatus === "no_licence_needed") return "green";
+              if (c.licenceStatus === "known_risk" || c.licenceStatus === "pending_subscribe" || c.licenceStatus === "pending_subscription" || c.licenceStatus === "dm_sent") return "amber";
               // no_licence: red only if live products exist, amber otherwise
               const hasLiveProds = liveProds.some(p => p.creator === c.name);
               return hasLiveProds ? "red" : "amber";
@@ -6118,9 +6269,11 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                           <option value="no_licence">🔴 No licence</option>
                           <option value="dm_sent">🟡 DM sent</option>
                           <option value="pending_subscribe">🟡 Pending subscribe</option>
+                          <option value="pending_subscription">🟡 Pending subscription</option>
                           <option value="known_risk">🟡 Known risk</option>
                           <option value="free">🟢 Free commercial</option>
                           <option value="subscribed">🟢 Subscribed</option>
+                          <option value="no_licence_needed">🟢 No licence needed</option>
                           <option value="deleted">⚫ Deleted</option>
                         </select>
                       </div>
@@ -7605,11 +7758,30 @@ function ElijahsPrintsInner() {
   const [stripeSuccess, setStripeSuccess] = useState(null); // holds completed order after Stripe redirect
   const [featureFlags, setFeatureFlags] = useState({ ...DEFAULT_FEATURE_FLAGS });
 
-  // Persist feature-flag changes through admin and keep customer site in sync
+  // Persist feature-flag changes through admin and keep customer site in sync.
+  // Rolls back on a failed write (added 2026-09 for Halloween) — without this, a
+  // failed Firestore write left the admin panel reading LIVE while the shop was
+  // unchanged, which on a launch switch is the worst possible failure: announcing
+  // a launch that never happened.
   const handleSaveFeatureFlags = async (flags) => {
+    const prev = featureFlags;
     setFeatureFlags(flags);
-    await saveFeatureFlags(flags);
+    try { await saveFeatureFlags(flags); }
+    catch (e) {
+      console.error("Save feature flags failed:", e);
+      setFeatureFlags(prev);
+      alert("⚠️ Couldn't save the switch — the shop has NOT changed. Check your connection and try again.");
+    }
   };
+
+  // Stranded-tab guard (added 2026-09 for Halloween): if a customer is sitting on a
+  // category tab that becomes hidden (John pauses it, or a seasonal launch flag flips
+  // off) mid-session, bounce them back to "All" rather than leaving them on a tab that
+  // no longer exists in the nav, looking at an empty grid. Also fixes the same latent
+  // gap `paused` alone has always had.
+  useEffect(() => {
+    if (activeCat !== "All" && isCategoryHidden(activeCat, categoryMeta, featureFlags)) setActiveCat("All");
+  }, [activeCat, categoryMeta, featureFlags.halloweenEnabled, featureFlags.glowEnabled]);
 
   // Scroll to top when navigating between pages
   useEffect(() => { window.scrollTo(0, 0); }, [page]);
@@ -7819,9 +7991,16 @@ function ElijahsPrintsInner() {
     // ever checked when building the category tab list, so a paused category's own button
     // correctly disappeared but its products stayed fully visible under "All" — found when
     // paused Planters products kept showing on the front page. Mirrors the lock-check above.
-    p = p.filter(x => getProductCategories(x).every(c => !isCategoryPaused(c, categoryMeta)));
+    // Upgraded to isCategoryHidden (added 2026-09 for Halloween) so a seasonal launch-flag
+    // gate hides a category's products the same way a manual pause does.
+    p = p.filter(x => getProductCategories(x).every(c => !isCategoryHidden(c, categoryMeta, featureFlags)));
     if (activeCat !== "All") p = p.filter(x => productInCategoryOrSub(x, activeCat, categoryMeta));
     if (glowOnly && featureFlags.glowEnabled) p = p.filter(x => (x.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow"));
+    // A product whose ONLY colours are glow-tier has nothing to pick when glow is off.
+    // Filtered HERE, not at the render map, so the grid, the tab badge, the chip count and
+    // the "No products available" empty state all agree. (Added 2026-09 for Halloween —
+    // verified a no-op against every pre-existing non-Halloween product.)
+    if (!featureFlags.glowEnabled) p = p.filter(x => !(x.colors || []).length || x.colors.some(c => getFilamentTier(FILAMENTS[c]) !== "glow"));
     if (search.trim()) { const q = search.toLowerCase(); p = p.filter(x => x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)); }
     const badgePriority = { "Premium": 1, "New": 2, "Popular": 3, "Best Seller": 4 };
     p.sort((a, b) => {
@@ -7838,7 +8017,7 @@ function ElijahsPrintsInner() {
       return a.name.localeCompare(b.name);
     });
     return p;
-  }, [activeCat, search, products, autoBadges, glowOnly, featureFlags.glowEnabled, filamentVer, categoryMeta, unlockedCategories]);
+  }, [activeCat, search, products, autoBadges, glowOnly, featureFlags.glowEnabled, featureFlags.halloweenEnabled, filamentVer, categoryMeta, unlockedCategories]);
 
   // initialQty (added for quantityTiers, 2026-08-22): optional 4th param, defaults to 1
   // so every existing call site (single-unit add) is unchanged.
@@ -7926,15 +8105,15 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
 const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVer(v => v + 1); await saveCategoryMeta(meta); };
 
    
- const displayCategories = useMemo(() => ["All", ...sortCategoriesByMeta(categories.filter(c => !isCategoryPaused(c, categoryMeta) && !isSubCategory(c, categoryMeta)), categoryMeta)], [catVer, categoryMeta]);
+ const displayCategories = useMemo(() => ["All", ...sortCategoriesByMeta(categories.filter(c => !isCategoryHidden(c, categoryMeta, featureFlags) && !isSubCategory(c, categoryMeta)), categoryMeta)], [catVer, categoryMeta, featureFlags.halloweenEnabled]);
 
   /* Sub-cat second row: when a category with children is active (or a sub-cat is active),
      show the sibling sub-cats so the customer can drill in further. */
   const subCategoriesOfActive = useMemo(() => {
     if (!activeCat || activeCat === "All") return [];
     const parent = (categoryMeta[activeCat] && categoryMeta[activeCat].parent) || activeCat;
-    return sortCategoriesByMeta(categories.filter(c => categoryMeta[c]?.parent === parent && !isCategoryPaused(c, categoryMeta)), categoryMeta);
-  }, [activeCat, catVer, categoryMeta]);
+    return sortCategoriesByMeta(categories.filter(c => categoryMeta[c]?.parent === parent && !isCategoryHidden(c, categoryMeta, featureFlags)), categoryMeta);
+  }, [activeCat, catVer, categoryMeta, featureFlags.halloweenEnabled]);
 
   const catCounts = useMemo(() => {
     if (!products) return {};
@@ -7943,12 +8122,18 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
     // don't leak into the public total — but each category's OWN count below stays real
     // (unfiltered by lock) so its tab doesn't disappear; the tab renders a 🔒 badge instead
     // of that number while locked, see the category-bar render.
-    const publiclyVisible = avail.filter(p => getProductCategories(p).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories)));
+    // Count honesty (added 2026-09 for Halloween): a product's categories must ALL be
+    // unlocked AND not hidden, mirroring shopProducts' own "every tagged category" rule
+    // exactly — otherwise a cross-listed product (e.g. a Halloween item also tagged
+    // Clickers) inflates the Clickers badge while Halloween is still paused/not-yet-live,
+    // even though shopProducts itself would never render that product under Clickers.
+    const visible = p => getProductCategories(p).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories) && !isCategoryHidden(c, categoryMeta, featureFlags));
+    const publiclyVisible = avail.filter(visible);
     const c = { All: publiclyVisible.length };
     /* Top-level cat counts include products in any descendant sub-cat. */
-    categories.forEach(cat => { c[cat] = avail.filter(p => productInCategoryOrSub(p, cat, categoryMeta)).length; });
+    categories.forEach(cat => { c[cat] = avail.filter(p => productInCategoryOrSub(p, cat, categoryMeta) && visible(p)).length; });
     return c;
-  }, [products, catVer, categoryMeta, unlockedCategories]);
+  }, [products, catVer, categoryMeta, unlockedCategories, featureFlags.halloweenEnabled]);
 
   /* A password-locked category (e.g. FootballLab) must keep its nav tab even when every
      product assigned to it is currently paused/unavailable (e.g. pricing not yet live) —
@@ -7969,10 +8154,10 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
   const heroStats = useMemo(() => {
     const visible = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow"));
     const visibleSet = new Set(visible);
-    const avail = (products || []).filter(x => x.available !== false && getProductCategories(x).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories)));
+    const avail = (products || []).filter(x => x.available !== false && getProductCategories(x).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories) && !isCategoryHidden(c, categoryMeta, featureFlags)));
     const comboCount = avail.reduce((sum, p) => sum + (p.colors || []).filter(c => visibleSet.has(c)).length, 0);
     return { colourCount: visible.length, comboCount };
-  }, [products, filamentVer, featureFlags.glowEnabled, categoryMeta, unlockedCategories]);
+  }, [products, filamentVer, featureFlags.glowEnabled, featureFlags.halloweenEnabled, categoryMeta, unlockedCategories]);
   if (!products) return <div style={{ minHeight: "100vh", background: S.dark, display: "flex", alignItems: "center", justifyContent: "center", color: S.teal, fontFamily: S.fontHead, fontSize: 18 }}>Loading...</div>;
 
   return (
