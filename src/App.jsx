@@ -1106,6 +1106,32 @@ async function deleteLabelDrawing(productId) {
   }
 }
 
+// Seasonal hero photos (added 2026-09 for Halloween) — one image per slot (e.g.
+// "halloween-alien"), same Firebase-Storage-hosted pattern as every other photo on
+// the site rather than hotlinking or hand-editing a URL into Firestore.
+async function uploadHeroImage(slotId, dataURL) {
+  if (!USE_FIREBASE) return dataURL;
+  try {
+    const { storage, ref, uploadBytes, getDownloadURL } = await getFirebase();
+    const blob = dataURLtoBlob(dataURL);
+    const imageRef = ref(storage, `hero-images/${slotId}.jpg`);
+    await uploadBytes(imageRef, blob, { contentType: "image/jpeg" });
+    return await getDownloadURL(imageRef);
+  } catch (e) {
+    console.error("Hero image upload failed:", e);
+    return dataURL;
+  }
+}
+async function deleteHeroImage(slotId) {
+  if (!USE_FIREBASE) return;
+  try {
+    const { storage, ref, deleteObject } = await getFirebase();
+    await deleteObject(ref(storage, `hero-images/${slotId}.jpg`));
+  } catch (e) {
+    console.error("Hero image delete failed (may not exist):", e);
+  }
+}
+
 function productUsesBoxLabels(product, categoryMeta) {
   // Per-product override takes priority, then falls back to category setting
   if (product.useBoxPackaging === true) return true;
@@ -1386,6 +1412,11 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
   const [sameColour, setSameColour] = useState(false);
   const [wantsKeyring, setWantsKeyring] = useState(false);
   const hasGlowColor = (product.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow");
+  // isGlowOnly (added 2026-09 for Halloween): a product whose every colour is glow-tier
+  // has no cheaper "standard" alternative for the strike-through price below to compare
+  // against — several Halloween products default-select a glow colour and were opening
+  // showing e.g. ~~£3.00~~ £4.50, which reads as a discount but is a 50% increase.
+  const isGlowOnly = (product.colors || []).length > 0 && (product.colors || []).every(c => getFilamentTier(FILAMENTS[c]) === "glow");
   const toggleColor = (color) => {
     if (fixedColours) return;
     if (maxC === 1) { setSelectedColors([color]); return; }
@@ -1416,7 +1447,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
       <div style={{ padding: "14px 16px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
-          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{!product.noColourUplift && highestTier(selectedColors) !== "standard" ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getTierPrice(product.price, selectedColors, product.noColourUplift, product.glowPriceOverride).toFixed(2)}</> : `£${product.price.toFixed(2)}`}</span>
+          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{!product.noColourUplift && highestTier(selectedColors) !== "standard" ? (isGlowOnly ? <>£{getTierPrice(product.price, selectedColors, product.noColourUplift, product.glowPriceOverride).toFixed(2)} <span style={{ fontSize: 10, color: "#aaff00", fontWeight: 700 }}>🌙 GLOW</span></> : <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getTierPrice(product.price, selectedColors, product.noColourUplift, product.glowPriceOverride).toFixed(2)}</>) : `£${product.price.toFixed(2)}`}</span>
         </div>
         <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.widthMm && product.heightMm ? `${product.widthMm}mm wide × ${product.heightMm}mm tall. ` : ""}{product.description}</p>
         {!fixedColours && maxC > 1 && <div style={{ fontSize: 11, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 6, background: "rgba(132,94,247,0.08)", padding: "4px 8px", borderRadius: 6, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
@@ -5410,7 +5441,42 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                         🔧 Connect "Halloween" to this switch (safe — stays hidden until you go live)
                       </button>
                     )}
-                    {hwConnected && <span style={{ fontSize: 12, color: "#2fbf71", fontFamily: S.fontMono }}>✓ "Halloween" category is connected to this switch</span>}
+                    {hwConnected && <span style={{ fontSize: 12, color: "#2fbf71", fontFamily: S.fontMono, display: "block", marginBottom: 10 }}>✓ "Halloween" category is connected to this switch</span>}
+
+                    {/* Hero photo — Elijah's own print, shown as one of the first things a
+                        customer sees when Halloween mode switches on (John, 2026-09). Same
+                        upload pattern as every product photo on the site. Falls back to an
+                        emoji motif on the storefront until this is set. */}
+                    <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 10 }}>
+                      <label style={{
+                        width: 64, height: 64, borderRadius: 12, cursor: "pointer", flexShrink: 0, overflow: "hidden",
+                        border: `2px dashed ${categoryMeta?.Halloween?.heroImageUrl ? "transparent" : "rgba(255,117,24,0.3)"}`,
+                        background: categoryMeta?.Halloween?.heroImageUrl ? "none" : "rgba(255,117,24,0.04)",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        {categoryMeta?.Halloween?.heroImageUrl
+                          ? <img src={categoryMeta.Halloween.heroImageUrl} alt="Hero" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          : <span style={{ fontSize: 20, opacity: 0.5 }}>👽</span>}
+                        <input type="file" accept="image/*" style={{ display: "none" }} onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          try {
+                            const imageData = await compressImage(file);
+                            const url = await uploadHeroImage("halloween-alien", imageData);
+                            await onSaveCategoryMeta({ ...categoryMeta, Halloween: { ...(categoryMeta.Halloween || {}), heroImageUrl: url } });
+                          } catch (err) { console.error("Hero image upload failed:", err); }
+                          e.target.value = "";
+                        }} />
+                      </label>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontSize: 12, color: S.muted, margin: 0, lineHeight: 1.5 }}>
+                          {categoryMeta?.Halloween?.heroImageUrl ? "Hero photo set — click it to replace." : "Upload Elijah's alien photo for the hero (falls back to 👽 until you do)."}
+                        </p>
+                        {categoryMeta?.Halloween?.heroImageUrl && (
+                          <button onClick={async () => { await deleteHeroImage("halloween-alien"); const next = { ...categoryMeta.Halloween }; delete next.heroImageUrl; await onSaveCategoryMeta({ ...categoryMeta, Halloween: next }); }} style={{ marginTop: 4, padding: "4px 10px", borderRadius: 8, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>✕ Remove photo</button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   <button
                     disabled={!hwLive && hwBlocked}
@@ -7727,6 +7793,12 @@ function ElijahsPrintsInner() {
   const [products, setProducts] = useState(null);
   const [activeCat, setActiveCat] = useState("All");
   const [glowOnly, setGlowOnly] = useState(false);
+  const [lightsOff, setLightsOff] = useState(false); // Halloween "lights out" demo (added 2026-09)
+  // ?hwpreview=1 (added 2026-09): chrome-only preview for John/Elijah to review the
+  // hero on their phones — set from a URL param at boot, purely client-side. Does NOT
+  // touch featureFlags or category-meta, so it can never make anything purchasable;
+  // the hero condition below is the only thing that reads it.
+  const [hwPreview, setHwPreview] = useState(false);
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [cartAnim, setCartAnim] = useState(null);
@@ -7782,6 +7854,19 @@ function ElijahsPrintsInner() {
   useEffect(() => {
     if (activeCat !== "All" && isCategoryHidden(activeCat, categoryMeta, featureFlags)) setActiveCat("All");
   }, [activeCat, categoryMeta, featureFlags.halloweenEnabled, featureFlags.glowEnabled]);
+
+  // Lights-off demo (added 2026-09): Escape restores it, and it auto-restores if the
+  // customer navigates off the shop page or Halloween itself goes off mid-session —
+  // it should never persist somewhere it no longer makes sense.
+  useEffect(() => {
+    if (!lightsOff) return;
+    const onKey = (e) => { if (e.key === "Escape") setLightsOff(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightsOff]);
+  useEffect(() => {
+    if (lightsOff && (page !== "shop" || !(featureFlags.halloweenEnabled || hwPreview))) setLightsOff(false);
+  }, [page, featureFlags.halloweenEnabled, hwPreview]);
 
   // Scroll to top when navigating between pages
   useEffect(() => { window.scrollTo(0, 0); }, [page]);
@@ -7867,7 +7952,20 @@ function ElijahsPrintsInner() {
         categories = cleaned; setCatVer(v => v + 1);
       }
     });
-    loadFeatureFlags().then(flags => setFeatureFlags(flags)).catch(() => {});
+    if (new URLSearchParams(window.location.search).get("hwpreview") === "1") setHwPreview(true);
+    loadFeatureFlags().then(flags => {
+      setFeatureFlags(flags);
+      // Deep links (added 2026-09 for Halloween) — applied only when the corresponding
+      // flag is actually live, so a Facebook link shared after the season cannot strand
+      // a later visitor on a tab/filter that no longer exists.
+      if (flags?.halloweenEnabled) {
+        const hw = new URLSearchParams(window.location.search).get("halloween");
+        if (hw === "1" || hw === "glow") {
+          setActiveCat("Halloween");
+          if (hw === "glow") setGlowOnly(true);
+        }
+      }
+    }).catch(() => {});
     loadCategoryMeta().then(meta => {
       if (meta) {
         // Migrate: add sortOrder to any entries missing it
@@ -8161,7 +8259,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
   if (!products) return <div style={{ minHeight: "100vh", background: S.dark, display: "flex", alignItems: "center", justifyContent: "center", color: S.teal, fontFamily: S.fontHead, fontSize: 18 }}>Loading...</div>;
 
   return (
-    <div style={{ minHeight: "100vh", background: S.dark, color: S.text, fontFamily: S.font }}>
+    <div className={lightsOff && (featureFlags.halloweenEnabled || hwPreview) && page === "shop" ? "ep-lights-off" : ""} style={{ minHeight: "100vh", background: S.dark, color: S.text, fontFamily: S.font }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -8171,6 +8269,16 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
         ::-webkit-scrollbar { width: 6px } ::-webkit-scrollbar-track { background: transparent } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px }
         input:focus, textarea:focus, select:focus { border-color: ${S.teal} !important; box-shadow: 0 0 0 3px rgba(0,201,167,0.1); outline: none }
         input, textarea, select { font-size: 16px !important; }
+        /* Halloween "lights out" demo (added 2026-09). .ep-lights-off is applied to the
+           page root while active; .ep-card-wrap.is-glow (set per-card from real colour
+           data, not :has(), for broad browser support) lifts a glowing card above the
+           dark sheet. .ep-cat-bar is z-index 90, already under the sheet's 95, so it
+           needs no rule of its own here — only .ep-nav (100) stays intentionally above. */
+        .ep-lights-off .ep-card-wrap.is-glow { position: relative; z-index: 96; }
+        .ep-lights-off .ep-card-wrap.is-glow > * { box-shadow: 0 0 30px rgba(170,255,0,0.35), 0 0 70px rgba(170,255,0,0.18); border-radius: 16px; }
+        @media (prefers-reduced-motion: reduce) {
+          .ep-hw-hero *, .ep-card-wrap { animation: none !important; }
+        }
         @media (max-width: 768px) {
           .ep-checkout-grid { grid-template-columns: 1fr !important; }
           .ep-checkout-summary { position: static !important; order: -1; margin-bottom: 20px; }
@@ -8250,7 +8358,136 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
       )}
 
       {page === "shop" && (<>
-        {featureFlags.glowEnabled && (
+        {/* Halloween "lights out" demo overlay (added 2026-09) — a dimming sheet, not a
+            blackout: the sheet is pointer-events:none so every card stays clickable, and
+            rgba(3,2,8,0.78) leaves non-glow products legible-but-dimmed rather than
+            invisible (an opaque sheet would let a customer add to basket something they
+            can't see). Glow cards lift above it via the .is-glow CSS rule. The floating
+            bar deliberately says "everything else is still here" — lights-off dims the
+            non-glow range for effect, it never removes it from the shop. */}
+        {lightsOff && (featureFlags.halloweenEnabled || hwPreview) && (<>
+          <div onClick={() => setLightsOff(false)} style={{ position: "fixed", inset: 0, zIndex: 95, background: "rgba(3,2,8,0.78)", pointerEvents: "none", transition: "background 0.9s ease" }} />
+          <div style={{ position: "fixed", left: "50%", bottom: 22, transform: "translateX(-50%)", zIndex: 101, background: "rgba(13,13,26,0.96)", border: "1px solid rgba(170,255,0,0.4)", borderRadius: 999, padding: "10px 10px 10px 20px", display: "flex", alignItems: "center", gap: 14, fontFamily: S.fontHead, fontSize: 13, fontWeight: 600, color: "#aaff00", boxShadow: "0 0 30px rgba(170,255,0,0.2)", backdropFilter: "blur(10px)", maxWidth: "calc(100vw - 32px)" }}>
+            <span>🔦 Lights out — glow-in-the-dark ones are lit up, everything else is still here</span>
+            <button onClick={() => setLightsOff(false)} style={{ padding: "8px 16px", borderRadius: 999, border: "none", background: "#aaff00", color: "#0d0d1a", fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, fontSize: 12, whiteSpace: "nowrap" }}>Lights on</button>
+          </div>
+        </>)}
+        {/* Gate checks BOTH brakes, not just the flag: if John hits the independent
+            "paused" emergency stop on the Halloween category while the top-level switch
+            is still on, the hero should stop touting a live range it no longer shows.
+            hwPreview (the ?hwpreview=1 chrome-only mode) bypasses both, by design — it
+            never touches real flag/category state, so it can never make anything
+            purchasable regardless of what it renders. */}
+        {(hwPreview || (featureFlags.halloweenEnabled && !isCategoryPaused("Halloween", categoryMeta))) ? (() => {
+          const hwProducts = (products || []).filter(x => x.available !== false && getProductCategories(x).includes("Halloween"));
+          const hwGlowCount = hwProducts.filter(p => (p.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow")).length;
+          const hwGlowColours = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && getFilamentTier(FILAMENTS[c]) === "glow" && hwProducts.some(p => (p.colors || []).includes(c)));
+          const heroImg = categoryMeta?.Halloween?.heroImageUrl;
+          const goToHalloween = () => { setActiveCat("Halloween"); setTimeout(() => document.querySelector('.ep-product-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
+          return (
+            <section className="ep-hw-hero" style={{ position: "relative", padding: "70px 24px 80px", textAlign: "center", overflow: "hidden", background: "radial-gradient(circle at center 30%, rgba(255,117,24,0.10) 0%, transparent 60%), #0d0d1a", borderBottom: "1px solid rgba(255,117,24,0.2)" }}>
+              <style>{`
+                @keyframes hwFlicker {
+                  0%, 19%, 21%, 23%, 80%, 100% { opacity: 1; text-shadow: 0 0 10px #ff7518, 0 0 30px rgba(255,117,24,0.6), 0 0 60px rgba(255,117,24,0.35); }
+                  20%, 22% { opacity: 0.75; text-shadow: 0 0 4px #ff7518; }
+                }
+                @keyframes hwGlowPulse {
+                  0%, 100% { text-shadow: 0 0 10px #aaff00, 0 0 30px rgba(170,255,0,0.6), 0 0 60px rgba(170,255,0,0.4), 0 0 100px rgba(170,255,0,0.2); }
+                  50% { text-shadow: 0 0 14px #d4ff44, 0 0 45px rgba(170,255,0,0.8), 0 0 90px rgba(170,255,0,0.5), 0 0 140px rgba(170,255,0,0.3); }
+                }
+                @keyframes hwFloat {
+                  0%, 100% { transform: translateY(0) rotate(-1deg); }
+                  50% { transform: translateY(-14px) rotate(1deg); }
+                }
+                @keyframes hwPulseDot {
+                  0%, 100% { opacity: 1; transform: scale(1); }
+                  50% { opacity: 0.4; transform: scale(1.4); }
+                }
+                @keyframes hwSwatchPulse {
+                  0%, 100% { transform: scale(1); filter: brightness(1); }
+                  50% { transform: scale(1.08); filter: brightness(1.25); }
+                }
+              `}</style>
+              <div style={{ position: "absolute", left: "20%", bottom: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(255,117,24,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
+              <div style={{ position: "absolute", right: "20%", top: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(170,255,0,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
+              <div style={{ position: "relative" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 14, background: "rgba(255,117,24,0.12)", border: "1.5px solid rgba(255,117,24,0.4)", color: "#ff7518", padding: "12px 28px", borderRadius: 999, fontFamily: S.fontMono, fontWeight: 700, fontSize: 18, marginBottom: 22, letterSpacing: "2px", boxShadow: "0 0 30px rgba(255,117,24,0.25)" }}>
+                  <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#ff7518", boxShadow: "0 0 14px #ff7518, 0 0 28px rgba(255,117,24,0.6)", animation: "hwPulseDot 1.5s ease-in-out infinite" }} />
+                  NEW FOR HALLOWEEN
+                </span>
+                <h2 style={{ fontFamily: S.fontHead, fontWeight: 900, fontSize: "clamp(40px, 9vw, 108px)", lineHeight: 0.95, marginBottom: 4, letterSpacing: "-2px" }}>
+                  <span style={{ display: "block", color: "#ff7518", animation: "hwFlicker 3.5s linear infinite" }}>HALLOWEEN</span>
+                  <span style={{ display: "block", color: "#aaff00", animation: "hwGlowPulse 4s ease-in-out infinite" }}>IN THE DARK</span>
+                </h2>
+                <p style={{ fontFamily: S.fontHead, fontWeight: 700, fontSize: "clamp(15px, 2.4vw, 22px)", color: S.text, margin: "24px auto 6px", maxWidth: 560, letterSpacing: "0.3px" }}>
+                  Aliens, skulls and zombie hands. Printed at home in Gwernaffield by Elijah, age 10.
+                </p>
+                {hwGlowCount > 0 && (
+                  <p style={{ fontFamily: S.fontHead, fontWeight: 800, fontSize: "clamp(14px, 2.2vw, 19px)", color: "#aaff00", marginBottom: 8 }}>
+                    {hwGlowCount} of them actually glow.
+                  </p>
+                )}
+                <p style={{ fontFamily: S.fontMono, fontSize: 12, color: S.muted, letterSpacing: "0.5px", marginBottom: 24 }}>
+                  {hwProducts.length} NEW PRINTS · {hwGlowCount} GLOW IN THE DARK · {hwGlowColours.length} GLOW COLOURS
+                </p>
+                <p style={{ fontSize: 12, color: "#f59e0b", fontFamily: S.fontHead, fontWeight: 600, letterSpacing: "0.3px", marginBottom: 8 }}>
+                  Order by Sun 25 October so Elijah has time to print it
+                </p>
+
+                {/* Motif — Elijah's own print once uploaded (admin Colours tab), falling
+                    back to the emoji so the hero never looks broken before then. One of
+                    the first things a customer sees when Halloween mode switches on,
+                    per John's 2026-09 feedback. */}
+                <div style={{ margin: "20px auto 28px", display: "flex", justifyContent: "center" }}>
+                  {heroImg ? (
+                    <div style={{ animation: "hwFloat 6s ease-in-out infinite" }}>
+                      <img src={heroImg} alt="Elijah's own giant alien print" style={{
+                        width: "clamp(200px, 32vw, 300px)", height: "clamp(240px, 38vw, 360px)", objectFit: "cover",
+                        borderRadius: 24, display: "block", margin: "0 auto",
+                        filter: "drop-shadow(0 0 24px rgba(170,255,0,0.35)) drop-shadow(0 0 50px rgba(255,117,24,0.25))",
+                        border: "2px solid rgba(170,255,0,0.25)",
+                      }} />
+                      <p style={{ marginTop: 10, fontSize: 11, color: S.dimmer, fontFamily: S.fontHead, fontStyle: "italic" }}>Elijah's own 3ft alien print</p>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: "clamp(90px, 15vw, 160px)", filter: "drop-shadow(0 0 20px #ff7518) drop-shadow(0 0 40px rgba(255,117,24,0.5)) drop-shadow(0 0 30px rgba(170,255,0,0.3))", animation: "hwFloat 6s ease-in-out infinite" }}>👽</div>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                  <button onClick={goToHalloween} style={{ padding: "14px 28px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 700, fontSize: 14, background: "#ff7518", color: "#1a0d00", boxShadow: "0 0 20px rgba(255,117,24,0.4)" }}>SEE THE HALLOWEEN RANGE →</button>
+                  <button onClick={() => setLightsOff(v => !v)} style={{ padding: "14px 28px", borderRadius: 14, border: "1.5px solid rgba(170,255,0,0.5)", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 700, fontSize: 14, background: "rgba(170,255,0,0.1)", color: "#aaff00" }}>
+                    {lightsOff ? "💡 TURN THE LIGHTS BACK ON" : "🔦 TURN THE LIGHTS OFF"}
+                  </button>
+                </div>
+                {hwGlowCount > 0 && (
+                  <button onClick={() => { setGlowOnly(true); goToHalloween(); }} style={{ background: "none", border: "none", color: "#aaff00", fontFamily: S.fontHead, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", marginBottom: 8, padding: 4 }}>
+                    Show me only the ones that glow →
+                  </button>
+                )}
+
+                {hwGlowColours.length > 0 && (
+                  <div style={{ marginTop: 18 }}>
+                    <p style={{ color: S.muted, fontSize: 11, fontFamily: S.fontMono, letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: 16 }}>CHARGE THEM IN DAYLIGHT · WATCH THEM SHINE</p>
+                    <div style={{ display: "flex", gap: 20, justifyContent: "center", flexWrap: "wrap", maxWidth: 600, margin: "0 auto" }}>
+                      {hwGlowColours.map((name, i) => {
+                        const f = FILAMENTS[name];
+                        return (
+                          <Tooltip key={name} position="top" text={`<strong style="color:${f.hex};">🌙 ${name}</strong><br/>${f.type} · <span style="color:${f.hex};">Glow in the dark</span>`}>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                              <div style={{ width: 44, height: 44, borderRadius: "50%", backgroundColor: f.hex, border: `2px solid ${f.hex}`, boxShadow: `0 0 16px ${f.hex}, 0 0 32px ${f.hex}aa`, animation: "hwSwatchPulse 2.4s ease-in-out infinite", animationDelay: `${i * 0.3}s` }} />
+                              <span style={{ fontSize: 10, color: f.hex, fontFamily: S.fontHead, fontWeight: 700 }}>{name}</span>
+                            </div>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          );
+        })() : featureFlags.glowEnabled && (
           <section style={{ position: "relative", padding: "70px 24px 80px", textAlign: "center", overflow: "hidden", background: "radial-gradient(circle at center 30%, rgba(170,255,0,0.08) 0%, transparent 60%), #0d0d1a", borderBottom: "1px solid rgba(170,255,0,0.2)" }}>
             <style>{`
               @keyframes glowTitlePulse {
@@ -8380,7 +8617,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
         {glowOnly && featureFlags.glowEnabled && (
           <div style={{ maxWidth: 1200, margin: "0 auto", padding: "8px 24px 0", display: "flex", justifyContent: "center" }}>
             <button onClick={() => setGlowOnly(false)} style={{ padding: "6px 14px", borderRadius: 16, border: "1px solid rgba(170,255,0,0.5)", background: "rgba(170,255,0,0.12)", color: "#aaff00", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 8, boxShadow: "0 0 16px rgba(170,255,0,0.25)" }}>
-              🌙 Showing glow-in-the-dark products only · {shopProducts.length} match{shopProducts.length === 1 ? "" : "es"}
+              {featureFlags.halloweenEnabled && activeCat === "Halloween" ? "🎃🌙 Halloween · glow-in-the-dark only" : "🌙 Showing glow-in-the-dark products only"} · {shopProducts.length} match{shopProducts.length === 1 ? "" : "es"}
               <span style={{ fontSize: 14, opacity: 0.8 }}>✕ Clear</span>
             </button>
           </div>
@@ -8407,8 +8644,14 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               ? product.colors
               : (product.colors || []).filter(c => getFilamentTier(FILAMENTS[c]) !== "glow");
             return (
-              <div key={product.id} style={{ opacity: loaded ? 1 : 0, transform: loaded ? "translateY(0)" : "translateY(20px)", transition: `all 0.5s cubic-bezier(0.16,1,0.3,1) ${Math.min(i * 0.05, 0.4)}s` }}>
-                <ProductCard product={{ ...product, colors: visibleColors, badge: autoBadges[product.id] || null }} onAddToCart={addToCart} cartAnimation={cartAnim} />
+              <div key={product.id} className={`ep-card-wrap${(visibleColors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow") ? " is-glow" : ""}`} style={{ opacity: loaded ? 1 : 0, transform: loaded ? "translateY(0)" : "translateY(20px)", transition: `all 0.5s cubic-bezier(0.16,1,0.3,1) ${Math.min(i * 0.05, 0.4)}s` }}>
+                {/* key on ProductCard itself (added 2026-09 for Halloween): selectedColors is
+                    initialised once from product.colors[0] and the div above survives a props
+                    change, so toggling a feature flag mid-session changed visibleColors without
+                    resetting the card's own selection — it could keep a glow colour selected
+                    after that swatch had already vanished from the picker. Remounts only when
+                    the actual visible colour SET changes. */}
+                <ProductCard key={(visibleColors || []).join("|")} product={{ ...product, colors: visibleColors, badge: autoBadges[product.id] || null }} onAddToCart={addToCart} cartAnimation={cartAnim} />
               </div>
             );
           })}

@@ -109,6 +109,41 @@ async function loadTrustedFilaments() {
   return parsed && typeof parsed === "object" ? parsed : {};
 }
 
+// Category gate (added 2026-09 for Halloween) — makes "not live" mean "not
+// purchasable". The launch runbook sets a season's products available:true days
+// before the switch flips, so this is the only thing enforcing that window; it
+// ships before any product goes live, not after. Same null-on-any-failure shape
+// as loadTrustedProducts (not loadTrustedFilaments' empty-object fallback) — a
+// Firestore blip here must block checkout, not silently read as "nothing hidden".
+async function loadTrustedCategoryMeta() {
+  if (!db) return null;
+  const snap = await db.collection("shop").doc("category-meta-v1").get();
+  if (!snap.exists) return null;
+  let parsed = snap.data().value;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); } catch { return null; }
+  }
+  return parsed && typeof parsed === "object" ? parsed : null;
+}
+async function loadTrustedFeatureFlags() {
+  if (!db) return null;
+  const snap = await db.collection("shop").doc("feature-flags-v1").get();
+  if (!snap.exists) return null;
+  let parsed = snap.data().value;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); } catch { return null; }
+  }
+  return parsed && typeof parsed === "object" ? parsed : null;
+}
+// Mirrors src/App.jsx isCategoryHidden exactly — two brakes, both fail-closed:
+// John's manual paused flag, or a seasonal launchFlag that isn't currently on.
+function isCategoryHidden(cat, meta, flags) {
+  const m = (meta || {})[cat] || {};
+  if (m.paused) return true;
+  if (m.launchFlag) return !((flags || {})[m.launchFlag]);
+  return false;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -121,8 +156,13 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "No items in cart" });
     }
 
-    const [products, filaments] = await Promise.all([loadTrustedProducts(), loadTrustedFilaments()]);
-    if (!products) {
+    const [products, filaments, categoryMeta, featureFlags] = await Promise.all([
+      loadTrustedProducts(),
+      loadTrustedFilaments(),
+      loadTrustedCategoryMeta(),
+      loadTrustedFeatureFlags(),
+    ]);
+    if (!products || !categoryMeta || !featureFlags) {
       return res.status(503).json({ error: "Catalogue unavailable — please try again in a moment" });
     }
     const byId = new Map(products.map((p) => [String(p.id), p]));
@@ -160,6 +200,14 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: `Product not available: ${String(it.name || it.id).slice(0, 60)}` });
       }
       if (prod.available === false) {
+        return res.status(400).json({ error: `Product unavailable: ${String(prod.name).slice(0, 60)}` });
+      }
+      // Category gate (added 2026-09 for Halloween): a product can be available:true
+      // days before its category actually launches (see loadTrustedCategoryMeta above)
+      // — reuses the same "Product unavailable" wording so a customer needn't learn
+      // the word "paused", and it leaks nothing about an unreleased range.
+      const prodCategories = Array.isArray(prod.category) ? prod.category : prod.category ? [prod.category] : [];
+      if (prodCategories.some((c) => isCategoryHidden(c, categoryMeta, featureFlags))) {
         return res.status(400).json({ error: `Product unavailable: ${String(prod.name).slice(0, 60)}` });
       }
 
