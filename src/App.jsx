@@ -7861,8 +7861,10 @@ function ElijahsPrintsInner() {
   useEffect(() => {
     if (heroStages.length < 2) { setHeroStage(lightsOff ? heroStages.length - 1 : 0); return; }
     if (!lightsOff) { setHeroStage(0); return; }
-    const timers = [setTimeout(() => setHeroStage(1), 250)];
-    if (heroStages.length > 2) timers.push(setTimeout(() => setHeroStage(2), 700));
+    // Timing slowed 2026-09-04 to match the big reveal-flash zoom (2.7s total) — each
+    // stage needs to be clearly visible at large size, not just a quick inline crossfade.
+    const timers = [setTimeout(() => setHeroStage(1), 900)];
+    if (heroStages.length > 2) timers.push(setTimeout(() => setHeroStage(2), 1700));
     return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lightsOff, heroStages.length]);
@@ -8321,19 +8323,27 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
         * { box-sizing: border-box; margin: 0; padding: 0; }
         @keyframes slideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }
         @keyframes heroGlow { 0%,100% { opacity: 0.5 } 50% { opacity: 0.8 } }
-        @keyframes hwRevealFlash { 0% { opacity: 0 } 10% { opacity: 1 } 60% { opacity: 1 } 100% { opacity: 0 } }
-        @keyframes hwRevealIcon { 0%, 35% { opacity: 0; transform: scale(0.6) rotate(-8deg); } 48% { opacity: 1; transform: scale(1.25) rotate(4deg); } 62% { opacity: 1; transform: scale(1) rotate(0); } 80%, 100% { opacity: 0; transform: scale(1.4) rotate(4deg); } }
-        @keyframes hwRevealBurst { 0%, 58% { opacity: 0; transform: scale(0.2); } 72% { opacity: 1; transform: scale(1.5); } 100% { opacity: 0; transform: scale(2.6); } }
+        @keyframes hwRevealBackdrop { 0% { opacity: 0 } 9% { opacity: 0.95 } 82% { opacity: 0.95 } 100% { opacity: 0 } }
+        @keyframes hwRevealAlienZoom {
+          0% { opacity: 0; transform: scale(0.4); }
+          12% { opacity: 1; transform: scale(1.08); }
+          20% { opacity: 1; transform: scale(1); }
+          85% { opacity: 1; transform: scale(1); }
+          100% { opacity: 0; transform: scale(1.15); }
+        }
         @keyframes spin { from { transform: rotate(0) } to { transform: rotate(360deg) } }
         ::-webkit-scrollbar { width: 6px } ::-webkit-scrollbar-track { background: transparent } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px }
         input:focus, textarea:focus, select:focus { border-color: ${S.teal} !important; box-shadow: 0 0 0 3px rgba(0,201,167,0.1); outline: none }
         input, textarea, select { font-size: 16px !important; }
         /* Halloween "lights out" demo (added 2026-09). .ep-lights-off is applied to the
-           page root while active; .ep-card-wrap.is-glow (set per-card from real colour
-           data, not :has(), for broad browser support) lifts a glowing card above the
-           dark sheet. .ep-cat-bar is z-index 90, already under the sheet's 95, so it
-           needs no rule of its own here — only .ep-nav (100) stays intentionally above. */
-        .ep-lights-off .ep-card-wrap.is-glow { position: relative; z-index: 96; }
+           page root while active. .ep-cat-bar is z-index 90, already under the sheet's
+           95, so it needs no rule of its own here — only .ep-nav (100) stays above.
+           2026-09-04 fix: ALL cards now lift above the dim sheet, not just glow ones —
+           John's report was "the non-glow products are still too dark — all halloween
+           products should be visible, not just the glow." The dim sheet still darkens
+           the page chrome/gaps for atmosphere; it must never make a product unreadable.
+           Glow cards keep an extra box-shadow so they still stand out further. */
+        .ep-lights-off .ep-card-wrap { position: relative; z-index: 96; }
         .ep-lights-off .ep-card-wrap.is-glow > * { box-shadow: 0 0 30px rgba(170,255,0,0.35), 0 0 70px rgba(170,255,0,0.18); border-radius: 16px; }
         /* 2026-09-04 fix: the dim sheet is position:fixed/inset:0, so at z-index 95 it
            was sitting ON TOP of the hero too — John's report was "too hard to see
@@ -8429,18 +8439,30 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
             state change. pointer-events:none so it never blocks the click that triggered it. */}
         {heroFlash && (
           <>
-            <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#000", pointerEvents: "none", animation: "hwRevealFlash 1.1s ease forwards" }} />
-            <div style={{
-              position: "fixed", top: "50%", left: "50%", width: 260, height: 260, marginLeft: -130, marginTop: -130,
-              borderRadius: "50%", zIndex: 199, pointerEvents: "none",
-              background: "radial-gradient(circle, rgba(170,255,0,0.65) 0%, rgba(255,117,24,0.35) 45%, transparent 72%)",
-              animation: "hwRevealBurst 1.1s ease forwards",
-            }} />
-            <div style={{
-              position: "fixed", inset: 0, zIndex: 201, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none",
-              fontSize: 100, filter: "drop-shadow(0 0 30px #aaff00) drop-shadow(0 0 60px #ff7518)",
-              animation: "hwRevealIcon 1.1s ease forwards",
-            }}>🎃</div>
+            <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#000", pointerEvents: "none", animation: "hwRevealBackdrop 2.7s ease forwards" }} />
+            {/* 2026-09-04 rebuild, John: "could it enlarge the hero alien, then transition
+                it from original to mid to full glow" — reuses the SAME heroStages/heroStage
+                crossfade already driving the small inline hero image (shared state, same
+                timing effect below), just rendered large as the centrepiece of the reveal
+                instead of a generic icon. Falls back to just the backdrop if no images
+                are uploaded yet — nothing to enlarge in that case. */}
+            {heroStages.length > 0 && (
+              <div style={{ position: "fixed", inset: 0, zIndex: 201, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                <div style={{
+                  position: "relative", width: "min(65vw, 460px)", height: "min(65vw, 460px)",
+                  borderRadius: 28, overflow: "hidden", border: "3px solid rgba(170,255,0,0.4)",
+                  boxShadow: "0 0 60px rgba(170,255,0,0.55), 0 0 130px rgba(255,117,24,0.35)",
+                  animation: "hwRevealAlienZoom 2.7s cubic-bezier(0.22,1,0.36,1) forwards",
+                }}>
+                  {heroStages.map((src, i) => (
+                    <img key={src} src={src} alt="Elijah's own giant alien print" style={{
+                      position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
+                      opacity: i === heroStage ? 1 : 0, transition: "opacity 0.5s ease",
+                    }} />
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
         {/* Halloween "lights out" demo overlay (added 2026-09) — a dimming sheet, not a
@@ -8473,7 +8495,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               // Doodle wallpaper (added 2026-09-04, John: "add the doodle wallpaper to the
               // website also") — same SVG tile as the leaflet's dark panels, reused rather
               // than a second one-off pattern. Layered under the existing radial-gradient glow.
-              background: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='170' height='170'%3E%3Cg fill='rgba(255,255,255,0.05)'%3E%3Cpath d='M22 34 C12 24 2 26 6 34 C10 30 15 32 19 37 C15 34 9 37 5 43 C11 47 17 41 22 34 C27 41 33 47 39 43 C35 37 29 34 25 37 C29 32 34 30 38 34 C42 26 32 24 22 34 Z'/%3E%3Ccircle cx='135' cy='45' r='9'/%3E%3Cpath d='M135 36 L135 22 M135 36 L124 27 M135 36 L146 27 M135 54 L135 68 M135 54 L124 63 M135 54 L146 63 M126 45 L112 45 M144 45 L158 45' stroke='rgba(255,255,255,0.05)' stroke-width='1.4' fill='none'/%3E%3Cpath d='M65 125 C65 111 79 106 84 115 C89 106 103 111 103 125 C103 132 97 136 93 132 C91 136 85 138 83 134 C81 138 75 136 73 132 C69 136 65 132 65 125 Z'/%3E%3Ccircle cx='150' cy='120' r='11' fill='rgba(255,255,255,0.045)'/%3E%3Ccircle cx='158' cy='113' r='11' fill='%230d0d1a'/%3E%3Ccircle cx='28' cy='140' r='2'/%3E%3Ccircle cx='150' cy='20' r='2'/%3E%3Ccircle cx='85' cy='20' r='2'/%3E%3Ccircle cx='10' cy='90' r='2'/%3E%3Ccircle cx='115' cy='90' r='2'/%3E%3C/g%3E%3C/svg%3E") repeat, radial-gradient(circle at center 30%, rgba(255,117,24,0.10) 0%, transparent 60%), #0d0d1a`,
+              background: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='170' height='170'%3E%3Cg fill='rgba(200,232,50,0.16)'%3E%3Cpath d='M22 34 C12 24 2 26 6 34 C10 30 15 32 19 37 C15 34 9 37 5 43 C11 47 17 41 22 34 C27 41 33 47 39 43 C35 37 29 34 25 37 C29 32 34 30 38 34 C42 26 32 24 22 34 Z'/%3E%3Ccircle cx='135' cy='45' r='9'/%3E%3Cpath d='M135 36 L135 22 M135 36 L124 27 M135 36 L146 27 M135 54 L135 68 M135 54 L124 63 M135 54 L146 63 M126 45 L112 45 M144 45 L158 45' stroke='rgba(200,232,50,0.16)' stroke-width='1.8' fill='none'/%3E%3Cpath d='M65 125 C65 111 79 106 84 115 C89 106 103 111 103 125 C103 132 97 136 93 132 C91 136 85 138 83 134 C81 138 75 136 73 132 C69 136 65 132 65 125 Z'/%3E%3Ccircle cx='150' cy='120' r='11' fill='rgba(255,117,24,0.14)'/%3E%3Ccircle cx='158' cy='113' r='11' fill='%230d0d1a'/%3E%3Ccircle cx='28' cy='140' r='2.5'/%3E%3Ccircle cx='150' cy='20' r='2.5'/%3E%3Ccircle cx='85' cy='20' r='2.5'/%3E%3Ccircle cx='10' cy='90' r='2.5'/%3E%3Ccircle cx='115' cy='90' r='2.5'/%3E%3C/g%3E%3C/svg%3E") repeat, radial-gradient(circle at center 30%, rgba(255,117,24,0.10) 0%, transparent 60%), #0d0d1a`,
               borderBottom: "1px solid rgba(255,117,24,0.2)" }}>
               <style>{`
                 @keyframes hwFlicker {
@@ -8500,68 +8522,29 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               <div style={{ position: "absolute", left: "20%", bottom: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(255,117,24,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
               <div style={{ position: "absolute", right: "20%", top: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(170,255,0,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
               <div style={{ position: "relative" }}>
-                {/* Moved to the top of the hero 2026-09-04 per John: the choice itself is
-                    the hook — a visitor shouldn't have to scroll past headline/stats/deadline
-                    copy to find it. Everything below is now the "why", not the gate. */}
-                <p style={{ fontFamily: S.fontHead, fontWeight: 800, fontSize: "clamp(16px, 2.6vw, 21px)", color: "#f0f0f8", margin: "0 0 14px", letterSpacing: "0.2px" }}>
-                  Dare you enter Halloween?
-                </p>
-                <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                  <button onClick={() => {
-                    setHeroFlash(true);
-                    setLightsOff(true);
-                    goToHalloween();
-                    setTimeout(() => setHeroFlash(false), 1150);
-                  }} style={{ padding: "16px 32px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 800, fontSize: 15, background: "#aaff00", color: "#0d0d1a", boxShadow: "0 0 24px rgba(170,255,0,0.45)" }}>
-                    😈 Yes — enter Halloween →
-                  </button>
-                  <button onClick={() => document.querySelector('.ep-hero')?.scrollIntoView({ behavior: "smooth", block: "start" })} style={{ padding: "16px 28px", borderRadius: 14, border: "1.5px solid rgba(255,255,255,0.2)", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 600, fontSize: 13, background: "rgba(255,255,255,0.05)", color: S.muted }}>
-                    ↓ Show me everything else
-                  </button>
-                </div>
-                {lightsOff && (
-                  <button onClick={() => setLightsOff(false)} style={{ background: "none", border: "none", color: "#aaff00", fontFamily: S.fontHead, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", marginBottom: 18, padding: 4 }}>
-                    💡 Turn the lights back on
-                  </button>
-                )}
-
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 14, background: "rgba(255,117,24,0.12)", border: "1.5px solid rgba(255,117,24,0.4)", color: "#ff7518", padding: "12px 28px", borderRadius: 999, fontFamily: S.fontMono, fontWeight: 700, fontSize: 18, marginBottom: 22, letterSpacing: "2px", boxShadow: "0 0 30px rgba(255,117,24,0.25)" }}>
-                  <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#ff7518", boxShadow: "0 0 14px #ff7518, 0 0 28px rgba(255,117,24,0.6)", animation: "hwPulseDot 1.5s ease-in-out infinite" }} />
-                  NEW FOR HALLOWEEN
-                </span>
-                <h2 style={{ fontFamily: S.fontHead, fontWeight: 900, fontSize: "clamp(40px, 9vw, 108px)", lineHeight: 0.95, marginBottom: 4, letterSpacing: "-2px" }}>
-                  <span style={{ display: "block", color: "#ff7518", animation: "hwFlicker 3.5s linear infinite" }}>HALLOWEEN</span>
-                  <span style={{ display: "block", color: "#aaff00", animation: "hwGlowPulse 4s ease-in-out infinite" }}>IN THE DARK</span>
-                </h2>
-                <p style={{ fontFamily: S.fontHead, fontWeight: 700, fontSize: "clamp(15px, 2.4vw, 22px)", color: S.text, margin: "24px auto 6px", maxWidth: 560, letterSpacing: "0.3px" }}>
-                  Aliens, skulls and zombie hands. Printed at home in Gwernaffield by Elijah, age 10.
-                </p>
-                {hwGlowCount > 0 && (
-                  <p style={{ fontFamily: S.fontHead, fontWeight: 800, fontSize: "clamp(14px, 2.2vw, 19px)", color: "#aaff00", marginBottom: 8 }}>
-                    {hwGlowCount} of them actually glow.
-                  </p>
-                )}
-                <p style={{ fontFamily: S.fontMono, fontSize: 12, color: S.muted, letterSpacing: "0.5px", marginBottom: 24 }}>
-                  {hwProducts.length} NEW PRINTS · {hwGlowCount} GLOW IN THE DARK · {hwGlowColours.length} GLOW COLOURS
-                </p>
-                <p style={{ fontSize: 12, color: "#f59e0b", fontFamily: S.fontHead, fontWeight: 600, letterSpacing: "0.3px", marginBottom: 8 }}>
-                  Order by Sun 25 October so Elijah has time to print it
+                {/* Rebuilt 2026-09-04 per John: "too busy, too much to read" — cut the
+                    eyebrow badge, the separate big headline, the tagline, and both stat
+                    lines entirely. The dare-question IS the headline now (inherits the
+                    glow-pulse treatment that used to sit on "IN THE DARK"), the alien
+                    photo sits right under it so there's something concrete to look at,
+                    and one short line carries the only two facts that actually matter
+                    here (what it is, when to order) instead of four separate paragraphs. */}
+                <h1 style={{ fontFamily: S.fontHead, fontWeight: 900, fontSize: "clamp(30px, 6.2vw, 66px)", lineHeight: 1.03, margin: "0 0 8px", letterSpacing: "-1px", color: "#aaff00", animation: "hwGlowPulse 4s ease-in-out infinite" }}>
+                  Dare you enter<br />Halloween?
+                </h1>
+                <p style={{ fontFamily: S.fontHead, fontWeight: 600, fontSize: "clamp(12px, 2vw, 15px)", color: S.muted, margin: "0 0 20px", letterSpacing: "0.2px" }}>
+                  Aliens, skulls &amp; zombie hands — printed by Elijah, age 10 · order by Sun 25 Oct
                 </p>
 
                 {/* Motif — Elijah's own print once uploaded (admin Colours tab), falling
-                    back to the emoji so the hero never looks broken before then. One of
-                    the first things a customer sees when Halloween mode switches on,
-                    per John's 2026-09 feedback.
-                    Upgraded 2026-09-04: up to 3 renders (on/mid/glow) crossfade in step
-                    with the lights-off toggle below — heroStage/heroStages computed at
-                    component level. 0 or 1 images behaves exactly as before (static or
-                    emoji); 2-3 images animate through the extra stages when the visitor
-                    hits "turn the lights off". */}
-                <div style={{ margin: "20px auto 28px", display: "flex", justifyContent: "center" }}>
+                    back to the emoji so the hero never looks broken before then.
+                    heroStage/heroStages (component level) also drive the big reveal-flash
+                    version above when "enter Halloween" is clicked — same state, two sizes. */}
+                <div style={{ margin: "0 auto 24px", display: "flex", justifyContent: "center" }}>
                   {heroStages.length > 0 ? (
                     <div style={{ animation: "hwFloat 6s ease-in-out infinite" }}>
                       <div style={{
-                        position: "relative", width: "clamp(200px, 32vw, 300px)", height: "clamp(240px, 38vw, 360px)", margin: "0 auto",
+                        position: "relative", width: "clamp(180px, 28vw, 260px)", height: "clamp(216px, 34vw, 312px)", margin: "0 auto",
                         borderRadius: 24, overflow: "hidden", border: "2px solid rgba(170,255,0,0.25)",
                         filter: "drop-shadow(0 0 24px rgba(170,255,0,0.35)) drop-shadow(0 0 50px rgba(255,117,24,0.25))",
                       }}>
@@ -8572,14 +8555,30 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                           }} />
                         ))}
                       </div>
-                      <p style={{ marginTop: 10, fontSize: 11, color: S.dimmer, fontFamily: S.fontHead, fontStyle: "italic" }}>
-                        {heroStages.length > 1 && heroStage === heroStages.length - 1 ? "Elijah's own 3ft alien print — charged up" : "Elijah's own 3ft alien print"}
-                      </p>
                     </div>
                   ) : (
-                    <div style={{ fontSize: "clamp(90px, 15vw, 160px)", filter: "drop-shadow(0 0 20px #ff7518) drop-shadow(0 0 40px rgba(255,117,24,0.5)) drop-shadow(0 0 30px rgba(170,255,0,0.3))", animation: "hwFloat 6s ease-in-out infinite" }}>👽</div>
+                    <div style={{ fontSize: "clamp(80px, 13vw, 140px)", filter: "drop-shadow(0 0 20px #ff7518) drop-shadow(0 0 40px rgba(255,117,24,0.5)) drop-shadow(0 0 30px rgba(170,255,0,0.3))", animation: "hwFloat 6s ease-in-out infinite" }}>👽</div>
                   )}
                 </div>
+
+                <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                  <button onClick={() => {
+                    setHeroFlash(true);
+                    setLightsOff(true);
+                    goToHalloween();
+                    setTimeout(() => setHeroFlash(false), 2700);
+                  }} style={{ padding: "16px 32px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 800, fontSize: 15, background: "#aaff00", color: "#0d0d1a", boxShadow: "0 0 24px rgba(170,255,0,0.45)" }}>
+                    😈 Yes — enter Halloween →
+                  </button>
+                  <button onClick={() => document.querySelector('.ep-hero')?.scrollIntoView({ behavior: "smooth", block: "start" })} style={{ padding: "16px 28px", borderRadius: 14, border: "1.5px solid rgba(255,255,255,0.2)", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 600, fontSize: 13, background: "rgba(255,255,255,0.05)", color: S.muted }}>
+                    ↓ Show me everything else
+                  </button>
+                </div>
+                {lightsOff && (
+                  <button onClick={() => setLightsOff(false)} style={{ background: "none", border: "none", color: "#aaff00", fontFamily: S.fontHead, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", marginBottom: 8, padding: 4 }}>
+                    💡 Turn the lights back on
+                  </button>
+                )}
 
                 {hwGlowColours.length > 0 && (
                   <div style={{ marginTop: 18 }}>
