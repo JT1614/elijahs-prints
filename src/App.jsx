@@ -5446,36 +5446,51 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     {/* Hero photo — Elijah's own print, shown as one of the first things a
                         customer sees when Halloween mode switches on (John, 2026-09). Same
                         upload pattern as every product photo on the site. Falls back to an
-                        emoji motif on the storefront until this is set. */}
-                    <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 10 }}>
-                      <label style={{
-                        width: 64, height: 64, borderRadius: 12, cursor: "pointer", flexShrink: 0, overflow: "hidden",
-                        border: `2px dashed ${categoryMeta?.Halloween?.heroImageUrl ? "transparent" : "rgba(255,117,24,0.3)"}`,
-                        background: categoryMeta?.Halloween?.heroImageUrl ? "none" : "rgba(255,117,24,0.04)",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                      }}>
-                        {categoryMeta?.Halloween?.heroImageUrl
-                          ? <img src={categoryMeta.Halloween.heroImageUrl} alt="Hero" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                          : <span style={{ fontSize: 20, opacity: 0.5 }}>👽</span>}
-                        <input type="file" accept="image/*" style={{ display: "none" }} onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          try {
-                            const imageData = await compressImage(file);
-                            const url = await uploadHeroImage("halloween-alien", imageData);
-                            await onSaveCategoryMeta({ ...categoryMeta, Halloween: { ...(categoryMeta.Halloween || {}), heroImageUrl: url } });
-                          } catch (err) { console.error("Hero image upload failed:", err); }
-                          e.target.value = "";
-                        }} />
-                      </label>
-                      <div style={{ flex: 1 }}>
-                        <p style={{ fontSize: 12, color: S.muted, margin: 0, lineHeight: 1.5 }}>
-                          {categoryMeta?.Halloween?.heroImageUrl ? "Hero photo set — click it to replace." : "Upload Elijah's alien photo for the hero (falls back to 👽 until you do)."}
-                        </p>
-                        {categoryMeta?.Halloween?.heroImageUrl && (
-                          <button onClick={async () => { await deleteHeroImage("halloween-alien"); const next = { ...categoryMeta.Halloween }; delete next.heroImageUrl; await onSaveCategoryMeta({ ...categoryMeta, Halloween: next }); }} style={{ marginTop: 4, padding: "4px 10px", borderRadius: 8, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>✕ Remove photo</button>
-                        )}
-                      </div>
+                        emoji motif on the storefront until this is set.
+                        Extended 2026-09-04 to 3 slots (on / mid / glow) — John supplied 3
+                        real renders of the alien at varying glow intensity, and the hero
+                        below now crossfades through them when the lights-off toggle fires,
+                        instead of swapping a single static photo. Any slot left empty just
+                        falls back gracefully (see the hero render logic). */}
+                    <div style={{ display: "flex", gap: 16, alignItems: "flex-start", marginTop: 10, flexWrap: "wrap" }}>
+                      {[
+                        { key: "heroImageUrl", slot: "halloween-alien-on", label: "Lights on", emoji: "👽" },
+                        { key: "heroImageMidUrl", slot: "halloween-alien-mid", label: "Charging", emoji: "🔋" },
+                        { key: "heroImageGlowUrl", slot: "halloween-alien-glow", label: "Full glow", emoji: "🌙" },
+                      ].map(({ key, slot, label, emoji }) => {
+                        const url = categoryMeta?.Halloween?.[key];
+                        return (
+                          <div key={slot} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                            <label style={{
+                              width: 64, height: 64, borderRadius: 12, cursor: "pointer", flexShrink: 0, overflow: "hidden",
+                              border: `2px dashed ${url ? "transparent" : "rgba(255,117,24,0.3)"}`,
+                              background: url ? "none" : "rgba(255,117,24,0.04)",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                            }}>
+                              {url
+                                ? <img src={url} alt={label} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                : <span style={{ fontSize: 20, opacity: 0.5 }}>{emoji}</span>}
+                              <input type="file" accept="image/*" style={{ display: "none" }} onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                try {
+                                  const imageData = await compressImage(file);
+                                  const uploadedUrl = await uploadHeroImage(slot, imageData);
+                                  await onSaveCategoryMeta({ ...categoryMeta, Halloween: { ...(categoryMeta.Halloween || {}), [key]: uploadedUrl } });
+                                } catch (err) { console.error("Hero image upload failed:", err); }
+                                e.target.value = "";
+                              }} />
+                            </label>
+                            <span style={{ fontSize: 9, color: S.muted, fontFamily: S.fontHead, fontWeight: 700, letterSpacing: "0.3px" }}>{label}</span>
+                            {url && (
+                              <button onClick={async () => { await deleteHeroImage(slot); const next = { ...categoryMeta.Halloween }; delete next[key]; await onSaveCategoryMeta({ ...categoryMeta, Halloween: next }); }} style={{ padding: "2px 7px", borderRadius: 8, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 9, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>✕</button>
+                            )}
+                          </div>
+                        );
+                      })}
+                      <p style={{ fontSize: 12, color: S.muted, margin: "4px 0 0", lineHeight: 1.5, flex: 1, minWidth: 180 }}>
+                        Upload any or all three — the hero crossfades through whichever you've set when a visitor hits "turn the lights off". Just "Lights on" alone works fine too (falls back to the 👽 until then).
+                      </p>
                     </div>
                   </div>
                   <button
@@ -7817,6 +7832,21 @@ function ElijahsPrintsInner() {
   const [filamentVer, setFilamentVer] = useState(0);
   const [catVer, setCatVer] = useState(0);
   const [categoryMeta, setCategoryMeta] = useState({...DEFAULT_CATEGORY_META});
+
+  // Hero glow crossfade (added 2026-09-04) — steps through up to 3 uploaded alien
+  // renders (on / mid / glow) when the Halloween hero's lights-off toggle fires,
+  // instead of swapping a single static photo. See the hero render block below.
+  const [heroStage, setHeroStage] = useState(0);
+  const heroStages = [categoryMeta?.Halloween?.heroImageUrl, categoryMeta?.Halloween?.heroImageMidUrl, categoryMeta?.Halloween?.heroImageGlowUrl].filter(Boolean);
+  useEffect(() => {
+    if (heroStages.length < 2) { setHeroStage(lightsOff ? heroStages.length - 1 : 0); return; }
+    if (!lightsOff) { setHeroStage(0); return; }
+    const timers = [setTimeout(() => setHeroStage(1), 250)];
+    if (heroStages.length > 2) timers.push(setTimeout(() => setHeroStage(2), 700));
+    return () => timers.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lightsOff, heroStages.length]);
+
   // Password-protected categories: which ones this browser has already unlocked.
   // Persisted indefinitely on this device (not per-session) — John's call, so a repeat
   // customer like Tom doesn't have to re-enter the password on every visit.
@@ -8388,7 +8418,6 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           const hwProducts = (products || []).filter(x => x.available !== false && getProductCategories(x).includes("Halloween"));
           const hwGlowCount = hwProducts.filter(p => (p.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow")).length;
           const hwGlowColours = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && getFilamentTier(FILAMENTS[c]) === "glow" && hwProducts.some(p => (p.colors || []).includes(c)));
-          const heroImg = categoryMeta?.Halloween?.heroImageUrl;
           const goToHalloween = () => { setActiveCat("Halloween"); setTimeout(() => document.querySelector('.ep-product-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
           return (
             <section className="ep-hw-hero" style={{ position: "relative", padding: "70px 24px 80px", textAlign: "center", overflow: "hidden", background: "radial-gradient(circle at center 30%, rgba(255,117,24,0.10) 0%, transparent 60%), #0d0d1a", borderBottom: "1px solid rgba(255,117,24,0.2)" }}>
@@ -8443,17 +8472,30 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                 {/* Motif — Elijah's own print once uploaded (admin Colours tab), falling
                     back to the emoji so the hero never looks broken before then. One of
                     the first things a customer sees when Halloween mode switches on,
-                    per John's 2026-09 feedback. */}
+                    per John's 2026-09 feedback.
+                    Upgraded 2026-09-04: up to 3 renders (on/mid/glow) crossfade in step
+                    with the lights-off toggle below — heroStage/heroStages computed at
+                    component level. 0 or 1 images behaves exactly as before (static or
+                    emoji); 2-3 images animate through the extra stages when the visitor
+                    hits "turn the lights off". */}
                 <div style={{ margin: "20px auto 28px", display: "flex", justifyContent: "center" }}>
-                  {heroImg ? (
+                  {heroStages.length > 0 ? (
                     <div style={{ animation: "hwFloat 6s ease-in-out infinite" }}>
-                      <img src={heroImg} alt="Elijah's own giant alien print" style={{
-                        width: "clamp(200px, 32vw, 300px)", height: "clamp(240px, 38vw, 360px)", objectFit: "cover",
-                        borderRadius: 24, display: "block", margin: "0 auto",
+                      <div style={{
+                        position: "relative", width: "clamp(200px, 32vw, 300px)", height: "clamp(240px, 38vw, 360px)", margin: "0 auto",
+                        borderRadius: 24, overflow: "hidden", border: "2px solid rgba(170,255,0,0.25)",
                         filter: "drop-shadow(0 0 24px rgba(170,255,0,0.35)) drop-shadow(0 0 50px rgba(255,117,24,0.25))",
-                        border: "2px solid rgba(170,255,0,0.25)",
-                      }} />
-                      <p style={{ marginTop: 10, fontSize: 11, color: S.dimmer, fontFamily: S.fontHead, fontStyle: "italic" }}>Elijah's own 3ft alien print</p>
+                      }}>
+                        {heroStages.map((src, i) => (
+                          <img key={src} src={src} alt="Elijah's own giant alien print" style={{
+                            position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
+                            opacity: i === heroStage ? 1 : 0, transition: "opacity 0.6s ease",
+                          }} />
+                        ))}
+                      </div>
+                      <p style={{ marginTop: 10, fontSize: 11, color: S.dimmer, fontFamily: S.fontHead, fontStyle: "italic" }}>
+                        {heroStages.length > 1 && heroStage === heroStages.length - 1 ? "Elijah's own 3ft alien print — charged up" : "Elijah's own 3ft alien print"}
+                      </p>
                     </div>
                   ) : (
                     <div style={{ fontSize: "clamp(90px, 15vw, 160px)", filter: "drop-shadow(0 0 20px #ff7518) drop-shadow(0 0 40px rgba(255,117,24,0.5)) drop-shadow(0 0 30px rgba(170,255,0,0.3))", animation: "hwFloat 6s ease-in-out infinite" }}>👽</div>
