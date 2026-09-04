@@ -42,7 +42,7 @@ const READ_KEYS = [
   "feature-flags-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1", "products-v2"]; // TEMP 2026-09-04 — John: "switch all [Halloween products] to live so I can test" + 25cm alien height fix. Revert after.
+const WRITE_KEYS = ["assessment-v1"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
