@@ -8454,7 +8454,12 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           const hwGlowColours = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && getFilamentTier(FILAMENTS[c]) === "glow" && hwProducts.some(p => (p.colors || []).includes(c)));
           const goToHalloween = () => { setActiveCat("Halloween"); setTimeout(() => document.querySelector('.ep-product-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
           return (
-            <section className="ep-hw-hero" style={{ position: "relative", padding: "70px 24px 80px", textAlign: "center", overflow: "hidden", background: "radial-gradient(circle at center 30%, rgba(255,117,24,0.10) 0%, transparent 60%), #0d0d1a", borderBottom: "1px solid rgba(255,117,24,0.2)" }}>
+            <section className="ep-hw-hero" style={{ position: "relative", padding: "70px 24px 80px", textAlign: "center", overflow: "hidden",
+              // Doodle wallpaper (added 2026-09-04, John: "add the doodle wallpaper to the
+              // website also") — same SVG tile as the leaflet's dark panels, reused rather
+              // than a second one-off pattern. Layered under the existing radial-gradient glow.
+              background: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='170' height='170'%3E%3Cg fill='rgba(255,255,255,0.05)'%3E%3Cpath d='M22 34 C12 24 2 26 6 34 C10 30 15 32 19 37 C15 34 9 37 5 43 C11 47 17 41 22 34 C27 41 33 47 39 43 C35 37 29 34 25 37 C29 32 34 30 38 34 C42 26 32 24 22 34 Z'/%3E%3Ccircle cx='135' cy='45' r='9'/%3E%3Cpath d='M135 36 L135 22 M135 36 L124 27 M135 36 L146 27 M135 54 L135 68 M135 54 L124 63 M135 54 L146 63 M126 45 L112 45 M144 45 L158 45' stroke='rgba(255,255,255,0.05)' stroke-width='1.4' fill='none'/%3E%3Cpath d='M65 125 C65 111 79 106 84 115 C89 106 103 111 103 125 C103 132 97 136 93 132 C91 136 85 138 83 134 C81 138 75 136 73 132 C69 136 65 132 65 125 Z'/%3E%3Ccircle cx='150' cy='120' r='11' fill='rgba(255,255,255,0.045)'/%3E%3Ccircle cx='158' cy='113' r='11' fill='%230d0d1a'/%3E%3Ccircle cx='28' cy='140' r='2'/%3E%3Ccircle cx='150' cy='20' r='2'/%3E%3Ccircle cx='85' cy='20' r='2'/%3E%3Ccircle cx='10' cy='90' r='2'/%3E%3Ccircle cx='115' cy='90' r='2'/%3E%3C/g%3E%3C/svg%3E") repeat, radial-gradient(circle at center 30%, rgba(255,117,24,0.10) 0%, transparent 60%), #0d0d1a`,
+              borderBottom: "1px solid rgba(255,117,24,0.2)" }}>
               <style>{`
                 @keyframes hwFlicker {
                   0%, 19%, 21%, 23%, 80%, 100% { opacity: 1; text-shadow: 0 0 10px #ff7518, 0 0 30px rgba(255,117,24,0.6), 0 0 60px rgba(255,117,24,0.35); }
