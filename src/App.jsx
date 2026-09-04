@@ -8321,7 +8321,9 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
         * { box-sizing: border-box; margin: 0; padding: 0; }
         @keyframes slideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }
         @keyframes heroGlow { 0%,100% { opacity: 0.5 } 50% { opacity: 0.8 } }
-        @keyframes hwRevealFlash { 0% { opacity: 1 } 100% { opacity: 0 } }
+        @keyframes hwRevealFlash { 0% { opacity: 0 } 10% { opacity: 1 } 60% { opacity: 1 } 100% { opacity: 0 } }
+        @keyframes hwRevealIcon { 0%, 35% { opacity: 0; transform: scale(0.6) rotate(-8deg); } 48% { opacity: 1; transform: scale(1.25) rotate(4deg); } 62% { opacity: 1; transform: scale(1) rotate(0); } 80%, 100% { opacity: 0; transform: scale(1.4) rotate(4deg); } }
+        @keyframes hwRevealBurst { 0%, 58% { opacity: 0; transform: scale(0.2); } 72% { opacity: 1; transform: scale(1.5); } 100% { opacity: 0; transform: scale(2.6); } }
         @keyframes spin { from { transform: rotate(0) } to { transform: rotate(360deg) } }
         ::-webkit-scrollbar { width: 6px } ::-webkit-scrollbar-track { background: transparent } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px }
         input:focus, textarea:focus, select:focus { border-color: ${S.teal} !important; box-shadow: 0 0 0 3px rgba(0,201,167,0.1); outline: none }
@@ -8426,7 +8428,20 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
             giving the single "enter" click a real showstopper moment instead of a flat
             state change. pointer-events:none so it never blocks the click that triggered it. */}
         {heroFlash && (
-          <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#000", pointerEvents: "none", animation: "hwRevealFlash 0.55s ease forwards" }} />
+          <>
+            <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#000", pointerEvents: "none", animation: "hwRevealFlash 1.1s ease forwards" }} />
+            <div style={{
+              position: "fixed", top: "50%", left: "50%", width: 260, height: 260, marginLeft: -130, marginTop: -130,
+              borderRadius: "50%", zIndex: 199, pointerEvents: "none",
+              background: "radial-gradient(circle, rgba(170,255,0,0.65) 0%, rgba(255,117,24,0.35) 45%, transparent 72%)",
+              animation: "hwRevealBurst 1.1s ease forwards",
+            }} />
+            <div style={{
+              position: "fixed", inset: 0, zIndex: 201, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none",
+              fontSize: 100, filter: "drop-shadow(0 0 30px #aaff00) drop-shadow(0 0 60px #ff7518)",
+              animation: "hwRevealIcon 1.1s ease forwards",
+            }}>🎃</div>
+          </>
         )}
         {/* Halloween "lights out" demo overlay (added 2026-09) — a dimming sheet, not a
             blackout: the sheet is pointer-events:none so every card stays clickable, and
@@ -8485,6 +8500,31 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               <div style={{ position: "absolute", left: "20%", bottom: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(255,117,24,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
               <div style={{ position: "absolute", right: "20%", top: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(170,255,0,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
               <div style={{ position: "relative" }}>
+                {/* Moved to the top of the hero 2026-09-04 per John: the choice itself is
+                    the hook — a visitor shouldn't have to scroll past headline/stats/deadline
+                    copy to find it. Everything below is now the "why", not the gate. */}
+                <p style={{ fontFamily: S.fontHead, fontWeight: 800, fontSize: "clamp(16px, 2.6vw, 21px)", color: "#f0f0f8", margin: "0 0 14px", letterSpacing: "0.2px" }}>
+                  Dare you enter Halloween?
+                </p>
+                <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                  <button onClick={() => {
+                    setHeroFlash(true);
+                    setLightsOff(true);
+                    goToHalloween();
+                    setTimeout(() => setHeroFlash(false), 1150);
+                  }} style={{ padding: "16px 32px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 800, fontSize: 15, background: "#aaff00", color: "#0d0d1a", boxShadow: "0 0 24px rgba(170,255,0,0.45)" }}>
+                    😈 Yes — enter Halloween →
+                  </button>
+                  <button onClick={() => document.querySelector('.ep-hero')?.scrollIntoView({ behavior: "smooth", block: "start" })} style={{ padding: "16px 28px", borderRadius: 14, border: "1.5px solid rgba(255,255,255,0.2)", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 600, fontSize: 13, background: "rgba(255,255,255,0.05)", color: S.muted }}>
+                    ↓ Show me everything else
+                  </button>
+                </div>
+                {lightsOff && (
+                  <button onClick={() => setLightsOff(false)} style={{ background: "none", border: "none", color: "#aaff00", fontFamily: S.fontHead, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", marginBottom: 18, padding: 4 }}>
+                    💡 Turn the lights back on
+                  </button>
+                )}
+
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 14, background: "rgba(255,117,24,0.12)", border: "1.5px solid rgba(255,117,24,0.4)", color: "#ff7518", padding: "12px 28px", borderRadius: 999, fontFamily: S.fontMono, fontWeight: 700, fontSize: 18, marginBottom: 22, letterSpacing: "2px", boxShadow: "0 0 30px rgba(255,117,24,0.25)" }}>
                   <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#ff7518", boxShadow: "0 0 14px #ff7518, 0 0 28px rgba(255,117,24,0.6)", animation: "hwPulseDot 1.5s ease-in-out infinite" }} />
                   NEW FOR HALLOWEEN
@@ -8540,34 +8580,6 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                     <div style={{ fontSize: "clamp(90px, 15vw, 160px)", filter: "drop-shadow(0 0 20px #ff7518) drop-shadow(0 0 40px rgba(255,117,24,0.5)) drop-shadow(0 0 30px rgba(170,255,0,0.3))", animation: "hwFloat 6s ease-in-out infinite" }}>👽</div>
                   )}
                 </div>
-
-                {/* Redesigned 2026-09-04 per John's direct feedback ("clunky") — was 3
-                    separate CTAs (range link, lights toggle, glow-only filter). Now one
-                    dare-framed choice: enter (reveal flash + lights off + scoped to
-                    Halloween, all in one click) or scroll past to the rest of the shop
-                    untouched. The old "glow only" filter is folded into "enter" — the
-                    floating bar already promises "everything else is still here". */}
-                <p style={{ fontFamily: S.fontHead, fontWeight: 800, fontSize: "clamp(16px, 2.6vw, 21px)", color: "#f0f0f8", margin: "4px 0 14px", letterSpacing: "0.2px" }}>
-                  Dare you enter Halloween?
-                </p>
-                <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                  <button onClick={() => {
-                    setHeroFlash(true);
-                    setLightsOff(true);
-                    goToHalloween();
-                    setTimeout(() => setHeroFlash(false), 550);
-                  }} style={{ padding: "16px 32px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 800, fontSize: 15, background: "#aaff00", color: "#0d0d1a", boxShadow: "0 0 24px rgba(170,255,0,0.45)" }}>
-                    😈 Yes — enter Halloween →
-                  </button>
-                  <button onClick={() => document.querySelector('.ep-hero')?.scrollIntoView({ behavior: "smooth", block: "start" })} style={{ padding: "16px 28px", borderRadius: 14, border: "1.5px solid rgba(255,255,255,0.2)", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 600, fontSize: 13, background: "rgba(255,255,255,0.05)", color: S.muted }}>
-                    ↓ Show me everything else
-                  </button>
-                </div>
-                {lightsOff && (
-                  <button onClick={() => setLightsOff(false)} style={{ background: "none", border: "none", color: "#aaff00", fontFamily: S.fontHead, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", marginBottom: 8, padding: 4 }}>
-                    💡 Turn the lights back on
-                  </button>
-                )}
 
                 {hwGlowColours.length > 0 && (
                   <div style={{ marginTop: 18 }}>
