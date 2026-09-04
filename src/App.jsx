@@ -148,6 +148,16 @@ async function saveFilaments(f) {
 // Feature flags — gate hardware-dependent features (e.g. glow filament) until physically tested.
 // Default OFF for any new flag. Flip ON via admin Colours tab once verified.
 const DEFAULT_FEATURE_FLAGS = { glowEnabled: false, halloweenEnabled: false };
+
+// Hidden Halloween hero Easter egg (added 2026-09-04, John: more wow ideas). One picked
+// at random per click, for replay value if a visitor finds the bat more than once.
+const HW_EASTER_EGGS = [
+  "🦇 Psst — I test every glow colour myself before you can buy it. Green is still my favourite.",
+  "🎃 Fun fact: the big alien took two whole days to print. My dad says I have more patience than him.",
+  "👻 I once printed a zombie hand at 2am by accident. It's still one of our best sellers.",
+  "💀 Why did the skeleton skip the party? He had no BODY to go with.",
+  "🕸️ You found the bat. You get nothing except my respect. — Elijah",
+];
 async function loadFeatureFlags() {
   try {
     const r = await storageGet("feature-flags-v1");
@@ -1386,17 +1396,42 @@ function Tooltip({ text, children, position = "bottom" }) {
   );
 }
 
-function ProductImage({ product, hovered }) {
+function ProductImage({ product, hovered, isGlow }) {
   const [err, setErr] = useState(false);
   const hasImg = product.img && !err;
   return (
     <div style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(0,201,167,0.05), rgba(132,94,247,0.05))", position: "relative", overflow: "hidden" }}>
-      {hasImg ? <img src={product.img} alt={product.name} onError={() => setErr(true)} style={{ width: "100%", height: "100%", objectFit: "contain", transition: "transform 0.4s", transform: hovered ? "scale(1.08)" : "scale(1)", padding: 8 }} />
+      {hasImg ? <img src={product.img} alt={product.name} onError={() => setErr(true)} style={{
+        width: "100%", height: "100%", objectFit: "contain", padding: 8,
+        transition: "transform 0.4s, filter 0.4s",
+        transform: hovered ? "scale(1.08)" : "scale(1)",
+        filter: (isGlow && hovered) ? "brightness(1.2) saturate(1.5) drop-shadow(0 0 18px rgba(170,255,0,0.75))" : "none",
+      }} />
       : <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, transition: "transform 0.4s", transform: hovered ? "scale(1.05)" : "scale(1)" }}>
           <span style={{ fontSize: 42, opacity: 0.3 }}>📷</span>
           <span style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontHead }}>No photo yet</span>
         </div>}
 
+      {/* "Hover to reveal the glow" (added 2026-09-04, John: more wow ideas) — a stylised
+          light overlay + badge, not a claim about a second photograph. Individual products
+          only have one real photo on file (unlike the hero alien's 3 uploaded on/mid/glow
+          renders) — this is honestly a UI treatment, same class as the existing box-shadow
+          glow lift, not photography. Scoped to glow-capable products only. */}
+      {isGlow && (
+        <div style={{
+          position: "absolute", inset: 0, pointerEvents: "none",
+          background: "radial-gradient(circle at 50% 50%, rgba(170,255,0,0.28) 0%, transparent 65%)",
+          mixBlendMode: "screen", opacity: hovered ? 1 : 0, transition: "opacity 0.4s ease",
+        }} />
+      )}
+      {isGlow && (
+        <span style={{
+          position: "absolute", bottom: 8, right: 8, fontSize: 10, fontFamily: S.fontHead, fontWeight: 800,
+          color: "#0d0d1a", background: "#aaff00", padding: "3px 8px", borderRadius: 999,
+          opacity: hovered ? 1 : 0, transform: hovered ? "translateY(0)" : "translateY(6px)",
+          transition: "all 0.35s ease", boxShadow: "0 0 12px rgba(170,255,0,0.6)", pointerEvents: "none",
+        }}>🌙 GLOWS</span>
+      )}
     </div>
   );
 }
@@ -1443,7 +1478,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
     }}>
       {product.badge && !productInCategory(product, "Dragons") && <Badge text={product.badge} />}
       <SizeBadge product={product} />
-      <ProductImage product={product} hovered={hovered} />
+      <ProductImage product={product} hovered={hovered} isGlow={hasGlowColor} />
       <div style={{ padding: "14px 16px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
@@ -7857,6 +7892,7 @@ function ElijahsPrintsInner() {
   // instead of swapping a single static photo. See the hero render block below.
   const [heroStage, setHeroStage] = useState(0);
   const [heroFlash, setHeroFlash] = useState(false); // "Dare you enter Halloween?" reveal flash — 2026-09-04
+  const [easterEgg, setEasterEgg] = useState(null); // hidden bat click message — 2026-09-04
   const heroStages = [categoryMeta?.Halloween?.heroImageUrl, categoryMeta?.Halloween?.heroImageMidUrl, categoryMeta?.Halloween?.heroImageGlowUrl].filter(Boolean);
   useEffect(() => {
     if (heroStages.length < 2) { setHeroStage(lightsOff ? heroStages.length - 1 : 0); return; }
@@ -7887,6 +7923,24 @@ function ElijahsPrintsInner() {
   const [authChecked, setAuthChecked] = useState(!USE_FIREBASE); // skip auth check if no Firebase
   const [stripeSuccess, setStripeSuccess] = useState(null); // holds completed order after Stripe redirect
   const [featureFlags, setFeatureFlags] = useState({ ...DEFAULT_FEATURE_FLAGS });
+
+  // Cursor "torch" trail (added 2026-09-04, John: more wow ideas) — a soft glow follows
+  // the mouse while the lights are off, extending the "carrying a torch through the dark"
+  // idea the whole feature is built on. Positioned via direct DOM write in the mousemove
+  // handler, NOT React state — mousemove fires far too often (60+/s) to route through a
+  // re-render without visible jank. torchRef is attached to the render below. Must live
+  // AFTER featureFlags is declared (temporal dead zone — confirmed by a real crash when
+  // this was placed earlier in the component and referenced featureFlags before init).
+  const torchRef = useRef(null);
+  const torchActive = lightsOff && (featureFlags.halloweenEnabled || hwPreview) && page === "shop";
+  useEffect(() => {
+    if (!torchActive) return;
+    const handleMove = (e) => {
+      if (torchRef.current) torchRef.current.style.transform = `translate(${e.clientX - 160}px, ${e.clientY - 160}px)`;
+    };
+    window.addEventListener("mousemove", handleMove);
+    return () => window.removeEventListener("mousemove", handleMove);
+  }, [torchActive]);
 
   // Persist feature-flag changes through admin and keep customer site in sync.
   // Rolls back on a failed write (added 2026-09 for Halloween) — without this, a
@@ -8474,6 +8528,15 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
             non-glow range for effect, it never removes it from the shop. */}
         {lightsOff && (featureFlags.halloweenEnabled || hwPreview) && (<>
           <div onClick={() => setLightsOff(false)} style={{ position: "fixed", inset: 0, zIndex: 95, background: "rgba(3,2,8,0.78)", pointerEvents: "none", transition: "background 0.9s ease" }} />
+          {/* Cursor torch (see torchRef/torchActive above) — mix-blend-mode: screen means
+              it can only ever brighten what's under it, never obscure or tint product
+              content, regardless of stacking order. */}
+          <div ref={torchRef} style={{
+            position: "fixed", top: 0, left: 0, width: 320, height: 320, zIndex: 96,
+            borderRadius: "50%", pointerEvents: "none", willChange: "transform",
+            background: "radial-gradient(circle, rgba(170,255,0,0.16) 0%, rgba(255,117,24,0.08) 45%, transparent 72%)",
+            mixBlendMode: "screen",
+          }} />
           <div style={{ position: "fixed", left: "50%", bottom: 22, transform: "translateX(-50%)", zIndex: 101, background: "rgba(13,13,26,0.96)", border: "1px solid rgba(170,255,0,0.4)", borderRadius: 999, padding: "10px 10px 10px 20px", display: "flex", alignItems: "center", gap: 14, fontFamily: S.fontHead, fontSize: 13, fontWeight: 600, color: "#aaff00", boxShadow: "0 0 30px rgba(170,255,0,0.2)", backdropFilter: "blur(10px)", maxWidth: "calc(100vw - 32px)" }}>
             <span>🔦 Lights out — glow-in-the-dark ones are lit up, everything else is still here</span>
             <button onClick={() => setLightsOff(false)} style={{ padding: "8px 16px", borderRadius: 999, border: "none", background: "#aaff00", color: "#0d0d1a", fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, fontSize: 12, whiteSpace: "nowrap" }}>Lights on</button>
@@ -8518,9 +8581,60 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                   0%, 100% { transform: scale(1); filter: brightness(1); }
                   50% { transform: scale(1.08); filter: brightness(1.25); }
                 }
+                @keyframes hwEmberDrift {
+                  0% { transform: translateY(0) translateX(0); opacity: 0; }
+                  10% { opacity: 1; }
+                  90% { opacity: 1; }
+                  100% { transform: translateY(-260px) translateX(var(--drift, 20px)); opacity: 0; }
+                }
               `}</style>
               <div style={{ position: "absolute", left: "20%", bottom: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(255,117,24,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
               <div style={{ position: "absolute", right: "20%", top: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(170,255,0,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
+              {/* Drifting embers (added 2026-09-04, John: more wow ideas) — pure CSS, no JS,
+                  always-on ambient motion. Positions/delays/colours hand-varied so they don't
+                  look like an obvious repeating tile. */}
+              {[
+                { left: "8%", delay: "0s", dur: "7s", size: 4, hex: "#ff7518", drift: "24px" },
+                { left: "18%", delay: "2.2s", dur: "8.5s", size: 3, hex: "#aaff00", drift: "-16px" },
+                { left: "32%", delay: "4.5s", dur: "6.5s", size: 5, hex: "#ff7518", drift: "10px" },
+                { left: "47%", delay: "1.1s", dur: "9s", size: 3, hex: "#aaff00", drift: "-22px" },
+                { left: "61%", delay: "3.4s", dur: "7.5s", size: 4, hex: "#ff7518", drift: "18px" },
+                { left: "74%", delay: "5.2s", dur: "8s", size: 3, hex: "#aaff00", drift: "-12px" },
+                { left: "86%", delay: "0.6s", dur: "6.8s", size: 4, hex: "#ff7518", drift: "14px" },
+                { left: "93%", delay: "3.9s", dur: "9.5s", size: 3, hex: "#aaff00", drift: "-20px" },
+              ].map((e, i) => (
+                <div key={i} style={{
+                  position: "absolute", left: e.left, bottom: "0%", width: e.size, height: e.size,
+                  borderRadius: "50%", background: e.hex, boxShadow: `0 0 ${e.size * 2}px ${e.hex}`,
+                  pointerEvents: "none", "--drift": e.drift,
+                  animation: `hwEmberDrift ${e.dur} ease-in-out ${e.delay} infinite`,
+                }} />
+              ))}
+              {/* Hidden Easter egg (added 2026-09-04) — a small bat tucked in the corner,
+                  low-opacity so it reads as part of the doodle wallpaper until you notice
+                  it. Click for a message from Elijah. Pure charm, no functional purpose. */}
+              <button
+                onClick={() => setEasterEgg(HW_EASTER_EGGS[Math.floor(Math.random() * HW_EASTER_EGGS.length)])}
+                title=""
+                style={{
+                  position: "absolute", top: 14, right: 18, background: "none", border: "none", cursor: "pointer",
+                  fontSize: 18, opacity: 0.32, padding: 6, lineHeight: 1, transition: "opacity 0.3s, transform 0.3s",
+                  zIndex: 5,
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; e.currentTarget.style.transform = "scale(1.2)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.32"; e.currentTarget.style.transform = "scale(1)"; }}
+              >🦇</button>
+              {easterEgg && (
+                <div style={{
+                  position: "absolute", top: 44, right: 18, zIndex: 6, maxWidth: 220,
+                  background: "rgba(13,13,26,0.97)", border: "1px solid rgba(170,255,0,0.4)",
+                  borderRadius: 12, padding: "12px 14px", boxShadow: "0 0 24px rgba(170,255,0,0.25)",
+                  fontFamily: S.font, fontSize: 12.5, color: S.text, textAlign: "left", lineHeight: 1.45,
+                }}>
+                  {easterEgg}
+                  <button onClick={() => setEasterEgg(null)} style={{ display: "block", marginTop: 8, background: "none", border: "none", color: "#aaff00", fontSize: 11, fontFamily: S.fontHead, fontWeight: 700, cursor: "pointer", padding: 0 }}>Close</button>
+                </div>
+              )}
               <div style={{ position: "relative" }}>
                 {/* Rebuilt 2026-09-04 per John: "too busy, too much to read" — cut the
                     eyebrow badge, the separate big headline, the tagline, and both stat
