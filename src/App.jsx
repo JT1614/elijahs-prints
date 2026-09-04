@@ -7856,6 +7856,7 @@ function ElijahsPrintsInner() {
   // renders (on / mid / glow) when the Halloween hero's lights-off toggle fires,
   // instead of swapping a single static photo. See the hero render block below.
   const [heroStage, setHeroStage] = useState(0);
+  const [heroFlash, setHeroFlash] = useState(false); // "Dare you enter Halloween?" reveal flash — 2026-09-04
   const heroStages = [categoryMeta?.Halloween?.heroImageUrl, categoryMeta?.Halloween?.heroImageMidUrl, categoryMeta?.Halloween?.heroImageGlowUrl].filter(Boolean);
   useEffect(() => {
     if (heroStages.length < 2) { setHeroStage(lightsOff ? heroStages.length - 1 : 0); return; }
@@ -8320,6 +8321,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
         * { box-sizing: border-box; margin: 0; padding: 0; }
         @keyframes slideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }
         @keyframes heroGlow { 0%,100% { opacity: 0.5 } 50% { opacity: 0.8 } }
+        @keyframes hwRevealFlash { 0% { opacity: 1 } 100% { opacity: 0 } }
         @keyframes spin { from { transform: rotate(0) } to { transform: rotate(360deg) } }
         ::-webkit-scrollbar { width: 6px } ::-webkit-scrollbar-track { background: transparent } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px }
         input:focus, textarea:focus, select:focus { border-color: ${S.teal} !important; box-shadow: 0 0 0 3px rgba(0,201,167,0.1); outline: none }
@@ -8419,6 +8421,13 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
       )}
 
       {page === "shop" && (<>
+        {/* "Dare you enter Halloween?" reveal flash (added 2026-09-04) — a brief
+            full-viewport blackout that fades as the lights-off dim sheet settles in,
+            giving the single "enter" click a real showstopper moment instead of a flat
+            state change. pointer-events:none so it never blocks the click that triggered it. */}
+        {heroFlash && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#000", pointerEvents: "none", animation: "hwRevealFlash 0.55s ease forwards" }} />
+        )}
         {/* Halloween "lights out" demo overlay (added 2026-09) — a dimming sheet, not a
             blackout: the sheet is pointer-events:none so every card stays clickable, and
             rgba(3,2,8,0.78) leaves non-glow products legible-but-dimmed rather than
@@ -8527,24 +8536,31 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                   )}
                 </div>
 
+                {/* Redesigned 2026-09-04 per John's direct feedback ("clunky") — was 3
+                    separate CTAs (range link, lights toggle, glow-only filter). Now one
+                    dare-framed choice: enter (reveal flash + lights off + scoped to
+                    Halloween, all in one click) or scroll past to the rest of the shop
+                    untouched. The old "glow only" filter is folded into "enter" — the
+                    floating bar already promises "everything else is still here". */}
+                <p style={{ fontFamily: S.fontHead, fontWeight: 800, fontSize: "clamp(16px, 2.6vw, 21px)", color: "#f0f0f8", margin: "4px 0 14px", letterSpacing: "0.2px" }}>
+                  Dare you enter Halloween?
+                </p>
                 <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                  <button onClick={goToHalloween} style={{ padding: "14px 28px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 700, fontSize: 14, background: "#ff7518", color: "#1a0d00", boxShadow: "0 0 20px rgba(255,117,24,0.4)" }}>SEE THE HALLOWEEN RANGE →</button>
                   <button onClick={() => {
-                    // 2026-09-04 fix: lights-off used to just dim whatever category was
-                    // active (usually "All"), surfacing glow items from every category —
-                    // John's direct feedback was "should be to see just halloween
-                    // products, not all products with glow." Scope to Halloween the
-                    // moment lights go off, same nav goToHalloween() already uses elsewhere.
-                    const turningOff = !lightsOff;
-                    setLightsOff(turningOff);
-                    if (turningOff) goToHalloween();
-                  }} style={{ padding: "14px 28px", borderRadius: 14, border: "1.5px solid rgba(170,255,0,0.5)", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 700, fontSize: 14, background: "rgba(170,255,0,0.1)", color: "#aaff00" }}>
-                    {lightsOff ? "💡 TURN THE LIGHTS BACK ON" : "🔦 TURN THE LIGHTS OFF"}
+                    setHeroFlash(true);
+                    setLightsOff(true);
+                    goToHalloween();
+                    setTimeout(() => setHeroFlash(false), 550);
+                  }} style={{ padding: "16px 32px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 800, fontSize: 15, background: "#aaff00", color: "#0d0d1a", boxShadow: "0 0 24px rgba(170,255,0,0.45)" }}>
+                    😈 Yes — enter Halloween →
+                  </button>
+                  <button onClick={() => document.querySelector('.ep-hero')?.scrollIntoView({ behavior: "smooth", block: "start" })} style={{ padding: "16px 28px", borderRadius: 14, border: "1.5px solid rgba(255,255,255,0.2)", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 600, fontSize: 13, background: "rgba(255,255,255,0.05)", color: S.muted }}>
+                    ↓ Show me everything else
                   </button>
                 </div>
-                {hwGlowCount > 0 && (
-                  <button onClick={() => { setGlowOnly(true); goToHalloween(); }} style={{ background: "none", border: "none", color: "#aaff00", fontFamily: S.fontHead, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", marginBottom: 8, padding: 4 }}>
-                    Show me only the ones that glow →
+                {lightsOff && (
+                  <button onClick={() => setLightsOff(false)} style={{ background: "none", border: "none", color: "#aaff00", fontFamily: S.fontHead, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", marginBottom: 8, padding: 4 }}>
+                    💡 Turn the lights back on
                   </button>
                 )}
 
