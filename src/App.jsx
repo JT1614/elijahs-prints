@@ -1693,7 +1693,15 @@ function ProductEditor({ product, onSave, onAutoSave, onDelete, onCancel, isNew,
                   }
                   set("img", imageData); // show preview immediately
                   const url = await uploadProductImage(p.id || Date.now(), imageData);
-                  if (url !== imageData) set("img", url); // replace base64 with URL
+                  if (url === imageData) {
+                    // Storage upload failed (function fell back to base64) — revert and warn,
+                    // same guard as the label-drawing uploader below. Without this, the base64
+                    // silently rides along into the next Save and bloats products-v2 (2026-07-13
+                    // 1 MiB-ceiling incident — 7 stranded base64 drawings, same failure shape).
+                    set("img", p.img || "");
+                    alert("⚠️ Photo upload to Firebase Storage failed. Check Firebase Storage rules allow authenticated writes to product-images/. Photo was NOT saved.");
+                    console.error("❌ Storage upload returned base64 — Firebase Storage rules likely blocking writes");
+                  } else set("img", url); // replace base64 with URL
                 } catch(err) { console.error("Image upload failed:", err); }
                 e.target.value = "";
               }} />
@@ -5476,7 +5484,18 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                                 try {
                                   const imageData = await compressImage(file);
                                   const uploadedUrl = await uploadHeroImage(slot, imageData);
-                                  await onSaveCategoryMeta({ ...categoryMeta, Halloween: { ...(categoryMeta.Halloween || {}), [key]: uploadedUrl } });
+                                  if (uploadedUrl === imageData) {
+                                    // Storage upload failed (function fell back to base64) — do NOT
+                                    // save it into category-meta-v1. Same guard as the label-drawing
+                                    // uploader; without it this is the exact 2026-07-13 1 MiB-ceiling
+                                    // failure shape (base64 stranded in Firestore instead of Storage),
+                                    // just in a different document. Confirmed firing 2026-09-04: all
+                                    // 3 hero slots landed as inline base64 before this fix existed.
+                                    alert("⚠️ Photo upload to Firebase Storage failed. Check Firebase Storage rules allow authenticated writes to hero-images/. Photo was NOT saved.");
+                                    console.error("❌ Storage upload returned base64 — Firebase Storage rules likely blocking writes to hero-images/");
+                                  } else {
+                                    await onSaveCategoryMeta({ ...categoryMeta, Halloween: { ...(categoryMeta.Halloween || {}), [key]: uploadedUrl } });
+                                  }
                                 } catch (err) { console.error("Hero image upload failed:", err); }
                                 e.target.value = "";
                               }} />
@@ -8312,6 +8331,12 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
            needs no rule of its own here — only .ep-nav (100) stays intentionally above. */
         .ep-lights-off .ep-card-wrap.is-glow { position: relative; z-index: 96; }
         .ep-lights-off .ep-card-wrap.is-glow > * { box-shadow: 0 0 30px rgba(170,255,0,0.35), 0 0 70px rgba(170,255,0,0.18); border-radius: 16px; }
+        /* 2026-09-04 fix: the dim sheet is position:fixed/inset:0, so at z-index 95 it
+           was sitting ON TOP of the hero too — John's report was "too hard to see
+           anything including the glowing alien". The hero's own background is already
+           near-black by design (#0d0d1a radial gradient), so it doesn't need the extra
+           dim layer at all; lift it above the sheet the same way glow cards lift above it. */
+        .ep-lights-off .ep-hw-hero { position: relative; z-index: 97; }
         @media (prefers-reduced-motion: reduce) {
           .ep-hw-hero *, .ep-card-wrap { animation: none !important; }
         }
@@ -8504,7 +8529,16 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
 
                 <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 10 }}>
                   <button onClick={goToHalloween} style={{ padding: "14px 28px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 700, fontSize: 14, background: "#ff7518", color: "#1a0d00", boxShadow: "0 0 20px rgba(255,117,24,0.4)" }}>SEE THE HALLOWEEN RANGE →</button>
-                  <button onClick={() => setLightsOff(v => !v)} style={{ padding: "14px 28px", borderRadius: 14, border: "1.5px solid rgba(170,255,0,0.5)", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 700, fontSize: 14, background: "rgba(170,255,0,0.1)", color: "#aaff00" }}>
+                  <button onClick={() => {
+                    // 2026-09-04 fix: lights-off used to just dim whatever category was
+                    // active (usually "All"), surfacing glow items from every category —
+                    // John's direct feedback was "should be to see just halloween
+                    // products, not all products with glow." Scope to Halloween the
+                    // moment lights go off, same nav goToHalloween() already uses elsewhere.
+                    const turningOff = !lightsOff;
+                    setLightsOff(turningOff);
+                    if (turningOff) goToHalloween();
+                  }} style={{ padding: "14px 28px", borderRadius: 14, border: "1.5px solid rgba(170,255,0,0.5)", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 700, fontSize: 14, background: "rgba(170,255,0,0.1)", color: "#aaff00" }}>
                     {lightsOff ? "💡 TURN THE LIGHTS BACK ON" : "🔦 TURN THE LIGHTS OFF"}
                   </button>
                 </div>
