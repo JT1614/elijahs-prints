@@ -5479,28 +5479,34 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
                     </div>
                   </div>
                   <button
-                    disabled={!hwLive && hwBlocked}
                     onClick={() => {
                       if (hwLive) { onSaveFeatureFlags({ ...featureFlags, halloweenEnabled: false }); return; }
-                      if (hwBlocked) return;
-                      const ok = window.confirm(`Go LIVE with Halloween? ${hwReadiness.hwProducts.length} products will become visible and buyable on etprintworld.com immediately. Only click OK if the creator subscriptions are paid and every one of those ${hwReadiness.hwProducts.length} prices is one you set yourself.`);
+                      // Soft gate (changed 2026-09, John's explicit request to test the
+                      // switch himself) — matches the glow switch's own pattern elsewhere
+                      // on this page: warn, don't hard-disable. The real purchase gate is
+                      // the server-side check in create-checkout-session.js, which reads
+                      // live category/availability state independently of this button and
+                      // isn't affected by this change either way.
+                      const warning = hwBlocked
+                        ? `\n\n⚠️ ${hwReadiness.blockers.length} check(s) not actually clear yet:\n${hwReadiness.blockers.map(b => "• " + b).join("\n")}\n\nNothing becomes purchasable from this alone — products stay hidden until you also mark them available — but real visitors will see the Halloween tab and hero while this is on.`
+                        : "";
+                      const ok = window.confirm(`Go LIVE with Halloween?${warning}\n\n${hwReadiness.hwProducts.length} products will become visible and buyable on etprintworld.com immediately once you also mark them available. Only do that once the creator subscriptions are paid and every price is one you set yourself.`);
                       if (ok) onSaveFeatureFlags({ ...featureFlags, halloweenEnabled: true });
                     }}
                     style={{
-                      padding: "12px 20px", borderRadius: 12, cursor: (!hwLive && hwBlocked) ? "not-allowed" : "pointer",
-                      background: hwLive ? accent : hwBlocked ? "rgba(255,255,255,0.04)" : "rgba(255,117,24,0.08)",
-                      color: hwLive ? "#1a0d00" : hwBlocked ? S.dimmer : accent,
-                      border: `1px solid ${hwLive ? accent : hwBlocked ? S.border : "rgba(255,117,24,0.4)"}`,
+                      padding: "12px 20px", borderRadius: 12, cursor: "pointer",
+                      background: hwLive ? accent : hwBlocked ? "rgba(220,53,69,0.08)" : "rgba(255,117,24,0.08)",
+                      color: hwLive ? "#1a0d00" : hwBlocked ? "#dc3545" : accent,
+                      border: `1px solid ${hwLive ? accent : hwBlocked ? "rgba(220,53,69,0.35)" : "rgba(255,117,24,0.4)"}`,
                       fontSize: 14, fontWeight: 800, fontFamily: S.fontHead,
                       display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap",
-                      opacity: (!hwLive && hwBlocked) ? 0.6 : 1,
                       boxShadow: hwLive ? "0 0 20px rgba(255,117,24,0.4)" : "none",
                     }}
                   >
                     <span style={{ width: 36, height: 20, borderRadius: 999, background: hwLive ? "rgba(0,0,0,0.25)" : "rgba(255,117,24,0.2)", position: "relative", display: "inline-block" }}>
                       <span style={{ position: "absolute", top: 2, left: hwLive ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: hwLive ? "#1a0d00" : accent, transition: "left 0.2s" }} />
                     </span>
-                    {hwLive ? "HALLOWEEN IS LIVE — click to end it" : hwBlocked ? `FIX ${hwReadiness.blockers.length} CHECK${hwReadiness.blockers.length === 1 ? "" : "S"} FIRST` : "GO LIVE WITH HALLOWEEN"}
+                    {hwLive ? "HALLOWEEN IS LIVE — click to end it" : hwBlocked ? `GO LIVE ANYWAY (${hwReadiness.blockers.length} unresolved) →` : "GO LIVE WITH HALLOWEEN"}
                   </button>
                 </div>
                 {hwLive && (
