@@ -73,15 +73,14 @@ export default async function handler(req, res) {
         if (!_credential) return res.status(500).json({ error: "No credential available" });
         const { access_token } = await _credential.getAccessToken();
         const projectId = "elijahs-prints";
-        const listResp = await fetch(`https://firebaserules.googleapis.com/v1/projects/${projectId}/releases`, {
+        const bucket = "elijahs-prints.firebasestorage.app";
+        const relResp = await fetch(`https://firebaserules.googleapis.com/v1/projects/${projectId}/releases/firebase.storage%2F${bucket}`, {
           headers: { Authorization: `Bearer ${access_token}` },
         });
-        const listBody = await listResp.text();
-        if (!listResp.ok) return res.status(listResp.status).json({ step: "list releases", error: listBody });
-        const releases = JSON.parse(listBody).releases || [];
-        const storageRelease = releases.find((r) => r.name.includes("firebase.storage"));
-        if (!storageRelease) return res.status(404).json({ step: "find storage release", error: "none found", allReleaseNames: releases.map((r) => r.name) });
-        const rulesetName = storageRelease.rulesetName;
+        const relBody = await relResp.text();
+        if (!relResp.ok) return res.status(relResp.status).json({ step: "get release", error: relBody });
+        const release = JSON.parse(relBody);
+        const rulesetName = release.rulesetName;
         const rsResp = await fetch(`https://firebaserules.googleapis.com/v1/${rulesetName}`, {
           headers: { Authorization: `Bearer ${access_token}` },
         });
