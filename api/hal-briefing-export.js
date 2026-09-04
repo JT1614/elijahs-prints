@@ -80,7 +80,7 @@ export default async function handler(req, res) {
         const match = /^data:([^;]+);base64,(.+)$/.exec(base64DataUrl);
         const buffer = Buffer.from(match ? match[2] : base64DataUrl, "base64");
         const type = contentType || (match ? match[1] : "application/octet-stream");
-        const token = crypto.randomUUID(); // this file is ESM ("import admin from..."); require() isn't available. Node's global Web Crypto API is.
+        const token = require("crypto").randomUUID();
         // Explicit bucket name — admin.initializeApp() above doesn't set storageBucket,
         // so the default-bucket lookup would throw. Matches src/App.jsx's client config.
         const bucket = admin.storage().bucket("elijahs-prints.firebasestorage.app");
