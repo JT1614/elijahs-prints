@@ -42,7 +42,15 @@ const READ_KEYS = [
   "feature-flags-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1"];
+const WRITE_KEYS = ["assessment-v1", "category-meta-v1"]; // TEMP 2026-09-04 — revert to ["assessment-v1"] after the hero-image migration below
+
+// TEMP 2026-09-04 — one-off migration: 3 Halloween hero images landed as inline
+// base64 in category-meta-v1 (Storage upload silently failed client-side; App.jsx
+// fix lands separately). This action uploads them to Storage via the admin SDK,
+// which bypasses whatever client-side Storage rule gap caused that. Path-prefix
+// allowlisted the same way WRITE_KEYS allowlists Firestore keys. Remove this whole
+// block after the migration is confirmed and the revert commit is pushed.
+const STORAGE_PATH_PREFIXES = ["hero-images/"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
@@ -62,8 +70,28 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const { action, key, value } = req.body || {};
+
+      if (action === "upload_to_storage") {
+        const { path, base64DataUrl, contentType } = req.body || {};
+        if (!path || !STORAGE_PATH_PREFIXES.some((p) => path.startsWith(p))) {
+          return res.status(403).json({ error: `Storage path '${path}' not permitted. Allowed prefixes: ${STORAGE_PATH_PREFIXES.join(", ")}` });
+        }
+        if (!base64DataUrl) return res.status(400).json({ error: "base64DataUrl required" });
+        const match = /^data:([^;]+);base64,(.+)$/.exec(base64DataUrl);
+        const buffer = Buffer.from(match ? match[2] : base64DataUrl, "base64");
+        const type = contentType || (match ? match[1] : "application/octet-stream");
+        const token = require("crypto").randomUUID();
+        // Explicit bucket name — admin.initializeApp() above doesn't set storageBucket,
+        // so the default-bucket lookup would throw. Matches src/App.jsx's client config.
+        const bucket = admin.storage().bucket("elijahs-prints.firebasestorage.app");
+        const file = bucket.file(path);
+        await file.save(buffer, { metadata: { contentType: type, metadata: { firebaseStorageDownloadTokens: token } } });
+        const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
+        return res.status(200).json({ ok: true, path, bytes: buffer.length, url });
+      }
+
       if (action !== "set") {
-        return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
+        return res.status(400).json({ error: "Unknown action. Use action: 'set' or 'upload_to_storage'" });
       }
       if (!WRITE_KEYS.includes(key)) {
         return res.status(403).json({
