@@ -7936,7 +7936,7 @@ function ElijahsPrintsInner() {
   useEffect(() => {
     if (!torchActive) return;
     const handleMove = (e) => {
-      if (torchRef.current) torchRef.current.style.transform = `translate(${e.clientX - 160}px, ${e.clientY - 160}px)`;
+      if (torchRef.current) torchRef.current.style.transform = `translate(${e.clientX - 190}px, ${e.clientY - 190}px)`;
     };
     window.addEventListener("mousemove", handleMove);
     return () => window.removeEventListener("mousemove", handleMove);
@@ -8532,9 +8532,9 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               it can only ever brighten what's under it, never obscure or tint product
               content, regardless of stacking order. */}
           <div ref={torchRef} style={{
-            position: "fixed", top: 0, left: 0, width: 320, height: 320, zIndex: 96,
+            position: "fixed", top: 0, left: 0, width: 380, height: 380, zIndex: 96,
             borderRadius: "50%", pointerEvents: "none", willChange: "transform",
-            background: "radial-gradient(circle, rgba(170,255,0,0.16) 0%, rgba(255,117,24,0.08) 45%, transparent 72%)",
+            background: "radial-gradient(circle, rgba(170,255,0,0.34) 0%, rgba(255,117,24,0.18) 42%, transparent 70%)",
             mixBlendMode: "screen",
           }} />
           <div style={{ position: "fixed", left: "50%", bottom: 22, transform: "translateX(-50%)", zIndex: 101, background: "rgba(13,13,26,0.96)", border: "1px solid rgba(170,255,0,0.4)", borderRadius: 999, padding: "10px 10px 10px 20px", display: "flex", alignItems: "center", gap: 14, fontFamily: S.fontHead, fontSize: 13, fontWeight: 600, color: "#aaff00", boxShadow: "0 0 30px rgba(170,255,0,0.2)", backdropFilter: "blur(10px)", maxWidth: "calc(100vw - 32px)" }}>
@@ -8587,6 +8587,10 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                   90% { opacity: 1; }
                   100% { transform: translateY(-260px) translateX(var(--drift, 20px)); opacity: 0; }
                 }
+                @keyframes hwBatPulse {
+                  0%, 100% { filter: drop-shadow(0 0 6px rgba(170,255,0,0.5)); }
+                  50% { filter: drop-shadow(0 0 12px rgba(170,255,0,0.85)); }
+                }
               `}</style>
               <div style={{ position: "absolute", left: "20%", bottom: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(255,117,24,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
               <div style={{ position: "absolute", right: "20%", top: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(170,255,0,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
@@ -8594,14 +8598,30 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                   always-on ambient motion. Positions/delays/colours hand-varied so they don't
                   look like an obvious repeating tile. */}
               {[
-                { left: "8%", delay: "0s", dur: "7s", size: 4, hex: "#ff7518", drift: "24px" },
-                { left: "18%", delay: "2.2s", dur: "8.5s", size: 3, hex: "#aaff00", drift: "-16px" },
-                { left: "32%", delay: "4.5s", dur: "6.5s", size: 5, hex: "#ff7518", drift: "10px" },
+                { left: "3%", delay: "0s", dur: "7s", size: 4, hex: "#ff7518", drift: "24px" },
+                { left: "8%", delay: "3.1s", dur: "8.2s", size: 3, hex: "#aaff00", drift: "-14px" },
+                { left: "13%", delay: "1.4s", dur: "6.8s", size: 5, hex: "#ff7518", drift: "16px" },
+                { left: "18%", delay: "5.6s", dur: "8.5s", size: 3, hex: "#aaff00", drift: "-16px" },
+                { left: "24%", delay: "2.3s", dur: "7.4s", size: 4, hex: "#ff7518", drift: "12px" },
+                { left: "29%", delay: "0.7s", dur: "9.1s", size: 3, hex: "#aaff00", drift: "-18px" },
+                { left: "35%", delay: "4.5s", dur: "6.5s", size: 5, hex: "#ff7518", drift: "10px" },
+                { left: "41%", delay: "2.9s", dur: "8.8s", size: 3, hex: "#aaff00", drift: "-10px" },
                 { left: "47%", delay: "1.1s", dur: "9s", size: 3, hex: "#aaff00", drift: "-22px" },
-                { left: "61%", delay: "3.4s", dur: "7.5s", size: 4, hex: "#ff7518", drift: "18px" },
+                { left: "53%", delay: "6.2s", dur: "7.1s", size: 4, hex: "#ff7518", drift: "20px" },
+                { left: "58%", delay: "3.8s", dur: "8.3s", size: 3, hex: "#aaff00", drift: "-13px" },
+                { left: "61%", delay: "0.4s", dur: "7.5s", size: 4, hex: "#ff7518", drift: "18px" },
+                { left: "66%", delay: "5.1s", dur: "6.9s", size: 5, hex: "#ff7518", drift: "8px" },
+                { left: "71%", delay: "2.6s", dur: "9.4s", size: 3, hex: "#aaff00", drift: "-19px" },
                 { left: "74%", delay: "5.2s", dur: "8s", size: 3, hex: "#aaff00", drift: "-12px" },
+                { left: "78%", delay: "1.9s", dur: "7.7s", size: 4, hex: "#ff7518", drift: "15px" },
+                { left: "82%", delay: "4.2s", dur: "8.6s", size: 3, hex: "#aaff00", drift: "-17px" },
                 { left: "86%", delay: "0.6s", dur: "6.8s", size: 4, hex: "#ff7518", drift: "14px" },
+                { left: "89%", delay: "3.5s", dur: "9.2s", size: 5, hex: "#ff7518", drift: "9px" },
                 { left: "93%", delay: "3.9s", dur: "9.5s", size: 3, hex: "#aaff00", drift: "-20px" },
+                { left: "96%", delay: "1.6s", dur: "7.3s", size: 3, hex: "#aaff00", drift: "-11px" },
+                { left: "45%", delay: "4.9s", dur: "8.9s", size: 4, hex: "#ff7518", drift: "13px" },
+                { left: "10%", delay: "6.5s", dur: "7.9s", size: 3, hex: "#aaff00", drift: "-15px" },
+                { left: "63%", delay: "2.1s", dur: "6.6s", size: 4, hex: "#ff7518", drift: "17px" },
               ].map((e, i) => (
                 <div key={i} style={{
                   position: "absolute", left: e.left, bottom: "0%", width: e.size, height: e.size,
@@ -8610,19 +8630,25 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                   animation: `hwEmberDrift ${e.dur} ease-in-out ${e.delay} infinite`,
                 }} />
               ))}
-              {/* Hidden Easter egg (added 2026-09-04) — a small bat tucked in the corner,
-                  low-opacity so it reads as part of the doodle wallpaper until you notice
-                  it. Click for a message from Elijah. Pure charm, no functional purpose. */}
+              {/* Hidden Easter egg (added 2026-09-04, brightened same day — John: "i cant
+                  see the easter egg anywhere". First pass at 0.32 opacity / 18px was the
+                  same mistake as the doodle wallpaper: tuned too subtle for how much else
+                  is going on in this hero. Still not an obvious button, but genuinely
+                  findable now — bigger, brighter, and a slow idle pulse to catch the eye. */}
               <button
                 onClick={() => setEasterEgg(HW_EASTER_EGGS[Math.floor(Math.random() * HW_EASTER_EGGS.length)])}
                 title=""
                 style={{
                   position: "absolute", top: 14, right: 18, background: "none", border: "none", cursor: "pointer",
-                  fontSize: 18, opacity: 0.32, padding: 6, lineHeight: 1, transition: "opacity 0.3s, transform 0.3s",
+                  fontSize: 28, opacity: 0.6, padding: 6, lineHeight: 1, transition: "opacity 0.3s, transform 0.3s",
                   zIndex: 5,
+                  // Pulse only touches filter (glow intensity), never opacity/transform —
+                  // those stay under the hover handlers below with no fight between the
+                  // CSS animation and the JS-driven hover state.
+                  animation: "hwBatPulse 3s ease-in-out infinite",
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; e.currentTarget.style.transform = "scale(1.2)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.32"; e.currentTarget.style.transform = "scale(1)"; }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1.2)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.6"; e.currentTarget.style.transform = "scale(1)"; }}
               >🦇</button>
               {easterEgg && (
                 <div style={{
