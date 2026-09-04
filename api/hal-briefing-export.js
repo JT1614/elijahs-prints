@@ -88,7 +88,35 @@ export default async function handler(req, res) {
         const rsBody = await rsResp.text();
         if (!rsResp.ok) return res.status(rsResp.status).json({ step: "get ruleset", error: rsBody });
         const ruleset = JSON.parse(rsBody);
-        return res.status(200).json({ ok: true, rulesetName, files: ruleset.source.files });
+        return res.status(200).json({ ok: true, releaseName: storageRelease.name, rulesetName, files: ruleset.source.files });
+      }
+
+      // TEMP 2026-09-04 — deploy an updated Storage ruleset. Body: { releaseName, newContent }.
+      // Creates a new ruleset with newContent, then points the given release at it.
+      // Caller is responsible for verifying newContent is the old content plus ONLY the
+      // intended addition (diffed client-side before calling this).
+      if (action === "deploy_storage_rules") {
+        if (!_credential) return res.status(500).json({ error: "No credential available" });
+        const { releaseName, newContent } = req.body || {};
+        if (!releaseName || !newContent) return res.status(400).json({ error: "releaseName and newContent required" });
+        const { access_token } = await _credential.getAccessToken();
+        const projectId = "elijahs-prints";
+        const createResp = await fetch(`https://firebaserules.googleapis.com/v1/projects/${projectId}/rulesets`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ source: { files: [{ name: "storage.rules", content: newContent }] } }),
+        });
+        const createBody = await createResp.text();
+        if (!createResp.ok) return res.status(createResp.status).json({ step: "create ruleset", error: createBody });
+        const newRuleset = JSON.parse(createBody);
+        const patchResp = await fetch(`https://firebaserules.googleapis.com/v1/${releaseName}?updateMask=rulesetName`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ release: { name: releaseName, rulesetName: newRuleset.name } }),
+        });
+        const patchBody = await patchResp.text();
+        if (!patchResp.ok) return res.status(patchResp.status).json({ step: "update release", error: patchBody, newRulesetName: newRuleset.name });
+        return res.status(200).json({ ok: true, newRulesetName: newRuleset.name, release: JSON.parse(patchBody) });
       }
 
       if (action !== "set") {
