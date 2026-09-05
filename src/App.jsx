@@ -8599,23 +8599,35 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                 <span style={{ display: "inline-block", animation: `hwBatFlap ${0.16 + (i % 3) * 0.03}s ease-in-out infinite` }}>🦇</span>
               </div>
             ))}
-            {/* Large descending spider (added 2026-09-05, John: "add a large animated
+            {/* Two large descending spiders (added 2026-09-05, John: "add a large animated
                 spider to the transition animation screen, slow and scary, with glow in
-                the dark eyes"). Drops on a thread rather than flying like the bats —
-                different motion on purpose, both thematically (spiders don't fly) and so
-                it doesn't visually compete with the bat flight paths. Same proven pattern:
-                plain CSS keyframes on a position:fixed sibling of the backdrop, not nested
-                inside the heroStages crossfade subtree (that nesting is what froze the
-                alien-zoom animation earlier this session). Eyes are a stylised glow effect
-                in the site's own glow-filament green (#aaff00), not a literal claim. */}
-            <div style={{ position: "fixed", top: 0, left: "50%", zIndex: 203, pointerEvents: "none", opacity: 0, animation: "hwSpiderDrop 2.6s cubic-bezier(0.25,0.8,0.4,1) forwards" }}>
-              <div style={{ width: 2, height: 220, margin: "0 auto", background: "linear-gradient(rgba(200,232,50,0.55), rgba(200,232,50,0.1))" }} />
-              <div style={{ position: "relative", fontSize: 100, textAlign: "center", transformOrigin: "top center", filter: "drop-shadow(0 0 16px rgba(170,255,0,0.65)) drop-shadow(0 0 34px rgba(170,255,0,0.3))", animation: "hwSpiderSwing 2.6s ease-in-out 0.2s forwards" }}>
-                🕷️
-                <span style={{ position: "absolute", top: "38%", left: "35%", width: 7, height: 7, borderRadius: "50%", background: "#aaff00", boxShadow: "0 0 8px 3px rgba(170,255,0,0.95)", animation: "hwSpiderEyePulse 0.9s ease-in-out infinite" }} />
-                <span style={{ position: "absolute", top: "38%", right: "35%", width: 7, height: 7, borderRadius: "50%", background: "#aaff00", boxShadow: "0 0 8px 3px rgba(170,255,0,0.95)", animation: "hwSpiderEyePulse 0.9s ease-in-out infinite" }} />
+                the dark eyes"; repositioned same day, John: "move the animated spider to
+                the left of the transitioning alien and add one to the right also" — the
+                original single centred spider overlapped the alien photo box, which is
+                itself centred via flex). Now flanks the alien instead: one at 12% from the
+                left, one mirrored at 88%. Drops on a thread rather than flying like the
+                bats — different motion on purpose, both thematically (spiders don't fly)
+                and so it doesn't visually compete with the bat flight paths. Same proven
+                pattern: plain CSS keyframes on a position:fixed sibling of the backdrop,
+                not nested inside the heroStages crossfade subtree (that nesting is what
+                froze the alien-zoom animation earlier this session). The flip wrapper is a
+                separate, non-animated div — an animation's own transform overrides any
+                static inline transform on the SAME element, so scaleX(-1) has to live one
+                level away from the rotate-driven hwSpiderSwing animation, not combined on
+                it. Eyes are a stylised glow effect in the site's own glow-filament green
+                (#aaff00), not a literal claim. */}
+            {[{ left: "12%", flip: false }, { left: "88%", flip: true }].map((s, i) => (
+              <div key={i} style={{ position: "fixed", top: 0, left: s.left, zIndex: 203, pointerEvents: "none", opacity: 0, animation: "hwSpiderDrop 2.6s cubic-bezier(0.25,0.8,0.4,1) forwards" }}>
+                <div style={{ width: 2, height: 220, margin: "0 auto", background: "linear-gradient(rgba(200,232,50,0.55), rgba(200,232,50,0.1))" }} />
+                <div style={{ transform: s.flip ? "scaleX(-1)" : "none" }}>
+                  <div style={{ position: "relative", fontSize: 100, textAlign: "center", transformOrigin: "top center", filter: "drop-shadow(0 0 16px rgba(170,255,0,0.65)) drop-shadow(0 0 34px rgba(170,255,0,0.3))", animation: "hwSpiderSwing 2.6s ease-in-out 0.2s forwards" }}>
+                    🕷️
+                    <span style={{ position: "absolute", top: "38%", left: "35%", width: 7, height: 7, borderRadius: "50%", background: "#aaff00", boxShadow: "0 0 8px 3px rgba(170,255,0,0.95)", animation: "hwSpiderEyePulse 0.9s ease-in-out infinite" }} />
+                    <span style={{ position: "absolute", top: "38%", right: "35%", width: 7, height: 7, borderRadius: "50%", background: "#aaff00", boxShadow: "0 0 8px 3px rgba(170,255,0,0.95)", animation: "hwSpiderEyePulse 0.9s ease-in-out infinite" }} />
+                  </div>
+                </div>
               </div>
-            </div>
+            ))}
           </>
         )}
         {/* Halloween "lights out" demo overlay (added 2026-09) — a dimming sheet, not a
