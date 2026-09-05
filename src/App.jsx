@@ -7892,6 +7892,15 @@ function ElijahsPrintsInner() {
   // instead of swapping a single static photo. See the hero render block below.
   const [heroStage, setHeroStage] = useState(0);
   const [heroFlash, setHeroFlash] = useState(false); // "Dare you enter Halloween?" reveal flash — 2026-09-04
+  // Reveal-box zoom, state-driven (added 2026-09-05, replaces a CSS @keyframes animation).
+  // John: "when i click the halloween button i just see a black box, no alien" — the box's
+  // own animation (transform+opacity via a CSS `animation` shorthand) was found stuck at
+  // its 0% keyframe (Web Animations API showed playState:"running" but startTime:null,
+  // i.e. it never actually got a tick from the browser to start progressing) — root cause
+  // not pinned down with certainty, but the crossfade on the images INSIDE this same box
+  // already drives opacity via React state + a CSS transition and works reliably, so the
+  // box's own zoom/fade is rebuilt the same proven way instead of trusting the keyframe.
+  const [revealPhase, setRevealPhase] = useState("start"); // "start" | "in" | "out"
   const [easterEgg, setEasterEgg] = useState(null); // hidden bat click message — 2026-09-04
   const heroStages = [categoryMeta?.Halloween?.heroImageUrl, categoryMeta?.Halloween?.heroImageMidUrl, categoryMeta?.Halloween?.heroImageGlowUrl].filter(Boolean);
   useEffect(() => {
@@ -8432,13 +8441,20 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           .ep-editor-2col { grid-template-columns: 1fr !important; }
           .ep-hero { padding: 40px 16px 28px !important; }
           .ep-product-grid { padding: 0 12px 40px !important; gap: 12px !important; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
-          .ep-cat-bar { padding: 0 12px 20px !important; gap: 6px !important; }
+          /* 2026-09-05 round 3, John: "still 5 rows, need 3" — kept flex-wrap (NOT the
+             horizontal-scroll rewrite from round 2, since that round was reverted after a
+             reported mobile regression and hasn't been cleared) and instead fit more chips
+             per row: smaller gap/padding/font, and the product-count number dropped on
+             mobile (kept on desktop) since it's the single biggest per-chip width cost for
+             the least essential information. */
+          .ep-cat-bar { padding: 0 12px 20px !important; gap: 4px !important; }
+          .ep-cat-count { display: none !important; }
           /* min-height must be overridden explicitly — the general button:not(.ep-swatch)
              rule below forces 44px (a deliberate touch-target minimum), which otherwise
              swallows this padding/font reduction entirely. Category chips are exempted the
              same way .ep-swatch already is: many small, low-stakes, non-destructive picks
              in a row, not a primary action button. */
-          .ep-cat-bar button { padding: 5px 12px !important; font-size: 12px !important; min-height: 34px !important; }
+          .ep-cat-bar button { padding: 4px 8px !important; font-size: 10px !important; min-height: 28px !important; }
           /* 2026-09-05, John: on mobile the category bar takes up half the screen, and
              the floating "lights out" bar balloons into a giant circle — its border-radius
              (999, meant for a slim one-line pill) turns into a circle once the long text
@@ -8530,7 +8546,11 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                   position: "relative", width: "min(65vw, 460px)", height: "min(65vw, 460px)",
                   borderRadius: 28, overflow: "hidden", border: "3px solid rgba(170,255,0,0.4)",
                   boxShadow: "0 0 60px rgba(170,255,0,0.55), 0 0 130px rgba(255,117,24,0.35)",
-                  animation: "hwRevealAlienZoom 2.7s cubic-bezier(0.22,1,0.36,1) forwards",
+                  opacity: revealPhase === "in" ? 1 : 0,
+                  transform: revealPhase === "start" ? "scale(0.4)" : revealPhase === "out" ? "scale(1.15)" : "scale(1)",
+                  transition: revealPhase === "in"
+                    ? "opacity 0.5s ease, transform 0.6s cubic-bezier(0.34,1.56,0.64,1)"
+                    : "opacity 0.4s ease, transform 0.4s ease",
                 }}>
                   {heroStages.map((src, i) => (
                     <img key={src} src={src} alt="Elijah's own giant alien print" style={{
@@ -8734,7 +8754,10 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                     setHeroFlash(true);
                     setLightsOff(true);
                     goToHalloween();
-                    setTimeout(() => setHeroFlash(false), 2700);
+                    setRevealPhase("start");
+                    setTimeout(() => setRevealPhase("in"), 20);
+                    setTimeout(() => setRevealPhase("out"), 2300);
+                    setTimeout(() => { setHeroFlash(false); setRevealPhase("start"); }, 2700);
                   }} style={{ padding: "16px 32px", borderRadius: 14, border: "none", cursor: "pointer", fontFamily: S.fontHead, fontWeight: 800, fontSize: 15, background: "#aaff00", color: "#0d0d1a", boxShadow: "0 0 24px rgba(170,255,0,0.45)" }}>
                     😈 Yes — enter Halloween →
                   </button>
@@ -8891,7 +8914,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
             const locked = !isCategoryUnlocked(cat, categoryMeta, unlockedCategories);
             return (
             <button key={cat} onClick={() => setActiveCat(cat)} style={{ padding: "8px 16px", borderRadius: 20, border: isActive ? `1.5px solid ${S.teal}` : `1px solid rgba(255,255,255,0.15)`, background: isActive ? "rgba(0,201,167,0.12)" : "rgba(255,255,255,0.05)", color: isActive ? S.teal : S.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead, display: "flex", alignItems: "center", gap: 6 }}>
-              {cat}{locked ? <span style={{ fontSize: 11 }}>🔒</span> : <span style={{ fontSize: 11, color: isActive ? "rgba(0,201,167,0.6)" : S.muted, fontFamily: S.fontMono }}>{catCounts[cat] || 0}</span>}
+              {cat}{locked ? <span style={{ fontSize: 11 }}>🔒</span> : <span className="ep-cat-count" style={{ fontSize: 11, color: isActive ? "rgba(0,201,167,0.6)" : S.muted, fontFamily: S.fontMono }}>{catCounts[cat] || 0}</span>}
             </button>
             );
           })}
