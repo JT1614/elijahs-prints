@@ -1396,7 +1396,7 @@ function Tooltip({ text, children, position = "bottom" }) {
   );
 }
 
-function ProductImage({ product, hovered, isGlow }) {
+function ProductImage({ product, hovered, isGlow, isGlowOnly }) {
   const [err, setErr] = useState(false);
   const hasImg = product.img && !err;
   return (
@@ -1424,13 +1424,17 @@ function ProductImage({ product, hovered, isGlow }) {
           mixBlendMode: "screen", opacity: hovered ? 1 : 0, transition: "opacity 0.4s ease",
         }} />
       )}
+      {/* isGlowOnly distinction (added 2026-09-05, John: customers might think "GLOWS"
+          means the product itself glows, when for most cards glow is just one of several
+          selectable colours) — only claim an unconditional "GLOWS" when every colour
+          option on the product IS glow-tier; otherwise it's a pick, not a property. */}
       {isGlow && (
         <span style={{
           position: "absolute", bottom: 8, right: 8, fontSize: 10, fontFamily: S.fontHead, fontWeight: 800,
           color: "#0d0d1a", background: "#aaff00", padding: "3px 8px", borderRadius: 999,
           opacity: hovered ? 1 : 0, transform: hovered ? "translateY(0)" : "translateY(6px)",
           transition: "all 0.35s ease", boxShadow: "0 0 12px rgba(170,255,0,0.6)", pointerEvents: "none",
-        }}>🌙 GLOWS</span>
+        }}>{isGlowOnly ? "🌙 GLOWS" : "🌙 GLOW OPTION"}</span>
       )}
     </div>
   );
@@ -1478,7 +1482,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
     }}>
       {product.badge && !productInCategory(product, "Dragons") && <Badge text={product.badge} />}
       <SizeBadge product={product} />
-      <ProductImage product={product} hovered={hovered} isGlow={hasGlowColor} />
+      <ProductImage product={product} hovered={hovered} isGlow={hasGlowColor} isGlowOnly={isGlowOnly} />
       <div style={{ padding: "14px 16px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
@@ -6027,17 +6031,21 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
               const isGrad = f.hex.includes("linear");
               const prodCount = products.filter(p => getProductStatus(p) === "live" && (p.colors || []).includes(name)).length;
               const totalProdCount = products.filter(p => (p.colors || []).includes(name)).length;
+              // Reorder by array position then renumber the WHOLE list sequentially
+              // (added 2026-09-05, fixing "Grass Green won't move past position 27").
+              // The old version swapped raw sortOrder VALUES between the two colours —
+              // a no-op whenever they already shared a value, which silently blocks the
+              // move forever. Several filaments had tied sortOrder (e.g. three colours
+              // all at 23), so any move landing on a tied neighbour did nothing. Renumbering
+              // from array position is immune to duplicates and heals any that already
+              // exist as a side effect of a single move.
               const moveColour = (dir) => {
-                const sorted = [...ALL_COLORS];
                 const target = idx + dir;
-                if (target < 0 || target >= sorted.length) return;
-                // Swap sortOrder values
+                if (target < 0 || target >= ALL_COLORS.length) return;
+                const reordered = [...ALL_COLORS];
+                [reordered[idx], reordered[target]] = [reordered[target], reordered[idx]];
                 const updated = { ...FILAMENTS };
-                const aName = sorted[idx]; const bName = sorted[target];
-                const aSort = updated[aName].sortOrder || COLOUR_SORT_MAP[aName] || idx + 1;
-                const bSort = updated[bName].sortOrder || COLOUR_SORT_MAP[bName] || target + 1;
-                updated[aName] = { ...updated[aName], sortOrder: bSort };
-                updated[bName] = { ...updated[bName], sortOrder: aSort };
+                reordered.forEach((n, i) => { updated[n] = { ...updated[n], sortOrder: i + 1 }; });
                 onSaveFilaments(updated);
               };
               return (
@@ -8591,6 +8599,23 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                 <span style={{ display: "inline-block", animation: `hwBatFlap ${0.16 + (i % 3) * 0.03}s ease-in-out infinite` }}>🦇</span>
               </div>
             ))}
+            {/* Large descending spider (added 2026-09-05, John: "add a large animated
+                spider to the transition animation screen, slow and scary, with glow in
+                the dark eyes"). Drops on a thread rather than flying like the bats —
+                different motion on purpose, both thematically (spiders don't fly) and so
+                it doesn't visually compete with the bat flight paths. Same proven pattern:
+                plain CSS keyframes on a position:fixed sibling of the backdrop, not nested
+                inside the heroStages crossfade subtree (that nesting is what froze the
+                alien-zoom animation earlier this session). Eyes are a stylised glow effect
+                in the site's own glow-filament green (#aaff00), not a literal claim. */}
+            <div style={{ position: "fixed", top: 0, left: "50%", zIndex: 203, pointerEvents: "none", opacity: 0, animation: "hwSpiderDrop 2.6s cubic-bezier(0.25,0.8,0.4,1) forwards" }}>
+              <div style={{ width: 2, height: 220, margin: "0 auto", background: "linear-gradient(rgba(200,232,50,0.55), rgba(200,232,50,0.1))" }} />
+              <div style={{ position: "relative", fontSize: 100, textAlign: "center", transformOrigin: "top center", filter: "drop-shadow(0 0 16px rgba(170,255,0,0.65)) drop-shadow(0 0 34px rgba(170,255,0,0.3))", animation: "hwSpiderSwing 2.6s ease-in-out 0.2s forwards" }}>
+                🕷️
+                <span style={{ position: "absolute", top: "38%", left: "35%", width: 7, height: 7, borderRadius: "50%", background: "#aaff00", boxShadow: "0 0 8px 3px rgba(170,255,0,0.95)", animation: "hwSpiderEyePulse 0.9s ease-in-out infinite" }} />
+                <span style={{ position: "absolute", top: "38%", right: "35%", width: 7, height: 7, borderRadius: "50%", background: "#aaff00", boxShadow: "0 0 8px 3px rgba(170,255,0,0.95)", animation: "hwSpiderEyePulse 0.9s ease-in-out infinite" }} />
+              </div>
+            </div>
           </>
         )}
         {/* Halloween "lights out" demo overlay (added 2026-09) — a dimming sheet, not a
@@ -8710,6 +8735,28 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                 @keyframes hwBatFlap {
                   0%, 100% { transform: scaleY(1) scaleX(1); }
                   50% { transform: scaleY(0.5) scaleX(1.15); }
+                }
+                /* Descending spider (added 2026-09-05) — slow drop-and-settle on the
+                   outer wrapper (thread + body together), then a gentle pendulum swing
+                   on just the body (transformOrigin: top center, so it pivots from the
+                   thread like a real hanging spider), then fades with the rest of the
+                   flash. Eyes pulse independently and continuously throughout. */
+                @keyframes hwSpiderDrop {
+                  0%   { opacity: 0; transform: translate(-50%, -60px); }
+                  10%  { opacity: 1; }
+                  55%  { transform: translate(-50%, 30vh); }
+                  82%  { opacity: 1; transform: translate(-50%, 34vh); }
+                  100% { opacity: 0; transform: translate(-50%, 34vh); }
+                }
+                @keyframes hwSpiderSwing {
+                  0%, 45% { transform: rotate(0deg); }
+                  60% { transform: rotate(5deg); }
+                  75% { transform: rotate(-4deg); }
+                  90%, 100% { transform: rotate(0deg); }
+                }
+                @keyframes hwSpiderEyePulse {
+                  0%, 100% { opacity: 0.55; transform: scale(1); }
+                  50% { opacity: 1; transform: scale(1.35); }
                 }
               `}</style>
               <div style={{ position: "absolute", left: "20%", bottom: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(255,117,24,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
