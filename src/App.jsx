@@ -8561,6 +8561,27 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                 </div>
               </div>
             )}
+            {/* Flying bats (added 2026-09-05, John: "have some bats fly across the screen
+                in different directions to add a level of spookiness"). Rendered as direct
+                siblings of the backdrop/box above, not nested inside the crossfade — same
+                lesson as the alien-zoom fix: keep anything that must actually animate away
+                from a subtree that re-renders on every heroStage tick. */}
+            {[
+              { top: "10%", dir: "LR", size: 30, delay: "0.05s", dur: "1.5s", glow: "rgba(170,255,0,0.7)" },
+              { top: "20%", dir: "RL", size: 42, delay: "0.35s", dur: "1.8s", glow: "rgba(255,117,24,0.7)" },
+              { top: "33%", dir: "LR", size: 24, delay: "0.65s", dur: "1.3s", glow: "rgba(170,255,0,0.6)" },
+              { top: "48%", dir: "RL", size: 36, delay: "0.15s", dur: "1.9s", glow: "rgba(255,117,24,0.6)" },
+              { top: "62%", dir: "LR", size: 46, delay: "0.5s", dur: "2s", glow: "rgba(170,255,0,0.5)" },
+              { top: "74%", dir: "RL", size: 28, delay: "0.8s", dur: "1.4s", glow: "rgba(255,117,24,0.65)" },
+              { top: "86%", dir: "LR", size: 34, delay: "0.25s", dur: "1.7s", glow: "rgba(170,255,0,0.7)" },
+            ].map((b, i) => (
+              <div key={i} style={{
+                position: "fixed", top: b.top, left: 0, fontSize: b.size, zIndex: 202,
+                pointerEvents: "none", opacity: 0,
+                filter: `drop-shadow(0 0 10px ${b.glow})`,
+                animation: `${b.dir === "LR" ? "hwBatFlyLR" : "hwBatFlyRL"} ${b.dur} ease-in-out ${b.delay} 1 forwards`,
+              }}>🦇</div>
+            ))}
           </>
         )}
         {/* Halloween "lights out" demo overlay (added 2026-09) — a dimming sheet, not a
@@ -8638,6 +8659,26 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                 @keyframes hwBatPulse {
                   0%, 100% { filter: drop-shadow(0 0 6px rgba(170,255,0,0.5)); }
                   50% { filter: drop-shadow(0 0 12px rgba(170,255,0,0.85)); }
+                }
+                /* Reveal-flash flying bats (added 2026-09-05, John: "have some bats fly
+                   across the screen in different directions to add a level of spookiness").
+                   Plain CSS keyframes on position:fixed siblings of the backdrop/alien-box
+                   — same pattern already proven reliable for the embers (pure CSS, no React
+                   state driving the motion), deliberately NOT nested inside the crossfade
+                   subtree that caused the alien-zoom bug fixed earlier this session. */
+                @keyframes hwBatFlyLR {
+                  0% { transform: translate(-15vw, 0) rotate(-8deg); opacity: 0; }
+                  10% { opacity: 1; }
+                  50% { transform: translate(57.5vw, -18px) rotate(6deg); }
+                  90% { opacity: 1; }
+                  100% { transform: translate(115vw, 6px) rotate(-4deg); opacity: 0; }
+                }
+                @keyframes hwBatFlyRL {
+                  0% { transform: translate(115vw, 0) rotate(8deg) scaleX(-1); opacity: 0; }
+                  10% { opacity: 1; }
+                  50% { transform: translate(42.5vw, 14px) rotate(-6deg) scaleX(-1); }
+                  90% { opacity: 1; }
+                  100% { transform: translate(-15vw, -8px) rotate(4deg) scaleX(-1); opacity: 0; }
                 }
               `}</style>
               <div style={{ position: "absolute", left: "20%", bottom: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(255,117,24,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
