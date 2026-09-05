@@ -8562,25 +8562,34 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               </div>
             )}
             {/* Flying bats (added 2026-09-05, John: "have some bats fly across the screen
-                in different directions to add a level of spookiness"). Rendered as direct
+                in different directions to add a level of spookiness"; toughened same day,
+                John: "they just go straight across the screen and very quickly so they
+                dont look like bats at all... make them more batty" — v1 was a near-straight
+                2-segment line at 1.3-2s. v2 gives each bat a real zigzag flight path (10
+                keyframe stops, alternating dips/rises + banking rotation) and a separate,
+                fast, independent wing-flap layer on an inner span (parent handles the path,
+                child handles the flap — the two transforms compose). Rendered as direct
                 siblings of the backdrop/box above, not nested inside the crossfade — same
                 lesson as the alien-zoom fix: keep anything that must actually animate away
-                from a subtree that re-renders on every heroStage tick. */}
+                from a subtree that re-renders on every heroStage tick. Durations stay under
+                the 2.7s flash so no bat gets cut off mid-flight. */}
             {[
-              { top: "10%", dir: "LR", size: 30, delay: "0.05s", dur: "1.5s", glow: "rgba(170,255,0,0.7)" },
-              { top: "20%", dir: "RL", size: 42, delay: "0.35s", dur: "1.8s", glow: "rgba(255,117,24,0.7)" },
-              { top: "33%", dir: "LR", size: 24, delay: "0.65s", dur: "1.3s", glow: "rgba(170,255,0,0.6)" },
-              { top: "48%", dir: "RL", size: 36, delay: "0.15s", dur: "1.9s", glow: "rgba(255,117,24,0.6)" },
-              { top: "62%", dir: "LR", size: 46, delay: "0.5s", dur: "2s", glow: "rgba(170,255,0,0.5)" },
-              { top: "74%", dir: "RL", size: 28, delay: "0.8s", dur: "1.4s", glow: "rgba(255,117,24,0.65)" },
-              { top: "86%", dir: "LR", size: 34, delay: "0.25s", dur: "1.7s", glow: "rgba(170,255,0,0.7)" },
+              { top: "10%", dir: "LR", size: 30, delay: "0.05s", dur: "2.1s", glow: "rgba(170,255,0,0.7)" },
+              { top: "20%", dir: "RL", size: 42, delay: "0.35s", dur: "2.4s", glow: "rgba(255,117,24,0.7)" },
+              { top: "33%", dir: "LR", size: 24, delay: "0.5s",  dur: "1.9s", glow: "rgba(170,255,0,0.6)" },
+              { top: "48%", dir: "RL", size: 36, delay: "0.1s",  dur: "2.5s", glow: "rgba(255,117,24,0.6)" },
+              { top: "62%", dir: "LR", size: 46, delay: "0.2s",  dur: "2.3s", glow: "rgba(170,255,0,0.5)" },
+              { top: "74%", dir: "RL", size: 28, delay: "0.6s",  dur: "2s",   glow: "rgba(255,117,24,0.65)" },
+              { top: "86%", dir: "LR", size: 34, delay: "0.4s",  dur: "2.2s", glow: "rgba(170,255,0,0.7)" },
             ].map((b, i) => (
               <div key={i} style={{
                 position: "fixed", top: b.top, left: 0, fontSize: b.size, zIndex: 202,
                 pointerEvents: "none", opacity: 0,
                 filter: `drop-shadow(0 0 10px ${b.glow})`,
                 animation: `${b.dir === "LR" ? "hwBatFlyLR" : "hwBatFlyRL"} ${b.dur} ease-in-out ${b.delay} 1 forwards`,
-              }}>🦇</div>
+              }}>
+                <span style={{ display: "inline-block", animation: `hwBatFlap ${0.16 + (i % 3) * 0.03}s ease-in-out infinite` }}>🦇</span>
+              </div>
             ))}
           </>
         )}
@@ -8661,24 +8670,46 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                   50% { filter: drop-shadow(0 0 12px rgba(170,255,0,0.85)); }
                 }
                 /* Reveal-flash flying bats (added 2026-09-05, John: "have some bats fly
-                   across the screen in different directions to add a level of spookiness").
-                   Plain CSS keyframes on position:fixed siblings of the backdrop/alien-box
-                   — same pattern already proven reliable for the embers (pure CSS, no React
-                   state driving the motion), deliberately NOT nested inside the crossfade
-                   subtree that caused the alien-zoom bug fixed earlier this session. */
+                   across the screen in different directions to add a level of spookiness";
+                   toughened same day, John: "they just go straight across the screen and
+                   very quickly... make them more batty"). Two layers, composed: the outer
+                   div (below) carries an erratic 11-stop zigzag path with alternating
+                   dip/rise and banking rotation — real flight isn't a straight glide — and
+                   the inner span carries a fast, independent wing-flap (hwBatFlap), so the
+                   silhouette pulses open/shut while the path wanders. Plain CSS keyframes
+                   on position:fixed siblings of the backdrop/alien-box — same pattern
+                   already proven reliable for the embers (pure CSS, no React state driving
+                   the motion), deliberately NOT nested inside the crossfade subtree that
+                   caused the alien-zoom bug fixed earlier this session. */
                 @keyframes hwBatFlyLR {
-                  0% { transform: translate(-15vw, 0) rotate(-8deg); opacity: 0; }
-                  10% { opacity: 1; }
-                  50% { transform: translate(57.5vw, -18px) rotate(6deg); }
-                  90% { opacity: 1; }
-                  100% { transform: translate(115vw, 6px) rotate(-4deg); opacity: 0; }
+                  0%   { transform: translate(-15vw, 0)     rotate(-10deg); opacity: 0; }
+                  8%   { transform: translate(-2vw, -15px)  rotate(8deg);   opacity: 1; }
+                  18%  { transform: translate(12vw, 8px)    rotate(-12deg); }
+                  28%  { transform: translate(28vw, -22px)  rotate(10deg); }
+                  38%  { transform: translate(42vw, 5px)    rotate(-8deg); }
+                  48%  { transform: translate(55vw, -18px)  rotate(9deg); }
+                  58%  { transform: translate(68vw, 10px)   rotate(-10deg); }
+                  68%  { transform: translate(80vw, -25px)  rotate(11deg); }
+                  78%  { transform: translate(93vw, 3px)    rotate(-7deg); }
+                  88%  { transform: translate(105vw, -12px) rotate(6deg);  opacity: 1; }
+                  100% { transform: translate(118vw, 0)     rotate(0deg);  opacity: 0; }
                 }
                 @keyframes hwBatFlyRL {
-                  0% { transform: translate(115vw, 0) rotate(8deg) scaleX(-1); opacity: 0; }
-                  10% { opacity: 1; }
-                  50% { transform: translate(42.5vw, 14px) rotate(-6deg) scaleX(-1); }
-                  90% { opacity: 1; }
-                  100% { transform: translate(-15vw, -8px) rotate(4deg) scaleX(-1); opacity: 0; }
+                  0%   { transform: translate(118vw, 0)     rotate(10deg)  scaleX(-1); opacity: 0; }
+                  8%   { transform: translate(105vw, -15px) rotate(-8deg)  scaleX(-1); opacity: 1; }
+                  18%  { transform: translate(91vw, 8px)    rotate(12deg)  scaleX(-1); }
+                  28%  { transform: translate(75vw, -22px)  rotate(-10deg) scaleX(-1); }
+                  38%  { transform: translate(61vw, 5px)    rotate(8deg)   scaleX(-1); }
+                  48%  { transform: translate(48vw, -18px)  rotate(-9deg)  scaleX(-1); }
+                  58%  { transform: translate(35vw, 10px)   rotate(10deg)  scaleX(-1); }
+                  68%  { transform: translate(23vw, -25px)  rotate(-11deg) scaleX(-1); }
+                  78%  { transform: translate(10vw, 3px)    rotate(7deg)   scaleX(-1); }
+                  88%  { transform: translate(-2vw, -12px)  rotate(-6deg)  scaleX(-1); opacity: 1; }
+                  100% { transform: translate(-18vw, 0)     rotate(0deg)   scaleX(-1); opacity: 0; }
+                }
+                @keyframes hwBatFlap {
+                  0%, 100% { transform: scaleY(1) scaleX(1); }
+                  50% { transform: scaleY(0.5) scaleX(1.15); }
                 }
               `}</style>
               <div style={{ position: "absolute", left: "20%", bottom: "20%", width: 400, height: 400, background: "radial-gradient(circle, rgba(255,117,24,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
