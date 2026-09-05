@@ -8407,6 +8407,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
            Glow cards keep an extra box-shadow so they still stand out further. */
         .ep-lights-off .ep-card-wrap { position: relative; z-index: 96; }
         .ep-lights-off .ep-card-wrap.is-glow > * { box-shadow: 0 0 30px rgba(170,255,0,0.35), 0 0 70px rgba(170,255,0,0.18); border-radius: 16px; }
+        .ep-lights-bar-short { display: none; }
         /* 2026-09-04 fix: the dim sheet is position:fixed/inset:0, so at z-index 95 it
            was sitting ON TOP of the hero too — John's report was "too hard to see
            anything including the glowing alien". The hero's own background is already
@@ -8431,7 +8432,22 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           .ep-editor-2col { grid-template-columns: 1fr !important; }
           .ep-hero { padding: 40px 16px 28px !important; }
           .ep-product-grid { padding: 0 12px 40px !important; gap: 12px !important; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
-          .ep-cat-bar { padding: 0 12px 20px !important; }
+          .ep-cat-bar { padding: 0 12px 20px !important; gap: 6px !important; }
+          /* min-height must be overridden explicitly — the general button:not(.ep-swatch)
+             rule below forces 44px (a deliberate touch-target minimum), which otherwise
+             swallows this padding/font reduction entirely. Category chips are exempted the
+             same way .ep-swatch already is: many small, low-stakes, non-destructive picks
+             in a row, not a primary action button. */
+          .ep-cat-bar button { padding: 5px 12px !important; font-size: 12px !important; min-height: 34px !important; }
+          /* 2026-09-05, John: on mobile the category bar takes up half the screen, and
+             the floating "lights out" bar balloons into a giant circle — its border-radius
+             (999, meant for a slim one-line pill) turns into a circle once the long text
+             wraps across many lines on a narrow screen. Desktop is untouched (John: "works
+             fine on the normal website so don't change that") — these rules only fire
+             under this same max-width:768px breakpoint every other mobile fix here uses. */
+          .ep-lights-bar { border-radius: 18px !important; padding: 10px 14px !important; font-size: 12px !important; gap: 10px !important; bottom: 14px !important; }
+          .ep-lights-bar-full { display: none !important; }
+          .ep-lights-bar-short { display: inline !important; }
           .ep-nav-request { display: none !important; }
           .ep-nav { padding: 0 12px !important; }
           .ep-section-pad { padding-left: 12px !important; padding-right: 12px !important; }
@@ -8548,8 +8564,9 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               mixBlendMode: "screen",
             }} />
           )}
-          <div style={{ position: "fixed", left: "50%", bottom: 22, transform: "translateX(-50%)", zIndex: 101, background: "rgba(13,13,26,0.96)", border: "1px solid rgba(170,255,0,0.4)", borderRadius: 999, padding: "10px 10px 10px 20px", display: "flex", alignItems: "center", gap: 14, fontFamily: S.fontHead, fontSize: 13, fontWeight: 600, color: "#aaff00", boxShadow: "0 0 30px rgba(170,255,0,0.2)", backdropFilter: "blur(10px)", maxWidth: "calc(100vw - 32px)" }}>
-            <span>🔦 Lights out — glow-in-the-dark ones are lit up, everything else is still here</span>
+          <div className="ep-lights-bar" style={{ position: "fixed", left: "50%", bottom: 22, transform: "translateX(-50%)", zIndex: 101, background: "rgba(13,13,26,0.96)", border: "1px solid rgba(170,255,0,0.4)", borderRadius: 999, padding: "10px 10px 10px 20px", display: "flex", alignItems: "center", gap: 14, fontFamily: S.fontHead, fontSize: 13, fontWeight: 600, color: "#aaff00", boxShadow: "0 0 30px rgba(170,255,0,0.2)", backdropFilter: "blur(10px)", maxWidth: "calc(100vw - 32px)" }}>
+            <span className="ep-lights-bar-full">🔦 Lights out — glow-in-the-dark ones are lit up, everything else is still here</span>
+            <span className="ep-lights-bar-short">🔦 Lights out — glow ones lit up</span>
             <button onClick={() => setLightsOff(false)} style={{ padding: "8px 16px", borderRadius: 999, border: "none", background: "#aaff00", color: "#0d0d1a", fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, fontSize: 12, whiteSpace: "nowrap" }}>Lights on</button>
           </div>
         </>)}
