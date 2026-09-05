@@ -42,7 +42,7 @@ const READ_KEYS = [
   "feature-flags-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1"];
+const WRITE_KEYS = ["assessment-v1", "products-v2", "filaments-v1"]; // TEMP: 2026-09-05 Grass Green reorder + open-choice colour add + 4 new Halloween products. Revert immediately after.
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
