@@ -8471,8 +8471,14 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
              fine on the normal website so don't change that") — these rules only fire
              under this same max-width:768px breakpoint every other mobile fix here uses. */
           .ep-lights-bar { border-radius: 18px !important; padding: 10px 14px !important; font-size: 12px !important; gap: 10px !important; bottom: 14px !important; }
+          /* 2026-09-05, John (2nd report, urgent): shortening the text to 2 words
+             ("Lights out") wasn't enough on its own — at 375px it still wrapped onto
+             its own line next to the "Lights on" button, ballooning the whole pill.
+             Dropping the status text entirely on mobile is the fix that can't wrap:
+             the lit "Lights on" button alone is unambiguous (screen's dimmed, tap to
+             undim) and is the only thing guaranteed to fit on one line every time. */
           .ep-lights-bar-full { display: none !important; }
-          .ep-lights-bar-short { display: inline !important; }
+          .ep-lights-bar-short { display: none !important; }
           /* 2026-09-05, John (urgent): the OTHER lights-toggle — the text-link inside the
              hero itself, not the floating bar above — still took too much room on mobile:
              "Turn the lights back on" wraps across a narrow hero column, and every button
@@ -8665,7 +8671,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           )}
           <div className="ep-lights-bar" style={{ position: "fixed", left: "50%", bottom: 22, transform: "translateX(-50%)", zIndex: 101, background: "rgba(13,13,26,0.96)", border: "1px solid rgba(170,255,0,0.4)", borderRadius: 999, padding: "10px 10px 10px 20px", display: "flex", alignItems: "center", gap: 14, fontFamily: S.fontHead, fontSize: 13, fontWeight: 600, color: "#aaff00", boxShadow: "0 0 30px rgba(170,255,0,0.2)", backdropFilter: "blur(10px)", maxWidth: "calc(100vw - 32px)" }}>
             <span className="ep-lights-bar-full">🔦 Lights out — glow-in-the-dark ones are lit up, everything else is still here</span>
-            <span className="ep-lights-bar-short">🔦 Lights out — glow ones lit up</span>
+            <span className="ep-lights-bar-short">🔦 Lights out</span>
             <button onClick={() => setLightsOff(false)} style={{ padding: "8px 16px", borderRadius: 999, border: "none", background: "#aaff00", color: "#0d0d1a", fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, fontSize: 12, whiteSpace: "nowrap" }}>Lights on</button>
           </div>
         </>)}
