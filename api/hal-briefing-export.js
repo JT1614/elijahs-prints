@@ -25,6 +25,16 @@ const db = admin.apps.length ? admin.firestore() : null;
 
 // Allowlisted keys the briefing needs. Only these can be read or written.
 // Limits blast radius if the bearer token is ever exposed.
+//
+// "orders-v1" and "requests-v1" below are LEGACY/UNUSED — always empty. Real order
+// and request data is NOT here; it's read separately further down as
+// data.orders_collection / data.requests_collection, straight from the top-level
+// Firestore "orders" / "requests" collections (one document per order/request,
+// written by api/stripe-webhook.js and api/save-request.js respectively) — a
+// different shape from the single-doc "shop/<key>" blobs this array drives.
+// Found the hard way 2026-09-05: querying this export and pattern-matching on the
+// "-v1" naming convention looks like real customer data doesn't exist. It does —
+// under orders_collection/requests_collection. Check there first.
 const READ_KEYS = [
   "products-v2",
   "assessment-v1",
