@@ -8652,7 +8652,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                 { left: "63%", delay: "2.1s", dur: "6.6s", size: 4, hex: "#ff7518", drift: "17px" },
               ].map((e, i) => (
                 <div key={i} style={{
-                  position: "absolute", left: e.left, bottom: "0%", width: e.size, height: e.size,
+                  position: "fixed", left: e.left, bottom: 0, width: e.size, height: e.size, zIndex: 3,
                   borderRadius: "50%", background: e.hex, boxShadow: `0 0 ${e.size * 2}px ${e.hex}`,
                   pointerEvents: "none", "--drift": e.drift,
                   animation: `hwEmberDrift ${e.dur} ease-in-out ${e.delay} infinite`,
