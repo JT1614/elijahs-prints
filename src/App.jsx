@@ -8425,6 +8425,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
         .ep-lights-off .ep-card-wrap { position: relative; z-index: 96; }
         .ep-lights-off .ep-card-wrap.is-glow > * { box-shadow: 0 0 30px rgba(170,255,0,0.35), 0 0 70px rgba(170,255,0,0.18); border-radius: 16px; }
         .ep-lights-bar-short { display: none; }
+        .ep-relight-short { display: none; }
         /* 2026-09-04 fix: the dim sheet is position:fixed/inset:0, so at z-index 95 it
            was sitting ON TOP of the hero too — John's report was "too hard to see
            anything including the glowing alien". The hero's own background is already
@@ -8472,6 +8473,17 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           .ep-lights-bar { border-radius: 18px !important; padding: 10px 14px !important; font-size: 12px !important; gap: 10px !important; bottom: 14px !important; }
           .ep-lights-bar-full { display: none !important; }
           .ep-lights-bar-short { display: inline !important; }
+          /* 2026-09-05, John (urgent): the OTHER lights-toggle — the text-link inside the
+             hero itself, not the floating bar above — still took too much room on mobile:
+             "Turn the lights back on" wraps across a narrow hero column, and every button
+             gets forced to a 44px min-height by the general touch-target rule below, so a
+             wrapped 2-line link ballooned into a large block. Same fix pattern as the bar:
+             short label under this breakpoint, plus an explicit min-height override since
+             this is a single low-stakes reversible toggle — same exemption already given
+             to .ep-swatch and .ep-cat-bar button. */
+          .ep-relight-full { display: none !important; }
+          .ep-relight-short { display: inline !important; }
+          .ep-relight-btn { font-size: 10px !important; padding: 2px !important; min-height: 0 !important; }
           .ep-nav-request { display: none !important; }
           .ep-nav { padding: 0 12px !important; }
           .ep-section-pad { padding-left: 12px !important; padding-right: 12px !important; }
@@ -8897,8 +8909,9 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                   </button>
                 </div>
                 {lightsOff && (
-                  <button onClick={() => setLightsOff(false)} style={{ background: "none", border: "none", color: "#aaff00", fontFamily: S.fontHead, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", marginBottom: 8, padding: 4 }}>
-                    💡 Turn the lights back on
+                  <button className="ep-relight-btn" onClick={() => setLightsOff(false)} style={{ background: "none", border: "none", color: "#aaff00", fontFamily: S.fontHead, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", marginBottom: 8, padding: 4 }}>
+                    <span className="ep-relight-full">💡 Turn the lights back on</span>
+                    <span className="ep-relight-short">💡 Lights on</span>
                   </button>
                 )}
 
