@@ -7932,7 +7932,15 @@ function ElijahsPrintsInner() {
   // AFTER featureFlags is declared (temporal dead zone — confirmed by a real crash when
   // this was placed earlier in the component and referenced featureFlags before init).
   const torchRef = useRef(null);
-  const torchActive = lightsOff && (featureFlags.halloweenEnabled || hwPreview) && page === "shop";
+  // Touch devices never fire mousemove, so the torch div would otherwise mount once and
+  // sit frozen at its initial (0,0) position — a permanent glowing patch stuck over the
+  // top-left corner instead of following anything. Gate the whole effect on an actual
+  // mouse (fine pointer + hover) being present; a one-time check is enough since a device
+  // doesn't gain a mouse mid-session in any real scenario.
+  const [hasFinePointer] = useState(() =>
+    typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches
+  );
+  const torchActive = hasFinePointer && lightsOff && (featureFlags.halloweenEnabled || hwPreview) && page === "shop";
   useEffect(() => {
     if (!torchActive) return;
     const handleMove = (e) => {
@@ -8530,13 +8538,16 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           <div onClick={() => setLightsOff(false)} style={{ position: "fixed", inset: 0, zIndex: 95, background: "rgba(3,2,8,0.78)", pointerEvents: "none", transition: "background 0.9s ease" }} />
           {/* Cursor torch (see torchRef/torchActive above) — mix-blend-mode: screen means
               it can only ever brighten what's under it, never obscure or tint product
-              content, regardless of stacking order. */}
-          <div ref={torchRef} style={{
-            position: "fixed", top: 0, left: 0, width: 380, height: 380, zIndex: 96,
-            borderRadius: "50%", pointerEvents: "none", willChange: "transform",
-            background: "radial-gradient(circle, rgba(170,255,0,0.34) 0%, rgba(255,117,24,0.18) 42%, transparent 70%)",
-            mixBlendMode: "screen",
-          }} />
+              content, regardless of stacking order. hasFinePointer-gated: on touch there's
+              no mousemove to position it, so it must not mount at all (see torchActive). */}
+          {hasFinePointer && (
+            <div ref={torchRef} style={{
+              position: "fixed", top: 0, left: 0, width: 380, height: 380, zIndex: 96,
+              borderRadius: "50%", pointerEvents: "none", willChange: "transform",
+              background: "radial-gradient(circle, rgba(170,255,0,0.34) 0%, rgba(255,117,24,0.18) 42%, transparent 70%)",
+              mixBlendMode: "screen",
+            }} />
+          )}
           <div style={{ position: "fixed", left: "50%", bottom: 22, transform: "translateX(-50%)", zIndex: 101, background: "rgba(13,13,26,0.96)", border: "1px solid rgba(170,255,0,0.4)", borderRadius: 999, padding: "10px 10px 10px 20px", display: "flex", alignItems: "center", gap: 14, fontFamily: S.fontHead, fontSize: 13, fontWeight: 600, color: "#aaff00", boxShadow: "0 0 30px rgba(170,255,0,0.2)", backdropFilter: "blur(10px)", maxWidth: "calc(100vw - 32px)" }}>
             <span>🔦 Lights out — glow-in-the-dark ones are lit up, everything else is still here</span>
             <button onClick={() => setLightsOff(false)} style={{ padding: "8px 16px", borderRadius: 999, border: "none", background: "#aaff00", color: "#0d0d1a", fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, fontSize: 12, whiteSpace: "nowrap" }}>Lights on</button>
