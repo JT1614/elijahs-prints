@@ -8432,19 +8432,13 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           .ep-editor-2col { grid-template-columns: 1fr !important; }
           .ep-hero { padding: 40px 16px 28px !important; }
           .ep-product-grid { padding: 0 12px 40px !important; gap: 12px !important; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
-          /* 2026-09-05 round 2, John: "still takes up around half my screen, go a lot
-             smaller." Wrapping 11 chips across several rows can't get much shorter just by
-             shrinking each row — the row COUNT is the real cost. Switched to a single
-             horizontal-scrolling row (the standard mobile filter-chip pattern) so the bar
-             is one compact strip regardless of how many categories exist. */
-          .ep-cat-bar { padding: 8px 12px !important; gap: 6px !important; flex-wrap: nowrap !important; overflow-x: auto !important; justify-content: flex-start !important; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
-          .ep-cat-bar::-webkit-scrollbar { display: none !important; }
+          .ep-cat-bar { padding: 0 12px 20px !important; gap: 6px !important; }
           /* min-height must be overridden explicitly — the general button:not(.ep-swatch)
              rule below forces 44px (a deliberate touch-target minimum), which otherwise
              swallows this padding/font reduction entirely. Category chips are exempted the
              same way .ep-swatch already is: many small, low-stakes, non-destructive picks
              in a row, not a primary action button. */
-          .ep-cat-bar button { padding: 4px 10px !important; font-size: 11px !important; min-height: 28px !important; flex-shrink: 0 !important; white-space: nowrap !important; }
+          .ep-cat-bar button { padding: 5px 12px !important; font-size: 12px !important; min-height: 34px !important; }
           /* 2026-09-05, John: on mobile the category bar takes up half the screen, and
              the floating "lights out" bar balloons into a giant circle — its border-radius
              (999, meant for a slim one-line pill) turns into a circle once the long text
@@ -8572,7 +8566,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           )}
           <div className="ep-lights-bar" style={{ position: "fixed", left: "50%", bottom: 22, transform: "translateX(-50%)", zIndex: 101, background: "rgba(13,13,26,0.96)", border: "1px solid rgba(170,255,0,0.4)", borderRadius: 999, padding: "10px 10px 10px 20px", display: "flex", alignItems: "center", gap: 14, fontFamily: S.fontHead, fontSize: 13, fontWeight: 600, color: "#aaff00", boxShadow: "0 0 30px rgba(170,255,0,0.2)", backdropFilter: "blur(10px)", maxWidth: "calc(100vw - 32px)" }}>
             <span className="ep-lights-bar-full">🔦 Lights out — glow-in-the-dark ones are lit up, everything else is still here</span>
-            <span className="ep-lights-bar-short">🔦 Lights out</span>
+            <span className="ep-lights-bar-short">🔦 Lights out — glow ones lit up</span>
             <button onClick={() => setLightsOff(false)} style={{ padding: "8px 16px", borderRadius: 999, border: "none", background: "#aaff00", color: "#0d0d1a", fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, fontSize: 12, whiteSpace: "nowrap" }}>Lights on</button>
           </div>
         </>)}
@@ -8586,27 +8580,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           const hwProducts = (products || []).filter(x => x.available !== false && getProductCategories(x).includes("Halloween"));
           const hwGlowCount = hwProducts.filter(p => (p.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow")).length;
           const hwGlowColours = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && getFilamentTier(FILAMENTS[c]) === "glow" && hwProducts.some(p => (p.colors || []).includes(c)));
-          // 2026-09-05, John: after entering Halloween, the product grid's top row landed
-          // slightly above the viewport (hidden under the sticky nav+cat-bar), needing a
-          // small manual scroll-up to see it — a scrollIntoView({block:"start"}) doesn't
-          // know those two sticky bars will cover whatever it aligns to the very top.
-          // Desktop fix: scroll so the grid's top sits a third of the way down the screen
-          // instead of flush with it, so the sticky bars never overlap it and the rest of
-          // the scroll distance is genuine new content. Mobile explicitly excluded (John:
-          // "this doesn't apply to mobile") — unchanged scrollIntoView there.
-          const goToHalloween = () => {
-            setActiveCat("Halloween");
-            setTimeout(() => {
-              const grid = document.querySelector('.ep-product-grid');
-              if (!grid) return;
-              if (window.innerWidth <= 768) {
-                grid.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                return;
-              }
-              const top = grid.getBoundingClientRect().top + window.scrollY - window.innerHeight / 3;
-              window.scrollTo({ top, behavior: 'smooth' });
-            }, 50);
-          };
+          const goToHalloween = () => { setActiveCat("Halloween"); setTimeout(() => document.querySelector('.ep-product-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
           return (
             <section className="ep-hw-hero" style={{ position: "relative", padding: "70px 24px 80px", textAlign: "center", overflow: "hidden",
               // Doodle wallpaper (added 2026-09-04, John: "add the doodle wallpaper to the
