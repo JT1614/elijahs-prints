@@ -847,7 +847,7 @@ async function sendOrderEmail(order) {
   }
   try {
     const itemsList = order.items.map(i =>
-      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
     ).join("\n");
     const address = isPickupShipping(order.shipping)
       ? `${order.shipping.icon || "🎒"} ${order.shipping.name || "Collection"}` + (order.shipping.id === "collection-local" && order.customer?.address1 ? ` — ${[order.customer.address1, order.customer.postcode].filter(Boolean).join(", ")}` : "")
@@ -882,7 +882,7 @@ async function sendShippedEmail(order) {
   if (!EMAILJS_CONFIG.enabled) return;
   try {
     const itemsList = order.items.map(i =>
-      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
     ).join("\n");
     const isCollection = isPickupShipping(order.shipping);
     await fetch("/api/send-email", {
@@ -913,7 +913,7 @@ async function sendMadeEmail(order) {
   if (!EMAILJS_CONFIG.enabled) return;
   try {
     const itemsList = order.items.map(i =>
-      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
     ).join("\n");
     await fetch("/api/send-email", {
       method: "POST",
@@ -1444,6 +1444,16 @@ function ProductImage({ product, hovered, isGlow, isGlowOnly }) {
    PRODUCT CARD (shop)
    ═══════════════════════════════════════════════ */
 function ProductCard({ product, onAddToCart, cartAnimation }) {
+  // personalizable (added 2026-09-15 for the Personalised Name Clicker, product 295):
+  // customer types free text, then colours it per-letter or as one colour — a
+  // fundamentally different UX from the fixed maxColors/colors swatch picker every
+  // other product uses (that picker assumes a FIXED small number of physical parts;
+  // this product's part count is the length of whatever the customer types). Kept as
+  // its own component rather than branching deep inside the existing one, since the
+  // two share almost no state shape. Reuses getTierPrice/highestTier untouched — the
+  // per-letter colour array IS the selectedColors array the pricing engine already
+  // understands, so silk/glow uplift works with zero new pricing logic.
+  if (product.personalizable) return <PersonalizedProductCard product={product} onAddToCart={onAddToCart} cartAnimation={cartAnimation} />;
   const maxC = product.maxColors || 1;
   const fixedColours = product.colors.length === maxC;
   const [selectedColors, setSelectedColors] = useState(fixedColours ? [...product.colors] : [product.colors[0]]);
@@ -1583,6 +1593,118 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
           fontSize: 12, fontWeight: 700, cursor: canAdd ? "pointer" : "default",
           fontFamily: S.fontHead, letterSpacing: "0.5px", textTransform: "uppercase",
         }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? `Select ${maxC} colours` : Array.isArray(product.quantityTiers) && product.quantityTiers.length > 0 ? "Add 1 (single)" : "Add to Cart"}</button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   PERSONALIZED PRODUCT CARD (name-clicker style products —
+   customer types text, colours it per-letter or as one colour)
+   ═══════════════════════════════════════════════ */
+const PERSONALIZED_NAME_MAX = 12; // covers the Kong 3D design's native 1-10-button base
+                                   // sheets plus a small buffer; longer needs their
+                                   // parametric generator — flagged to John, not silently
+                                   // assumed. Letters/numbers/space only (matches the
+                                   // physical tile set: A-Z, 0-9, blank).
+const cleanPersonalizedName = (raw) => raw.toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, PERSONALIZED_NAME_MAX);
+// "Mixed" is a deliberate non-filament token, not a real colour — colourMode:"mixed"
+// means Elijah picks the actual mix at print time, the customer doesn't choose per
+// letter. Using a name that isn't a FILAMENTS key makes it price as standard tier
+// automatically (getFilamentTier falls through to "standard" on an unknown lookup) —
+// no separate pricing path needed for it.
+const MIXED_COLOUR_TOKEN = "Mixed";
+
+function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
+  const [hovered, setHovered] = useState(false);
+  const [personalizedName, setPersonalizedName] = useState("");
+  const [colourMode, setColourMode] = useState("single"); // "single" | "mixed"
+  const [singleColor, setSingleColor] = useState(product.colors[0]);
+
+  const handleNameChange = (raw) => setPersonalizedName(cleanPersonalizedName(raw));
+
+  // letterColors is what pricing + the cart/order actually see — one entry per
+  // character either way, so getTierPrice/highestTier (unchanged) just work.
+  const letterColors = personalizedName.length > 0
+    ? Array(personalizedName.length).fill(colourMode === "mixed" ? MIXED_COLOUR_TOKEN : singleColor)
+    : [];
+
+  const canAdd = personalizedName.trim().length > 0;
+  const hasGlowColor = colourMode === "single" && getFilamentTier(FILAMENTS[singleColor]) === "glow";
+  const hasPremium = colourMode === "single" && highestTier(letterColors) !== "standard";
+  const displayPrice = letterColors.length > 0 ? getTierPrice(product.price, letterColors, false, null) : product.price;
+
+  const handleAdd = () => {
+    if (!canAdd) return;
+    onAddToCart({ ...product, personalizedName }, letterColors, 1, false);
+  };
+
+  return (
+    <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{
+      background: S.card,
+      border: hasGlowColor ? "1px solid rgba(170,255,0,0.45)" : `1px solid ${S.border}`,
+      borderRadius: 16, overflow: "hidden", position: "relative",
+      transition: "all 0.4s cubic-bezier(0.16,1,0.3,1)", transform: hovered ? "translateY(-6px)" : "translateY(0)",
+      boxShadow: hasGlowColor
+        ? (hovered ? "0 0 24px rgba(170,255,0,0.5), 0 0 60px rgba(170,255,0,0.3), 0 20px 50px rgba(0,0,0,0.3)" : "0 0 16px rgba(170,255,0,0.35), 0 0 36px rgba(170,255,0,0.2), 0 4px 20px rgba(0,0,0,0.25)")
+        : (hovered ? "0 20px 60px rgba(0,201,167,0.15), 0 0 0 1px rgba(0,201,167,0.2)" : "0 4px 20px rgba(0,0,0,0.2)"),
+    }}>
+      {product.badge && <Badge text={product.badge} />}
+      <ProductImage product={product} hovered={hovered} isGlow={hasGlowColor} isGlowOnly={false} />
+      <div style={{ padding: "14px 16px 16px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
+          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>
+            {hasPremium ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{displayPrice.toFixed(2)}</> : `£${displayPrice.toFixed(2)}`}
+          </span>
+        </div>
+        <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.description}</p>
+        <input
+          type="text"
+          value={personalizedName}
+          onChange={e => handleNameChange(e.target.value)}
+          placeholder={`Type a name (max ${PERSONALIZED_NAME_MAX} letters)`}
+          style={{
+            width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${S.border}`,
+            background: "rgba(255,255,255,0.04)", color: S.text, fontFamily: S.fontHead, fontSize: 13,
+            fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", outline: "none",
+            marginBottom: 8, boxSizing: "border-box",
+          }}
+        />
+        {personalizedName.length > 0 && <>
+          <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+            {[{ id: "single", label: "Single colour" }, { id: "mixed", label: "🎨 Mix colours" }].map(opt => (
+              <button key={opt.id} onClick={() => setColourMode(opt.id)} style={{
+                flex: 1, padding: "6px 4px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 700,
+                fontFamily: S.fontHead, transition: "all 0.2s",
+                border: `1px solid ${colourMode === opt.id ? S.teal : S.border}`,
+                background: colourMode === opt.id ? "rgba(0,201,167,0.12)" : "rgba(255,255,255,0.02)",
+                color: colourMode === opt.id ? S.teal : S.dimmer,
+              }}>{opt.label}</button>
+            ))}
+          </div>
+          {colourMode === "single" ? (
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 6 }}>
+              {[...product.colors].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={singleColor === c} onClick={() => setSingleColor(c)} size={20} />)}
+            </div>
+          ) : (
+            <p style={{ margin: "0 0 6px", fontSize: 11, color: S.dimmer, fontStyle: "italic" }}>We'll pick a lovely mix of colours for this one — no need to choose.</p>
+          )}
+          <div style={{ fontSize: 10, color: S.dimmer, marginBottom: 4 }}>
+            {colourMode === "single"
+              ? <span><span style={{ fontWeight: 600, color: S.muted }}>{singleColor}</span> × {personalizedName.length}</span>
+              : <span style={{ fontWeight: 600, color: S.muted }}>Mixed colours</span>
+            }
+          </div>
+        </>}
+        <div style={{ fontSize: 10, color: S.teal, fontWeight: 600, marginBottom: 6 }}>🔑 Includes a keyring</div>
+        <button onClick={handleAdd} disabled={!canAdd} style={{
+          width: "100%", padding: "10px 0", borderRadius: 10, border: "none", marginTop: 2,
+          background: cartAnimation === product.id ? S.teal : canAdd ? "linear-gradient(135deg, rgba(0,201,167,0.15), rgba(0,201,167,0.08))" : "rgba(255,255,255,0.03)",
+          color: cartAnimation === product.id ? "#1a1a2e" : canAdd ? S.teal : "rgba(255,255,255,0.2)",
+          fontSize: 12, fontWeight: 700, cursor: canAdd ? "pointer" : "default",
+          fontFamily: S.fontHead, letterSpacing: "0.5px", textTransform: "uppercase",
+        }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? "Type a name first" : "Add to Cart"}</button>
       </div>
     </div>
   );
@@ -2350,7 +2472,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
       : [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).map(esc).join("\n");
 
     // Items list
-    const itemsList = order.items.filter(i => !i.isTip).map(i => `${i.qty}× ${esc(i.name)} (${(i.selectedColors || []).map(esc).join(" + ")})`).join("\n");
+    const itemsList = order.items.filter(i => !i.isTip).map(i => `${i.qty}× ${esc(i.name)}${i.personalizedName ? ` "${esc(i.personalizedName)}"` : ""} (${(i.selectedColors || []).map(esc).join(" + ")})`).join("\n");
     const tipItem = order.items.find(i => i.isTip);
     const orderDate = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
@@ -3084,6 +3206,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                       ) : (<>
                         <span style={{ fontWeight: 600, color: S.text }}>{item.qty}×</span>
                         <span onClick={() => { const prod = products.find(p => p.id === item.id); if (prod && onEditProduct) onEditProduct(prod); }} style={{ cursor: "pointer", color: S.text, textDecoration: "underline", textDecorationColor: "rgba(255,255,255,0.15)", textUnderlineOffset: 2 }}>{item.name}</span>
+                        {item.personalizedName && <span style={{ fontSize: 10, fontWeight: 700, color: S.purple, background: "rgba(132,94,247,0.1)", padding: "1px 5px", borderRadius: 4 }}>"{item.personalizedName}"</span>}
                         <span style={{ fontSize: 10, color: S.dimmer }}>({(item.selectedColors || []).join(" + ")})</span>
                         {(() => { const prod = products.find(p => p.id === item.id); if (!prod?.sourceUrl) return null; return <a href={prod.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2, textDecoration: "none" }} title={`Open: ${prod.sourceUrl}`}>🔗 {prod.creator || "Source"}</a>; })()}
                         {(() => { const prod = products.find(p => p.id === item.id); if (!prod) return null; const isBox = productUsesBoxLabels(prod, categoryMeta); return <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, marginLeft: 2, fontWeight: 700, background: isBox ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.04)", color: isBox ? "#10b981" : S.dimmer }}>{isBox ? "📦 Box" : "📬 Bag"}</span>; })()}
@@ -4833,7 +4956,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           Object.entries(o.shipping).forEach(([k, v]) => { flat["shipping_" + k] = v; });
         }
         // Items summary
-        flat.items = (o.items || []).map(i => `${i.qty}x ${i.name} (${(i.selectedColors || []).join("/")})`).join("; ");
+        flat.items = (o.items || []).map(i => `${i.qty}x ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""} (${(i.selectedColors || []).join("/")})`).join("; ");
         flat.itemCount = (o.items || []).reduce((s, i) => s + (i.qty || 1), 0);
         // Total
         flat.total = o.total;
@@ -7372,7 +7495,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
       // Generate order ID and nonce before redirect
       const orderId = "EP-" + Date.now().toString(36).toUpperCase();
       const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-      const orderItems = cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}) }));
+      const orderItems = cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}), ...(i.personalizedName ? { personalizedName: i.personalizedName } : {}) }));
       // Save pending order to localStorage (backup in case webhook is delayed)
       const pendingOrder = {
         orderId,
@@ -7434,7 +7557,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
       date: new Date().toISOString(),
       customer: { ...form },
       shipping: { id: shipping.id, name: shipping.name },
-      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}) })),
+      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}), ...(i.personalizedName ? { personalizedName: i.personalizedName } : {}) })),
       subtotal, shippingCost, stripeFee, total,
       promoCode: appliedPromo?.code || null,
       discountAmount,
@@ -7587,7 +7710,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
               <div style={{ width: 32, height: 32, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: item.isTip ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {item.isTip ? <span style={{ fontSize: 16 }}>🧡</span> : item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 14, opacity: 0.4 }}>📷</span>}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: item.isTip ? S.teal : S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>{!item.isTip && <div style={{ fontSize: 10, color: S.dimmer }}>{(item.selectedColors || []).join(" + ")} × {item.qty}{item.qty > 1 && ` (£${item.price.toFixed(2)} each)`}{item.hasKeyring && " · 🔑 Keyring"}</div>}</div>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: item.isTip ? S.teal : S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}{item.personalizedName && ` — "${item.personalizedName}"`}</div>{!item.isTip && <div style={{ fontSize: 10, color: S.dimmer }}>{(item.selectedColors || []).join(" + ")} × {item.qty}{item.qty > 1 && ` (£${item.price.toFixed(2)} each)`}{item.hasKeyring && " · 🔑 Keyring"}</div>}</div>
               <span style={{ fontSize: 12, fontWeight: 700, color: item.isTip ? S.teal : S.text, fontFamily: S.fontMono, whiteSpace: "nowrap" }}>£{(item.price * item.qty).toFixed(2)}</span>
             </div>
           ))}
@@ -7628,7 +7751,7 @@ function CartDrawer({ cart, onClose, onRemove, onUpdateQty, onCheckout }) {
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, color: item.isTip ? S.teal : S.text }}>{item.name}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, color: item.isTip ? S.teal : S.text }}>{item.name}{item.personalizedName && ` — "${item.personalizedName}"`}</span>
                   <button onClick={() => onRemove(i)} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 14 }}>✕</button>
                 </div>
                 {!item.isTip && (
@@ -7882,6 +8005,16 @@ function ElijahsPrintsInner() {
   // touch featureFlags or category-meta, so it can never make anything purchasable;
   // the hero condition below is the only thing that reads it.
   const [hwPreview, setHwPreview] = useState(false);
+  // ?draftPreview=<id> (added 2026-09-15): generic admin-only preview for ANY
+  // status:"draft"/available:false product — set from a URL param at boot, purely
+  // client-side. Reveals just that one product in the shop grid so John/Elijah can
+  // review a fully-built draft (e.g. the Personalised Name Clicker) on the real site
+  // before going live. Does NOT touch `available` in the database, and checkout still
+  // refuses it server-side (create-checkout-session.js checks prod.available===false
+  // independently) — so a real purchase can't go through even if someone clicks Buy
+  // while previewing. Modelled on hwPreview above; kept generic rather than hardcoded
+  // to one product id, since this need will come up again for the next draft.
+  const [draftPreview, setDraftPreview] = useState(null);
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [cartAnim, setCartAnim] = useState(null);
@@ -8090,6 +8223,8 @@ function ElijahsPrintsInner() {
       }
     });
     if (new URLSearchParams(window.location.search).get("hwpreview") === "1") setHwPreview(true);
+    const dp = new URLSearchParams(window.location.search).get("draftPreview");
+    if (dp && !Number.isNaN(Number(dp))) setDraftPreview(Number(dp));
     loadFeatureFlags().then(flags => {
       setFeatureFlags(flags);
       // Deep links (added 2026-09 for Halloween) — applied only when the corresponding
@@ -8217,7 +8352,7 @@ function ElijahsPrintsInner() {
 
   const shopProducts = useMemo(() => {
     if (!products) return [];
-    let p = products.filter(x => x.available !== false);
+    let p = products.filter(x => x.available !== false || x.id === draftPreview);
     // Hide products in a password-protected category from anyone who hasn't unlocked it —
     // this applies everywhere (the "All" tab, search) not just the category's own tab, so
     // there's no path to a locked product other than entering its password first.

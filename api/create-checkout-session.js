@@ -222,6 +222,17 @@ export default async function handler(req, res) {
         ? prod.quantityTiers.find((t) => Number(t.qty) === qty)
         : null;
 
+      // Personalisation (added 2026-09-15 for product 295, Personalised Name Clicker):
+      // free text the customer typed. Not money-relevant on its own (colour tier still
+      // comes from it.selectedColors, unchanged), but must be carried through to the
+      // order record and the Stripe line item or fulfilment has no idea what to print.
+      // Sanitised server-side to the exact same rule the client UI enforces (never
+      // trust client text reaching Stripe's product_data.name) rather than trusting
+      // whatever the client already cleaned.
+      const personalizedName = typeof it.personalizedName === "string"
+        ? it.personalizedName.toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, 12)
+        : null;
+
       // Keyring add-on (found 2026-08-29 while adding the toggle — same class of gap as
       // the quantityTiers bug above: this endpoint must know about EVERY pricing feature,
       // not just base price, or it silently falls back to charging as if the add-on
@@ -258,14 +269,14 @@ export default async function handler(req, res) {
         price_data: {
           currency: "gbp",
           product_data: {
-            name: (tier ? `${prod.name} — ${tier.label || qty + " pack"}` : prod.name) + (keyringWanted ? " + Keyring" : ""),
+            name: (tier ? `${prod.name} — ${tier.label || qty + " pack"}` : prod.name) + (personalizedName ? ` — "${personalizedName}"` : "") + (keyringWanted ? " + Keyring" : ""),
             description: it.selectedColors ? `Colour: ${(it.selectedColors || []).join(" + ")}` : undefined,
           },
           unit_amount: Math.round((tier ? lineAmount : price) * 100),
         },
         quantity: stripeQty,
       });
-      trustedItems.push({ id: prod.id, name: prod.name, price, qty, selectedColors: it.selectedColors || [], ...(keyringWanted ? { hasKeyring: true } : {}) });
+      trustedItems.push({ id: prod.id, name: prod.name, price, qty, selectedColors: it.selectedColors || [], ...(keyringWanted ? { hasKeyring: true } : {}), ...(personalizedName ? { personalizedName } : {}) });
     }
     subtotal = round2(subtotal);
     productSubtotal = round2(productSubtotal);
