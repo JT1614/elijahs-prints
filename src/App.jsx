@@ -1602,11 +1602,11 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
    PERSONALIZED PRODUCT CARD (name-clicker style products —
    customer types text, colours it per-letter or as one colour)
    ═══════════════════════════════════════════════ */
-const PERSONALIZED_NAME_MAX = 12; // covers the Kong 3D design's native 1-10-button base
-                                   // sheets plus a small buffer; longer needs their
-                                   // parametric generator — flagged to John, not silently
-                                   // assumed. Letters/numbers/space only (matches the
-                                   // physical tile set: A-Z, 0-9, blank).
+const PERSONALIZED_NAME_MAX = 10; // hard physical ceiling — John's own build-plate test
+                                   // (2026-09-16): the plate only copes with 10 letters,
+                                   // even though the Kong 3D design's customizer tool will
+                                   // generate a base up to 15. Letters/numbers/space only
+                                   // (matches the physical tile set: A-Z, 0-9, blank).
 const cleanPersonalizedName = (raw) => raw.toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, PERSONALIZED_NAME_MAX);
 // "Mixed" is a deliberate non-filament token, not a real colour — colourMode:"mixed"
 // means Elijah picks the actual mix at print time, the customer doesn't choose per
