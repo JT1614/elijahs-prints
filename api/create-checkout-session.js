@@ -109,6 +109,24 @@ async function loadTrustedFilaments() {
   return parsed && typeof parsed === "object" ? parsed : {};
 }
 
+// Per-customer, single-use promo codes (added 2026-09-16 for the Halloween
+// re-engagement email). Empty-object fallback, same risk shape as filaments —
+// a Firestore blip here means "no personal code available right now", not
+// "checkout is unsafe". Shape: { "<CODE>": { email, rate, used, campaign } }.
+// `used` is only ever flipped true by api/stripe-webhook.js after a genuinely
+// paid session — never here, since a checkout SESSION being created (this
+// endpoint) doesn't mean the customer actually completes payment.
+async function loadTrustedPromoCodes() {
+  if (!db) return {};
+  const snap = await db.collection("shop").doc("promo-codes-v1").get();
+  if (!snap.exists) return {};
+  let parsed = snap.data().value;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); } catch { return {}; }
+  }
+  return parsed && typeof parsed === "object" ? parsed : {};
+}
+
 // Category gate (added 2026-09 for Halloween) — makes "not live" mean "not
 // purchasable". The launch runbook sets a season's products available:true days
 // before the switch flips, so this is the only thing enforcing that window; it
@@ -156,11 +174,12 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "No items in cart" });
     }
 
-    const [products, filaments, categoryMeta, featureFlags] = await Promise.all([
+    const [products, filaments, categoryMeta, featureFlags, promoCodesStore] = await Promise.all([
       loadTrustedProducts(),
       loadTrustedFilaments(),
       loadTrustedCategoryMeta(),
       loadTrustedFeatureFlags(),
+      loadTrustedPromoCodes(),
     ]);
     if (!products || !categoryMeta || !featureFlags) {
       return res.status(503).json({ error: "Catalogue unavailable — please try again in a moment" });
@@ -282,15 +301,40 @@ export default async function handler(req, res) {
     productSubtotal = round2(productSubtotal);
 
     // --- Promo — validate the CODE against the server registry; derive the amount ---
+    // Personal (per-customer, single-use) codes are checked FIRST, ahead of the
+    // static shared-code table — a code that exists in promo-codes-v1 always means
+    // "this specific customer's one-off code", never a coincidental collision with
+    // a shared code, since generation controls the namespace.
     let discountAmount = 0;
     let appliedPromoCode = null;
+    let matchedPersonalCode = null; // set only for a promo-codes-v1 hit — tells the webhook to mark it used
     if (promoCode) {
-      const promo = PROMO_CODES[String(promoCode).trim().toUpperCase()];
-      if (promo) {
-        appliedPromoCode = String(promoCode).trim().toUpperCase();
-        discountAmount = Math.min(round2(productSubtotal * promo.rate), productSubtotal);
+      const codeUpper = String(promoCode).trim().toUpperCase();
+      const personal = promoCodesStore[codeUpper];
+      if (personal && !personal.used) {
+        // Must match the email it was issued to (case-insensitive) — a genuine
+        // customer naturally enters their own email at checkout anyway, so this
+        // costs nothing for the real recipient but stops a leaked/shared code
+        // being redeemed by someone else. Missing email either side = no check
+        // (never silently reject a real code over an incidental blank field).
+        const emailMatches =
+          !personal.email || !customerEmail ||
+          String(customerEmail).trim().toLowerCase() === String(personal.email).trim().toLowerCase();
+        if (emailMatches) {
+          appliedPromoCode = codeUpper;
+          matchedPersonalCode = codeUpper;
+          discountAmount = Math.min(round2(productSubtotal * (Number(personal.rate) || 0)), productSubtotal);
+        }
+        // Email mismatch → falls through to "no discount", same as an unknown code.
+      } else {
+        const promo = PROMO_CODES[codeUpper];
+        if (promo) {
+          appliedPromoCode = codeUpper;
+          discountAmount = Math.min(round2(productSubtotal * promo.rate), productSubtotal);
+        }
       }
-      // Unknown code → silently no discount (client already validated; never trust it).
+      // Unknown / already-used / email-mismatched code → silently no discount
+      // (client already validated; never trust it, and never leak WHY it failed).
     }
 
     // --- Shipping — validate id; compute cost server-side ---
@@ -360,6 +404,10 @@ export default async function handler(req, res) {
     };
     if (appliedPromoCode) metadata.promo_code = appliedPromoCode;
     if (discountAmount) metadata.discount_amount = String(discountAmount);
+    // Tells stripe-webhook.js this was a promo-codes-v1 personal code, so it marks
+    // it used on successful payment. Absent for the static shared PROMO_CODES table
+    // (e.g. GWERN10), which has no per-use state to update.
+    if (matchedPersonalCode) metadata.personal_promo_code = matchedPersonalCode;
 
     const orderJson = JSON.stringify(trustedOrderData);
     const CHUNK_SIZE = 490;

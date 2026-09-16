@@ -50,9 +50,10 @@ const READ_KEYS = [
   "requests-v1",
   "pricing-config-v1",
   "feature-flags-v1",
+  "promo-codes-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1"];
+const WRITE_KEYS = ["assessment-v1", "promo-codes-v1"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {

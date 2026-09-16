@@ -224,6 +224,45 @@ export default async function handler(req, res) {
           tx.set(ref, { total: order.total, status: order.status, _reconciledBy: "stripe-webhook" }, { merge: true });
         });
         console.log("✅ Webhook: order saved/reconciled in Firebase:", order.id);
+
+        // Mark a per-customer promo code (promo-codes-v1) used — ONLY here, on a
+        // genuinely paid session, never at checkout-session creation (a created
+        // session doesn't mean the customer actually paid). paidOk alone gates
+        // this (not amountOk) — a real payment happened using this code
+        // regardless of any separate amount-reconciliation concern, which is an
+        // order-fulfilment question, not a "was the code redeemed" question.
+        // Transactional read-check-write so a Stripe redelivery of the same event
+        // can never re-mark an already-used code or race a second checkout.
+        const personalCode = session.metadata?.personal_promo_code;
+        if (paidOk && personalCode) {
+          const promoRef = db.collection("shop").doc("promo-codes-v1");
+          try {
+            await db.runTransaction(async (tx) => {
+              const snap = await tx.get(promoRef);
+              if (!snap.exists) return;
+              let data = snap.data().value;
+              if (typeof data === "string") {
+                try { data = JSON.parse(data); } catch { return; }
+              }
+              if (!data || typeof data !== "object" || !data[personalCode] || data[personalCode].used) {
+                return; // unknown, or already marked used — no-op either way
+              }
+              data[personalCode] = {
+                ...data[personalCode],
+                used: true,
+                usedAt: new Date().toISOString(),
+                orderId: order.id,
+              };
+              tx.set(promoRef, { value: JSON.stringify(data), updatedAt: new Date().toISOString() });
+            });
+            console.log("🎟️ Webhook: promo code marked used:", personalCode, "→", order.id);
+          } catch (e) {
+            // Never fail the whole webhook over this — the order itself is already
+            // saved correctly above. Worst case a code could be reused once more;
+            // logged loudly so it's actually seen, not silently swallowed.
+            console.error("⚠️ Webhook: failed to mark promo code used:", personalCode, e);
+          }
+        }
       } else {
         console.error("Webhook: Firebase not initialised — order NOT saved:", order.id);
         // Still return 200 so Stripe doesn't retry endlessly
