@@ -53,7 +53,7 @@ const READ_KEYS = [
   "promo-codes-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1", "promo-codes-v1", "products-v2"]; // TEMP 2026-09-16 session 31 — apply 26 compressed Clicker GIFs, revert same session
+const WRITE_KEYS = ["assessment-v1", "promo-codes-v1"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
