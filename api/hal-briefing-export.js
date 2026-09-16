@@ -53,7 +53,10 @@ const READ_KEYS = [
   "promo-codes-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1", "promo-codes-v1"];
+// TEMPORARY (2026-09-16): products-v2 opened again to fix 3 products' img field
+// (264, 266, 283 — were MakerWorld-hosted, wrong content-type, 1.6-6.8MB each).
+// Revert the moment that write is confirmed.
+const WRITE_KEYS = ["assessment-v1", "promo-codes-v1", "products-v2"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
