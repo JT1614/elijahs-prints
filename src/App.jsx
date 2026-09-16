@@ -481,6 +481,31 @@ function applyTierUplift(basePrice, tier) {
   if (tier === "glow")    return basePrice * 1.5;
   return basePrice;
 }
+// Default colour selection (fixed 2026-09-16): must prefer a genuine standard-tier
+// colour when one exists, not product.colors[0] (the product's own raw stored array
+// order, which has no relationship to price tier — a colour list could easily be
+// entered with a glow/silk shade first, silently defaulting every visitor into an
+// uplifted price with no indication why, which is what made the default look
+// "random" from the customer's side). Falls back to the curated swatch-display
+// order (colourSort) only when every option IS non-standard, so there's still a
+// stable, sensible pick for glow-only/silk-only products.
+function defaultColourFor(colors) {
+  const list = colors || [];
+  const standard = list.find(c => getFilamentTier(FILAMENTS[c]) === "standard");
+  if (standard) return standard;
+  return [...list].sort(colourSort)[0];
+}
+// isPremiumOnlyColours (fixed 2026-09-16, generalises the 2026-09-05 isGlowOnly fix
+// to also cover silk/premium-only products): true when EVERY colour option is
+// uplifted (glow, silk, or a mix of the two) — meaning there is no standard-price
+// option this product could ever be bought at, so a "was £X" strikethrough against
+// the standard price is always a false comparison, not a real discount signal.
+// isGlowOnly (defined per-card below) stays narrower on purpose — it drives the
+// "🌙 GLOWS" badge, a specific claim about glowing that a silk-only product can't make.
+function isPremiumOnlyColours(colors) {
+  const list = colors || [];
+  return list.length > 0 && list.every(c => getFilamentTier(FILAMENTS[c]) !== "standard");
+}
 // noColourUplift (added 2026-08-30 for the FootballLab trophies): John's explicit call —
 // once Gold/Silver/Bronze became the ONLY finish options, the sitewide premium uplift would
 // have silently raised £5/£15/£1.50 to £6.50/£19.50/£1.95. He wants the flat listed price
@@ -1401,7 +1426,8 @@ function ProductImage({ product, hovered, isGlow, isGlowOnly }) {
   const hasImg = product.img && !err;
   return (
     <div style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(0,201,167,0.05), rgba(132,94,247,0.05))", position: "relative", overflow: "hidden" }}>
-      {hasImg ? <img src={product.img} alt={product.name} onError={() => setErr(true)} style={{
+      {hasImg ? <img src={product.img} alt={product.name} onError={() => setErr(true)}
+        loading="lazy" decoding="async" style={{
         width: "100%", height: "100%", objectFit: "contain", padding: 8,
         transition: "transform 0.4s, filter 0.4s",
         transform: hovered ? "scale(1.08)" : "scale(1)",
@@ -1456,7 +1482,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
   if (product.personalizable) return <PersonalizedProductCard product={product} onAddToCart={onAddToCart} cartAnimation={cartAnimation} />;
   const maxC = product.maxColors || 1;
   const fixedColours = product.colors.length === maxC;
-  const [selectedColors, setSelectedColors] = useState(fixedColours ? [...product.colors] : [product.colors[0]]);
+  const [selectedColors, setSelectedColors] = useState(fixedColours ? [...product.colors] : [defaultColourFor(product.colors)]);
   const [hovered, setHovered] = useState(false);
   const [sameColour, setSameColour] = useState(false);
   const [wantsKeyring, setWantsKeyring] = useState(false);
@@ -1466,6 +1492,10 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
   // against — several Halloween products default-select a glow colour and were opening
   // showing e.g. ~~£3.00~~ £4.50, which reads as a discount but is a 50% increase.
   const isGlowOnly = (product.colors || []).length > 0 && (product.colors || []).every(c => getFilamentTier(FILAMENTS[c]) === "glow");
+  // isPremiumOnly (fixed 2026-09-16): same problem, but for silk-only products — isGlowOnly
+  // alone missed this, since a silk-only product isn't "glow", so it still fell through to
+  // the strikethrough branch below despite having no standard option either.
+  const isPremiumOnly = isPremiumOnlyColours(product.colors);
   const toggleColor = (color) => {
     if (fixedColours) return;
     if (maxC === 1) { setSelectedColors([color]); return; }
@@ -1496,7 +1526,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
       <div style={{ padding: "14px 16px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
-          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{!product.noColourUplift && highestTier(selectedColors) !== "standard" ? (isGlowOnly ? <>£{getTierPrice(product.price, selectedColors, product.noColourUplift, product.glowPriceOverride).toFixed(2)} <span style={{ fontSize: 10, color: "#aaff00", fontWeight: 700 }}>🌙 GLOW</span></> : <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getTierPrice(product.price, selectedColors, product.noColourUplift, product.glowPriceOverride).toFixed(2)}</>) : `£${product.price.toFixed(2)}`}</span>
+          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>{!product.noColourUplift && highestTier(selectedColors) !== "standard" ? (isPremiumOnly ? <>£{getTierPrice(product.price, selectedColors, product.noColourUplift, product.glowPriceOverride).toFixed(2)} {isGlowOnly && <span style={{ fontSize: 10, color: "#aaff00", fontWeight: 700 }}>🌙 GLOW</span>}</> : <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{getTierPrice(product.price, selectedColors, product.noColourUplift, product.glowPriceOverride).toFixed(2)}</>) : `£${product.price.toFixed(2)}`}</span>
         </div>
         <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.widthMm && product.heightMm ? `${product.widthMm}mm wide × ${product.heightMm}mm tall. ` : ""}{product.description}</p>
         {!fixedColours && maxC > 1 && <div style={{ fontSize: 11, color: S.purple, fontFamily: S.fontMono, fontWeight: 600, marginBottom: 6, background: "rgba(132,94,247,0.08)", padding: "4px 8px", borderRadius: 6, display: "inline-block", border: "1px solid rgba(132,94,247,0.15)" }}>Pick {maxC} colours</div>}
@@ -1619,7 +1649,7 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
   const [hovered, setHovered] = useState(false);
   const [personalizedName, setPersonalizedName] = useState("");
   const [colourMode, setColourMode] = useState("single"); // "single" | "mixed"
-  const [singleColor, setSingleColor] = useState(product.colors[0]);
+  const [singleColor, setSingleColor] = useState(defaultColourFor(product.colors));
 
   const handleNameChange = (raw) => setPersonalizedName(cleanPersonalizedName(raw));
 
@@ -1632,6 +1662,10 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
   const canAdd = personalizedName.trim().length > 0;
   const hasGlowColor = colourMode === "single" && getFilamentTier(FILAMENTS[singleColor]) === "glow";
   const hasPremium = colourMode === "single" && highestTier(letterColors) !== "standard";
+  // isPremiumOnly (fixed 2026-09-16): same fix as the main ProductCard — a
+  // personalised product whose every colour is glow/silk has no standard price to
+  // strike through against.
+  const isPremiumOnly = isPremiumOnlyColours(product.colors);
   const displayPrice = letterColors.length > 0 ? getTierPrice(product.price, letterColors, false, null) : product.price;
 
   const handleAdd = () => {
@@ -1655,7 +1689,7 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
           <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>
-            {hasPremium ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{displayPrice.toFixed(2)}</> : `£${displayPrice.toFixed(2)}`}
+            {hasPremium ? (isPremiumOnly ? `£${displayPrice.toFixed(2)}` : <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 12 }}>£{product.price.toFixed(2)}</span> £{displayPrice.toFixed(2)}</>) : `£${displayPrice.toFixed(2)}`}
           </span>
         </div>
         <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.description}</p>
@@ -1716,7 +1750,7 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
 function CrossSellCard({ product, onAddToCart }) {
   const maxC = product.maxColors || 1;
   const fixedColours = product.colors.length === maxC;
-  const [selectedColors, setSelectedColors] = useState(fixedColours ? [...product.colors] : [product.colors[0]]);
+  const [selectedColors, setSelectedColors] = useState(fixedColours ? [...product.colors] : [defaultColourFor(product.colors)]);
   const [sameColour, setSameColour] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [added, setAdded] = useState(false);
@@ -1735,6 +1769,8 @@ function CrossSellCard({ product, onAddToCart }) {
   };
   const canAdd = selectedColors.length >= Math.min(maxC, product.colors.length);
   const hasPremium = !product.noColourUplift && highestTier(selectedColors) !== "standard";
+  // isPremiumOnly (fixed 2026-09-16): same fix as the other two cards.
+  const isPremiumOnly = isPremiumOnlyColours(product.colors);
   const displayPrice = hasPremium ? getTierPrice(product.price, selectedColors, product.noColourUplift, product.glowPriceOverride) : product.price;
   const handleAdd = () => {
     if (!canAdd) return;
@@ -1751,7 +1787,7 @@ function CrossSellCard({ product, onAddToCart }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{product.name}</div>
           <div style={{ fontSize: 11, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>
-            {hasPremium ? <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 9 }}>£{product.price.toFixed(2)}</span> £{displayPrice.toFixed(2)}</> : `£${displayPrice.toFixed(2)}`}
+            {hasPremium ? (isPremiumOnly ? `£${displayPrice.toFixed(2)}` : <><span style={{ textDecoration: "line-through", opacity: 0.4, fontSize: 9 }}>£{product.price.toFixed(2)}</span> £{displayPrice.toFixed(2)}</>) : `£${displayPrice.toFixed(2)}`}
           </div>
           {fixedColours && <div style={{ fontSize: 9, color: S.dimmer, marginTop: 2 }}>
             {selectedColors.map((c, i) => <span key={i}>{i > 0 && " + "}<span style={{ fontWeight: 600, color: S.muted }}>{c}</span></span>)}
@@ -7590,11 +7626,25 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
     if (!products) return null;
     const cartIds = new Set(cart.filter(i => !i.isTip).map(i => i.id));
     const cartCats = [...new Set(cart.filter(i => !i.isTip).flatMap(i => Array.isArray(i.category) ? i.category : [i.category]).filter(Boolean))];
-    const suggestions = (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && getProductCategories(p).some(c => cartCats.includes(c))).slice(0, 4);
+    // Family-first suggestions (added 2026-09-16, John: "complete the set" — e.g. buying
+    // one alien should surface the other aliens, not a random same-category item). `family`
+    // is a manually-tagged string on a handful of genuinely-collectible product groups
+    // (data, not a code list — see Scripts/tag-product-families.js) — deliberately NOT a
+    // real "customers who bought this also bought" claim, since with this few real sales
+    // per Halloween product so far, actual co-purchase data would be too sparse to be
+    // honest. Family matches are shown first; same-category fills any remaining slots.
+    const cartFamilies = [...new Set(cart.filter(i => !i.isTip && i.family).map(i => i.family))];
+    const familyMatches = cartFamilies.length > 0
+      ? (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && p.family && cartFamilies.includes(p.family))
+      : [];
+    const familyMatchIds = new Set(familyMatches.map(p => p.id));
+    const categoryMatches = (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && !familyMatchIds.has(p.id) && getProductCategories(p).some(c => cartCats.includes(c)));
+    const suggestions = [...familyMatches, ...categoryMatches].slice(0, 4);
     if (suggestions.length === 0) return null;
+    const heading = familyMatches.length > 0 ? "🧩 Complete the set" : "You might also like";
     return (
       <div style={{ marginTop: 16, background: "rgba(255,255,255,0.02)", border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 12, padding: "14px 16px" }}>
-        <h4 style={{ fontSize: 12, fontWeight: 700, fontFamily: S.fontHead, color: S.muted, marginBottom: 10, textTransform: "uppercase" }}>You might also like</h4>
+        <h4 style={{ fontSize: 12, fontWeight: 700, fontFamily: S.fontHead, color: S.muted, marginBottom: 10, textTransform: "uppercase" }}>{heading}</h4>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
           {suggestions.map(p => (
             <CrossSellCard key={p.id} product={p} onAddToCart={onAddToCart} />
