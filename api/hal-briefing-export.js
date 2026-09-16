@@ -51,9 +51,10 @@ const READ_KEYS = [
   "pricing-config-v1",
   "feature-flags-v1",
   "promo-codes-v1",
+  "halloween-picks-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1", "promo-codes-v1"];
+const WRITE_KEYS = ["assessment-v1", "promo-codes-v1", "halloween-picks-v1"]; // TEMP 2026-09-17 — seed initial Elijah's Picks data, revert write access same session (read access stays permanent, matches category-meta-v1/feature-flags-v1)
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
