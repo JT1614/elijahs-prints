@@ -53,7 +53,10 @@ const READ_KEYS = [
   "promo-codes-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1", "promo-codes-v1"];
+// TEMPORARY (2026-09-16): products-v2 opened for the family-tagging write only —
+// per the established runbook (fresh-fetch-immediately-before-write, diff-verify,
+// revert same session). Remove products-v2 the moment that write is confirmed.
+const WRITE_KEYS = ["assessment-v1", "promo-codes-v1", "products-v2"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
