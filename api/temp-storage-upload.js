@@ -29,7 +29,7 @@ export default async function handler(req, res) {
     if (!path.startsWith("product-images/")) {
       return res.status(403).json({ error: "Only product-images/ paths permitted" });
     }
-    const bucket = admin.storage().bucket();
+    const bucket = admin.storage().bucket("elijahs-prints.firebasestorage.app");
     const file = bucket.file(path);
     const token = crypto.randomUUID();
     const buffer = Buffer.from(base64, "base64");
