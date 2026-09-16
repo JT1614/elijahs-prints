@@ -54,7 +54,7 @@ const READ_KEYS = [
   "halloween-picks-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1", "promo-codes-v1", "halloween-picks-v1"]; // TEMP 2026-09-17 — restore the real seed data after an accidental test-write overwrote it with placeholder junk during a deploy-timing race; revert same session
+const WRITE_KEYS = ["assessment-v1", "promo-codes-v1"]; // halloween-picks-v1 write access closed — the admin panel's HalloweenPicksEditor writes directly via the client Firebase SDK, not through this endpoint.
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
