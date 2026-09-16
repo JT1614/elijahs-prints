@@ -188,6 +188,22 @@ async function loadCategoryMeta() {
 async function saveCategoryMeta(meta) {
   try { await storageSet("category-meta-v1", JSON.stringify(meta)); } catch (e) { console.error("Save category meta failed:", e); }
 }
+/* Elijah's Halloween Picks (added 2026-09-17) — a curated shelf, NOT a discounted
+   bundle (that half of the original proposal was deliberately dropped — see
+   Brain/knowledge.md). Each item is added to the cart at its own normal price;
+   this is pure editorial curation with a one-click "add with Elijah's colour"
+   shortcut. Shape: { name: string, items: [{ id: number, colour: string|null }] }.
+   colour: null means "use this product's own normal default" (defaultColourFor),
+   not "no colour" — every product needs a colour to be added to cart. */
+async function loadHalloweenPicks() {
+  try {
+    const r = await storageGet("halloween-picks-v1");
+    return r ? JSON.parse(r) : null;
+  } catch { return null; }
+}
+async function saveHalloweenPicks(picks) {
+  await storageSet("halloween-picks-v1", JSON.stringify(picks));
+}
 /* Assessment Ledger — the routine's memory of every (creator, makerworld_id) pair
    it has ever evaluated. 3 statuses: live / draft / rejected. statusReason is free
    text. Source-of-truth for the et-creator-watcher routine; surfaced via morning
@@ -1421,7 +1437,7 @@ function Tooltip({ text, children, position = "bottom" }) {
   );
 }
 
-function ProductImage({ product, hovered, isGlow, isGlowOnly }) {
+function ProductImage({ product, hovered, isGlow, isGlowOnly, height = 180 }) {
   const [err, setErr] = useState(false);
   // Early-trigger lazy loading (fixed 2026-09-16, John: photos not ready by the
   // time he'd scrolled to them). Native loading="lazy" only starts fetching an
@@ -1448,7 +1464,7 @@ function ProductImage({ product, hovered, isGlow, isGlowOnly }) {
   }, [shouldLoad]);
   const confirmedNoImg = !product.img || err;
   return (
-    <div ref={wrapRef} style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(0,201,167,0.05), rgba(132,94,247,0.05))", position: "relative", overflow: "hidden" }}>
+    <div ref={wrapRef} style={{ height, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(0,201,167,0.05), rgba(132,94,247,0.05))", position: "relative", overflow: "hidden" }}>
       {!confirmedNoImg && shouldLoad && <img src={product.img} alt={product.name} onError={() => setErr(true)}
         loading="lazy" decoding="async" style={{
         width: "100%", height: "100%", objectFit: "contain", padding: 8,
@@ -1496,6 +1512,55 @@ function ProductImage({ product, hovered, isGlow, isGlowOnly }) {
 /* ═══════════════════════════════════════════════
    PRODUCT CARD (shop)
    ═══════════════════════════════════════════════ */
+/* Elijah's Halloween Picks storefront strip (added 2026-09-17). Deliberately NOT
+   a discounted bundle — each item adds to the cart at its own real price via the
+   exact same addToCart(product, [colour]) call a normal ProductCard uses. Kept
+   compact (fixed small ProductImage height, horizontal scroll, no colour picker)
+   so it reads as a fast "one-click, Elijah's choice" shortcut rather than a
+   second full product grid — the whole point is reducing decision friction on a
+   43-product category, not adding another wall of cards to scroll past.
+   Renders null (nothing — no empty section, no placeholder) if there are no
+   picks yet, or if every picked product has since gone unavailable. */
+function HalloweenPicksStrip({ picks, products, featureFlags, onAddToCart }) {
+  const items = (picks?.items || [])
+    .map(item => {
+      const product = products.find(p => p.id === item.id);
+      if (!product || product.available === false) return null;
+      const visibleColors = featureFlags.glowEnabled
+        ? product.colors
+        : (product.colors || []).filter(c => getFilamentTier(FILAMENTS[c]) !== "glow");
+      const colour = item.colour && (visibleColors || []).includes(item.colour) ? item.colour : defaultColourFor(visibleColors);
+      if (!colour) return null;
+      const price = getTierPrice(product.price, [colour], product.noColourUplift, product.glowPriceOverride);
+      return { product, colour, price };
+    })
+    .filter(Boolean);
+  if (items.length === 0) return null;
+
+  return (
+    <div id="ep-halloween-picks" style={{ maxWidth: 1200, margin: "0 auto", padding: "4px 24px 22px" }}>
+      <div style={{ fontSize: 13, fontWeight: 800, fontFamily: S.fontHead, color: "#ffc107", letterSpacing: "0.3px", marginBottom: 10, textAlign: "center" }}>
+        ⭐ {picks.name || "Elijah's Favourite Halloween Picks"}
+      </div>
+      <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 6 }}>
+        {items.map(({ product, colour, price }) => (
+          <div key={product.id} style={{ flex: "0 0 150px", background: S.card, border: "1px solid rgba(255,193,7,0.25)", borderRadius: 14, overflow: "hidden" }}>
+            <ProductImage product={product} hovered={false} isGlow={getFilamentTier(FILAMENTS[colour]) === "glow"} isGlowOnly={false} height={100} />
+            <div style={{ padding: "8px 10px 10px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, fontFamily: S.fontHead, color: S.text, lineHeight: 1.3, marginBottom: 2, minHeight: 28 }}>{product.name}</div>
+              <div style={{ fontSize: 9, color: S.dimmer, marginBottom: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{colour}</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: S.teal, fontFamily: S.fontMono }}>£{price.toFixed(2)}</span>
+                <button onClick={() => onAddToCart(product, [colour])} style={{ padding: "5px 10px", borderRadius: 8, border: "none", background: S.teal, color: "#062821", fontSize: 10, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, whiteSpace: "nowrap" }}>+ Add</button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ProductCard({ product, onAddToCart, cartAnimation }) {
   // personalizable (added 2026-09-15 for the Personalised Name Clicker, product 295):
   // customer types free text, then colours it per-letter or as one colour — a
@@ -4672,10 +4737,79 @@ function StockTab({ products, stockTargets, onSave, loading, onEditProduct, addP
   );
 }
 
+/* Elijah's Halloween Picks editor (added 2026-09-17) — its own component, not an
+   inline IIFE like the Halloween Launch panel above it, because it needs local
+   draft state + an explicit Save button (the ProductEditor pattern) rather than
+   the save-every-keystroke pattern used for simple one-off toggles elsewhere in
+   this admin panel — this form has several fields and shouldn't write to
+   Firestore on every keypress. */
+function HalloweenPicksEditor({ products, halloweenPicks, onSave }) {
+  const hwProducts = useMemo(
+    () => (products || []).filter(p => (p.category || []).includes("Halloween") && p.available !== false),
+    [products]
+  );
+  const [draft, setDraft] = useState(() => halloweenPicks || { name: "Elijah's Favourite Halloween Picks", items: [] });
+  const [saved, setSaved] = useState(true);
+  useEffect(() => { if (halloweenPicks) { setDraft(halloweenPicks); setSaved(true); } }, [halloweenPicks]);
+
+  const updateItem = (idx, patch) => {
+    const items = [...draft.items];
+    items[idx] = { ...items[idx], ...patch };
+    setDraft({ ...draft, items });
+    setSaved(false);
+  };
+  const addItem = () => {
+    const firstAvailable = hwProducts.find(p => !draft.items.some(it => it.id === p.id));
+    if (!firstAvailable) return;
+    setDraft({ ...draft, items: [...draft.items, { id: firstAvailable.id, colour: null }] });
+    setSaved(false);
+  };
+  const removeItem = (idx) => { setDraft({ ...draft, items: draft.items.filter((_, i) => i !== idx) }); setSaved(false); };
+  const handleSave = async () => { await onSave(draft); setSaved(true); };
+
+  return (
+    <div style={{ marginBottom: 24, borderRadius: 16, padding: "18px 20px", background: "rgba(255,193,7,0.03)", border: "1px solid rgba(255,193,7,0.2)" }}>
+      <div style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: "#ffc107", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+        ⭐ Elijah's Halloween Picks
+        {!saved && <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 999, background: "rgba(255,193,7,0.15)", color: "#ffc107", fontFamily: S.fontMono, fontWeight: 700 }}>UNSAVED</span>}
+      </div>
+      <p style={{ fontSize: 13, color: S.muted, lineHeight: 1.6, marginBottom: 14 }}>
+        A curated shelf at the top of the Halloween tab — Elijah's own favourites. Each item is still bought individually at its normal price (no bundle discount). Hidden on the storefront until at least one pick is saved here.
+      </p>
+      <div style={{ marginBottom: 14 }}>
+        <label style={{ fontSize: 11, color: S.muted, fontFamily: S.fontHead, fontWeight: 700, display: "block", marginBottom: 4 }}>Collection name</label>
+        <input value={draft.name} onChange={e => { setDraft({ ...draft, name: e.target.value }); setSaved(false); }} style={{ width: "100%", maxWidth: 420, padding: "8px 12px", borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 14, fontFamily: S.font, outline: "none" }} />
+      </div>
+      {draft.items.map((item, idx) => {
+        const product = products.find(p => p.id === item.id);
+        const colours = product ? [...(product.colors || [])].sort(colourSort) : [];
+        return (
+          <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+            <select value={item.id} onChange={e => updateItem(idx, { id: Number(e.target.value), colour: null })} style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 12, fontFamily: S.font, minWidth: 220 }}>
+              {hwProducts.map(p => <option key={p.id} value={p.id}>{p.name} (£{p.price.toFixed(2)})</option>)}
+            </select>
+            <select value={item.colour || ""} onChange={e => updateItem(idx, { colour: e.target.value || null })} style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.text, fontSize: 12, fontFamily: S.font, minWidth: 180 }}>
+              <option value="">Use default colour{product ? ` (${defaultColourFor(product.colors)})` : ""}</option>
+              {colours.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            {!product && <span style={{ fontSize: 11, color: "#dc3545" }}>⚠️ product not found</span>}
+            <button onClick={() => removeItem(idx)} style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>✕</button>
+          </div>
+        );
+      })}
+      <div style={{ display: "flex", gap: 10, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <button onClick={addItem} disabled={draft.items.length >= hwProducts.length} style={{ padding: "8px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: draft.items.length >= hwProducts.length ? S.dimmer : S.muted, fontSize: 12, fontWeight: 600, cursor: draft.items.length >= hwProducts.length ? "default" : "pointer", fontFamily: S.fontHead }}>+ Add another pick</button>
+        <button onClick={handleSave} disabled={saved} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: saved ? "rgba(255,255,255,0.06)" : "#ffc107", color: saved ? S.dimmer : "#1a1400", fontSize: 12, fontWeight: 800, cursor: saved ? "default" : "pointer", fontFamily: S.fontHead }}>{saved ? "✓ Saved" : "Save Picks"}</button>
+        {draft.items.length === 0 && <span style={{ fontSize: 12, color: S.dimmer }}>No picks yet — add one above.</span>}
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════
    ADMIN PANEL
    ═══════════════════════════════════════════════ */
-function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories, categoryMeta, onSaveCategoryMeta, autoBadges, featureFlags = {}, onSaveFeatureFlags = () => {} }) {
+function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSaveFilaments, onSaveCategories, categoryMeta, onSaveCategoryMeta, autoBadges, featureFlags = {}, onSaveFeatureFlags = () => {}, halloweenPicks, onSaveHalloweenPicks = () => {} }) {
   const [filter, setFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [productCreatorFilter, setProductCreatorFilter] = useState("");
@@ -5777,6 +5911,8 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
               </div>
             );
           })()}
+
+          <HalloweenPicksEditor products={products} halloweenPicks={halloweenPicks} onSave={onSaveHalloweenPicks} />
 
           {/* Print Colour Dots button */}
           <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
@@ -8150,6 +8286,7 @@ function ElijahsPrintsInner() {
   const [authChecked, setAuthChecked] = useState(!USE_FIREBASE); // skip auth check if no Firebase
   const [stripeSuccess, setStripeSuccess] = useState(null); // holds completed order after Stripe redirect
   const [featureFlags, setFeatureFlags] = useState({ ...DEFAULT_FEATURE_FLAGS });
+  const [halloweenPicks, setHalloweenPicks] = useState(null);
 
   // Cursor "torch" trail (added 2026-09-04, John: more wow ideas) — a soft glow follows
   // the mouse while the lights are off, extending the "carrying a torch through the dark"
@@ -8190,6 +8327,16 @@ function ElijahsPrintsInner() {
       console.error("Save feature flags failed:", e);
       setFeatureFlags(prev);
       alert("⚠️ Couldn't save the switch — the shop has NOT changed. Check your connection and try again.");
+    }
+  };
+  const handleSaveHalloweenPicks = async (picks) => {
+    const prev = halloweenPicks;
+    setHalloweenPicks(picks);
+    try { await saveHalloweenPicks(picks); }
+    catch (e) {
+      console.error("Save Halloween picks failed:", e);
+      setHalloweenPicks(prev);
+      alert("⚠️ Couldn't save Elijah's Picks — nothing changed on the live site. Check your connection and try again.");
     }
   };
 
@@ -8315,6 +8462,7 @@ function ElijahsPrintsInner() {
         }
       }
     }).catch(() => {});
+    loadHalloweenPicks().then(picks => setHalloweenPicks(picks)).catch(() => {});
     loadCategoryMeta().then(meta => {
       if (meta) {
         // Migrate: add sortOrder to any entries missing it
@@ -8741,7 +8889,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
       </nav>
 
       {page === "admin-login" && !adminLoggedIn && <AdminLogin onLogin={() => { setAdminLoggedIn(true); setPage("admin"); }} />}
-      {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} categoryMeta={categoryMeta} onSaveCategoryMeta={handleSaveCategoryMeta} autoBadges={autoBadges} featureFlags={featureFlags} onSaveFeatureFlags={handleSaveFeatureFlags} />}
+      {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} categoryMeta={categoryMeta} onSaveCategoryMeta={handleSaveCategoryMeta} autoBadges={autoBadges} featureFlags={featureFlags} onSaveFeatureFlags={handleSaveFeatureFlags} halloweenPicks={halloweenPicks} onSaveHalloweenPicks={handleSaveHalloweenPicks} />}
       {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} onAddTip={addTip} onRemoveTip={removeTip} products={products} onAddToCart={addToCart} />}
       {page === "request" && <SpecialRequestPage onBack={() => setPage("shop")} />}
 
@@ -8897,7 +9045,11 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
           const hwProducts = (products || []).filter(x => x.available !== false && getProductCategories(x).includes("Halloween"));
           const hwGlowCount = hwProducts.filter(p => (p.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow")).length;
           const hwGlowColours = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && getFilamentTier(FILAMENTS[c]) === "glow" && hwProducts.some(p => (p.colors || []).includes(c)));
-          const goToHalloween = () => { setActiveCat("Halloween"); setTimeout(() => document.querySelector('.ep-product-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
+          // Lands on the Picks strip when one exists, not the product grid below it —
+          // same total scroll distance either way (Picks sits directly above the grid),
+          // but a visitor who just clicked "enter Halloween" sees Elijah's picks first
+          // instead of auto-scrolling straight past them.
+          const goToHalloween = () => { setActiveCat("Halloween"); setTimeout(() => (document.querySelector('#ep-halloween-picks') || document.querySelector('.ep-product-grid'))?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
           return (
             <section className="ep-hw-hero" style={{ position: "relative", padding: "70px 24px 80px", textAlign: "center", overflow: "hidden",
               // Doodle wallpaper (added 2026-09-04, John: "add the doodle wallpaper to the
@@ -9297,6 +9449,10 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               </button>
             ))}
           </div>
+        )}
+
+        {(activeCat === "Halloween" || hwPreview) && (
+          <HalloweenPicksStrip picks={halloweenPicks} products={products} featureFlags={featureFlags} onAddToCart={addToCart} />
         )}
 
         {activeCat !== "All" && !isCategoryUnlocked(activeCat, categoryMeta, unlockedCategories) ? (
