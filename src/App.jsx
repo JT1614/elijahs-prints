@@ -1423,20 +1423,47 @@ function Tooltip({ text, children, position = "bottom" }) {
 
 function ProductImage({ product, hovered, isGlow, isGlowOnly }) {
   const [err, setErr] = useState(false);
-  const hasImg = product.img && !err;
+  // Early-trigger lazy loading (fixed 2026-09-16, John: photos not ready by the
+  // time he'd scrolled to them). Native loading="lazy" only starts fetching an
+  // image once it's nearly on-screen — not early enough on a normal scroll
+  // speed, especially with 1+ second per-image loads. A wide IntersectionObserver
+  // margin starts the fetch ~1500px before the card is actually visible, giving
+  // it a real head start. Falls back to loading immediately if
+  // IntersectionObserver isn't available, rather than never loading at all.
+  const [shouldLoad, setShouldLoad] = useState(typeof IntersectionObserver === "undefined");
+  const wrapRef = useRef(null);
+  useEffect(() => {
+    if (shouldLoad || !wrapRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setShouldLoad(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "1500px 0px" }
+    );
+    observer.observe(wrapRef.current);
+    return () => observer.disconnect();
+  }, [shouldLoad]);
+  const confirmedNoImg = !product.img || err;
   return (
-    <div style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(0,201,167,0.05), rgba(132,94,247,0.05))", position: "relative", overflow: "hidden" }}>
-      {hasImg ? <img src={product.img} alt={product.name} onError={() => setErr(true)}
+    <div ref={wrapRef} style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, rgba(0,201,167,0.05), rgba(132,94,247,0.05))", position: "relative", overflow: "hidden" }}>
+      {!confirmedNoImg && shouldLoad && <img src={product.img} alt={product.name} onError={() => setErr(true)}
         loading="lazy" decoding="async" style={{
         width: "100%", height: "100%", objectFit: "contain", padding: 8,
         transition: "transform 0.4s, filter 0.4s",
         transform: hovered ? "scale(1.08)" : "scale(1)",
         filter: (isGlow && hovered) ? "brightness(1.2) saturate(1.5) drop-shadow(0 0 18px rgba(170,255,0,0.75))" : "none",
-      }} />
-      : <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, transition: "transform 0.4s", transform: hovered ? "scale(1.05)" : "scale(1)" }}>
+      }} />}
+      {confirmedNoImg && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, transition: "transform 0.4s", transform: hovered ? "scale(1.05)" : "scale(1)" }}>
           <span style={{ fontSize: 42, opacity: 0.3 }}>📷</span>
           <span style={{ fontSize: 10, color: S.dimmer, fontFamily: S.fontHead }}>No photo yet</span>
         </div>}
+      {/* !confirmedNoImg && !shouldLoad: still queued, waiting for the observer to
+          fire — renders neither branch, just the gradient background above. Not
+          "No photo yet" (that would be a false claim about a photo that exists
+          and is simply not loaded yet). */}
 
       {/* "Hover to reveal the glow" (added 2026-09-04, John: more wow ideas) — a stylised
           light overlay + badge, not a claim about a second photograph. Individual products
