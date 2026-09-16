@@ -53,7 +53,7 @@ const READ_KEYS = [
   "promo-codes-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1", "promo-codes-v1", "products-v2"]; // TEMP 2026-09-16 session 31 — 48-image backlog fix, revert same session
+const WRITE_KEYS = ["assessment-v1", "promo-codes-v1"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
@@ -110,9 +110,20 @@ export default async function handler(req, res) {
           return res.status(503).json({ error: `Shrink guard: could not read current '${key}' to verify the write is safe (${e.message}). Retry, or send force:true if intentional.` });
         }
         const newCount = entryCount(stored);
-        if (prevCount != null && newCount != null && prevCount >= 40 && newCount < prevCount / 2) {
+        // Fail CLOSED, not open: if the store being replaced is substantial and the
+        // incoming value can't even be parsed into an array/object (newCount === null
+        // — e.g. a bare string, malformed JSON), that is never a legitimate write to
+        // products-v2/assessment-v1 and must be refused, not silently allowed through
+        // because "we couldn't count it". Verified failure 2026-09-16 session 31: a
+        // liveness-probe POST sent the raw string "__probe__" as `value`; entryCount()
+        // correctly returned null for it, but the old `newCount != null` guard clause
+        // then skipped the whole check and let the write proceed, overwriting all 175
+        // live products with that string. Caught and restored same session — see
+        // Brain/state.md 2026-09-16 — but the guard itself was the gap, not just the
+        // bad test that found it.
+        if (prevCount != null && prevCount >= 40 && (newCount == null || newCount < prevCount / 2)) {
           return res.status(409).json({
-            error: `Shrink guard blocked write to '${key}': ${prevCount} entries → ${newCount}. This is the catalogue-wipe failure shape. Send force:true only if the shrink is intended.`,
+            error: `Shrink guard blocked write to '${key}': ${prevCount} entries → ${newCount == null ? "unparseable (not a valid array/object)" : newCount}. This is the catalogue-wipe failure shape. Send force:true only if the shrink is intended.`,
             prevCount, newCount,
           });
         }
