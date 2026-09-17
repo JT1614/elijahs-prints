@@ -1536,27 +1536,54 @@ function HalloweenPicksStrip({ picks, products, featureFlags, onAddToCart }) {
     })
     .filter(Boolean);
   if (items.length === 0) return null;
+  const total = items.reduce((s, i) => s + i.price, 0);
+  // Adds every pick at once, each at its own real price — still no bundle
+  // pricing, just a shortcut past clicking "+ Add" N times individually.
+  const addAll = () => items.forEach(({ product, colour }) => onAddToCart(product, [colour]));
 
   return (
-    <div id="ep-halloween-picks" style={{ maxWidth: 1200, margin: "0 auto", padding: "4px 24px 22px" }}>
-      <div style={{ fontSize: 13, fontWeight: 800, fontFamily: S.fontHead, color: "#ffc107", letterSpacing: "0.3px", marginBottom: 10, textAlign: "center" }}>
+    // position:relative + z-index:96 matches .ep-card-wrap exactly (see the
+    // ep-lights-off CSS above) — without this the lights-off dim sheet
+    // (fixed, inset:0, z-index:95) sits ON TOP of this strip and makes it
+    // unreadable. Found 2026-09-17: John reported "the bundle is hidden when
+    // lights are out" — every normal ProductCard already escapes the dim
+    // sheet this way; this component just hadn't been given the same lift.
+    <div id="ep-halloween-picks" style={{ position: "relative", zIndex: 96, maxWidth: 1200, margin: "0 auto", padding: "4px 24px 22px" }}>
+      <div style={{ fontSize: 13, fontWeight: 800, fontFamily: S.fontHead, color: "#ffc107", letterSpacing: "0.3px", marginBottom: 2, textAlign: "center" }}>
         ⭐ {picks.name || "Elijah's Favourite Halloween Picks"}
       </div>
-      <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 6 }}>
-        {items.map(({ product, colour, price }) => (
-          <div key={product.id} style={{ flex: "0 0 150px", background: S.card, border: "1px solid rgba(255,193,7,0.25)", borderRadius: 14, overflow: "hidden" }}>
-            <ProductImage product={product} hovered={false} isGlow={getFilamentTier(FILAMENTS[colour]) === "glow"} isGlowOnly={false} height={100} />
-            <div style={{ padding: "8px 10px 10px" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, fontFamily: S.fontHead, color: S.text, lineHeight: 1.3, marginBottom: 2, minHeight: 28 }}>{product.name}</div>
-              <div style={{ fontSize: 9, color: S.dimmer, marginBottom: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{colour}</div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: S.teal, fontFamily: S.fontMono }}>£{price.toFixed(2)}</span>
-                <button onClick={() => onAddToCart(product, [colour])} style={{ padding: "5px 10px", borderRadius: 8, border: "none", background: S.teal, color: "#062821", fontSize: 10, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, whiteSpace: "nowrap" }}>+ Add</button>
+      <div style={{ textAlign: "center", marginBottom: 10 }}>
+        <button onClick={addAll} style={{ padding: "6px 14px", borderRadius: 999, border: "1px solid rgba(255,193,7,0.4)", background: "rgba(255,193,7,0.1)", color: "#ffc107", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>
+          🛒 Add all {items.length} · £{total.toFixed(2)}
+        </button>
+      </div>
+      <div style={{ position: "relative" }}>
+        <div className="ep-picks-scroll" style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 6 }}>
+          {items.map(({ product, colour, price }) => (
+            <div key={product.id} style={{ flex: "0 0 150px", background: S.card, border: "1px solid rgba(255,193,7,0.25)", borderRadius: 14, overflow: "hidden" }}>
+              <ProductImage product={product} hovered={false} isGlow={getFilamentTier(FILAMENTS[colour]) === "glow"} isGlowOnly={false} height={100} />
+              <div style={{ padding: "8px 10px 10px" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, fontFamily: S.fontHead, color: S.text, lineHeight: 1.3, marginBottom: 2, minHeight: 28 }}>{product.name}</div>
+                <div style={{ fontSize: 9, color: S.dimmer, marginBottom: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{colour}</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: S.teal, fontFamily: S.fontMono }}>£{price.toFixed(2)}</span>
+                  <button onClick={() => onAddToCart(product, [colour])} style={{ padding: "5px 10px", borderRadius: 8, border: "none", background: S.teal, color: "#062821", fontSize: 10, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, whiteSpace: "nowrap" }}>+ Add</button>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
+        {/* Scroll-clarity hint (added 2026-09-17, John: "on mobile its not clear
+            you have to scroll across") — a right-edge fade signals more content
+            without adding a persistent text label to every render. pointerEvents
+            none so it never blocks taps on the last visible card. */}
+        {items.length > 2 && (
+          <div style={{ position: "absolute", top: 0, right: 0, bottom: 6, width: 36, background: `linear-gradient(to right, transparent, ${S.dark})`, pointerEvents: "none" }} />
+        )}
       </div>
+      {items.length > 2 && (
+        <div style={{ textAlign: "center", fontSize: 10, color: S.dimmer, fontFamily: S.fontHead, marginTop: 4 }}>← swipe for more →</div>
+      )}
     </div>
   );
 }
