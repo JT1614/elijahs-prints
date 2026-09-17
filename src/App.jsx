@@ -8681,24 +8681,39 @@ function ElijahsPrintsInner() {
     // a tier rate, or basePrice below would snapshot the tier rate as if it were base.
     const adjustedPrice = tierAdjustedPrice(product.price, product.quantityTiers, initialQty, selectedColors, product.noColourUplift, product.keyringPrice, hasKeyring, product.glowPriceOverride);
     const key = product.id + "-" + selectedColors.join(",") + "-" + adjustedPrice + "-" + hasKeyring;
-    const i = cart.findIndex(c => (c.id + "-" + c.selectedColors.join(",") + "-" + c.price + "-" + !!c.hasKeyring) === key);
-    if (i >= 0) {
-      const u = [...cart];
-      const newQty = u[i].qty + initialQty;
-      u[i] = { ...u[i], qty: newQty, price: priceForQty(u[i], newQty) };
-      setCart(u);
-    }
-    else setCart([...cart, { ...product, price: adjustedPrice, basePrice: product.price, selectedColors, qty: initialQty, ...(hasKeyring ? { hasKeyring: true } : {}) }]);
+    // Functional setCart (fixed 2026-09-17) — was `setCart([...cart, ...])`, reading
+    // the `cart` closed over at render time. Fine for one call per click, but the new
+    // Halloween Picks "Add all" button calls this N times in one synchronous loop;
+    // every call read the SAME stale `cart`, so each setCart overwrote the last and
+    // only the final item survived. Functional form always operates on the latest
+    // state regardless of how many times this fires in one tick — no behaviour change
+    // for the existing single-call sites, fixes any future multi-add caller too.
+    setCart(prevCart => {
+      const i = prevCart.findIndex(c => (c.id + "-" + c.selectedColors.join(",") + "-" + c.price + "-" + !!c.hasKeyring) === key);
+      if (i >= 0) {
+        const u = [...prevCart];
+        const newQty = u[i].qty + initialQty;
+        u[i] = { ...u[i], qty: newQty, price: priceForQty(u[i], newQty) };
+        return u;
+      }
+      return [...prevCart, { ...product, price: adjustedPrice, basePrice: product.price, selectedColors, qty: initialQty, ...(hasKeyring ? { hasKeyring: true } : {}) }];
+    });
     setCartAnim(product.id); setTimeout(() => setCartAnim(null), 1200);
   };
 
-  const removeFromCart = i => setCart(cart.filter((_, idx) => idx !== i));
+  // Same functional-setCart fix as addToCart above, applied here too though neither
+  // has a current caller that loops — both only ever fired from one button's onClick
+  // — because it's free and closes the same failure class rather than leaving two
+  // siblings one accidental future multi-call away from the identical bug.
+  const removeFromCart = i => setCart(prevCart => prevCart.filter((_, idx) => idx !== i));
   const updateQty = (i, q) => {
-    const u = [...cart];
-    const item = u[i];
-    const newQty = Math.max(1, q);
-    u[i] = item.isTip ? { ...item, qty: newQty } : { ...item, qty: newQty, price: priceForQty(item, newQty) };
-    setCart(u);
+    setCart(prevCart => {
+      const u = [...prevCart];
+      const item = u[i];
+      const newQty = Math.max(1, q);
+      u[i] = item.isTip ? { ...item, qty: newQty } : { ...item, qty: newQty, price: priceForQty(item, newQty) };
+      return u;
+    });
   };
   const totalItems = cart.reduce((s, i) => s + i.qty, 0);
   const addTip = (amount) => {
