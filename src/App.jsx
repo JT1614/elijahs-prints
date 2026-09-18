@@ -1552,9 +1552,13 @@ function HalloweenPicksStrip({ picks, products, featureFlags, onAddToCart }) {
       <div style={{ fontSize: 13, fontWeight: 800, fontFamily: S.fontHead, color: "#ffc107", letterSpacing: "0.3px", marginBottom: 2, textAlign: "center" }}>
         ⭐ {picks.name || "Elijah's Favourite Halloween Picks"}
       </div>
-      <div style={{ textAlign: "center", marginBottom: 10 }}>
-        <button onClick={addAll} style={{ padding: "6px 14px", borderRadius: 999, border: "1px solid rgba(255,193,7,0.4)", background: "rgba(255,193,7,0.1)", color: "#ffc107", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>
-          🛒 Add all {items.length} · £{total.toFixed(2)}
+      <div style={{ textAlign: "center", marginBottom: 14 }}>
+        {/* Made bigger/more prominent 2026-09-18 (John) — was a small ghost-style
+            button (11px text, tinted background). Now matches the site's own
+            "primary CTA" language (solid fill + dark text + glow shadow), same
+            as the "Yes — enter Halloween" hero button, sized comparably. */}
+        <button onClick={addAll} style={{ padding: "14px 30px", borderRadius: 14, border: "none", background: "#ffc107", color: "#1a1400", fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, boxShadow: "0 0 20px rgba(255,193,7,0.45), 0 0 40px rgba(255,193,7,0.2)" }}>
+          🛒 Add all {items.length} to Cart · £{total.toFixed(2)}
         </button>
       </div>
       <div style={{ position: "relative" }}>
