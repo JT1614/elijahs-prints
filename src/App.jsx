@@ -893,7 +893,7 @@ async function sendOrderEmail(order) {
     const address = isPickupShipping(order.shipping)
       ? `${order.shipping.icon || "🎒"} ${order.shipping.name || "Collection"}` + (order.shipping.id === "collection-local" && order.customer?.address1 ? ` — ${[order.customer.address1, order.customer.postcode].filter(Boolean).join(", ")}` : "")
       : [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).join(", ");
-    await fetch("/api/send-email", {
+    const _r = await fetch("/api/send-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -914,6 +914,11 @@ async function sendOrderEmail(order) {
         },
       }),
     });
+    if (!_r.ok) {
+      const _b = await _r.text().catch(() => "");
+      console.error("📧 Order email REJECTED — HTTP", _r.status, _b.slice(0, 300));
+      return false;
+    }
     console.log("📧 Order email sent successfully");
   } catch (e) {
     console.error("📧 Email send failed:", e);
@@ -926,7 +931,7 @@ async function sendShippedEmail(order) {
       i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
     ).join("\n");
     const isCollection = isPickupShipping(order.shipping);
-    await fetch("/api/send-email", {
+    const _r = await fetch("/api/send-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -944,6 +949,11 @@ async function sendShippedEmail(order) {
         },
       }),
     });
+    if (!_r.ok) {
+      const _b = await _r.text().catch(() => "");
+      console.error("📧 Shipped email REJECTED — HTTP", _r.status, _b.slice(0, 300));
+      return false;
+    }
     console.log("📧 Shipped email sent to", order.customer.email);
   } catch (e) {
     console.error("📧 Shipped email failed:", e);
@@ -956,7 +966,7 @@ async function sendMadeEmail(order) {
     const itemsList = order.items.map(i =>
       i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
     ).join("\n");
-    await fetch("/api/send-email", {
+    const _r = await fetch("/api/send-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -970,6 +980,11 @@ async function sendMadeEmail(order) {
         },
       }),
     });
+    if (!_r.ok) {
+      const _b = await _r.text().catch(() => "");
+      console.error("📧 Made email REJECTED — HTTP", _r.status, _b.slice(0, 300));
+      return false;
+    }
     console.log("📧 Made email sent to", order.customer.email);
   } catch (e) {
     console.error("📧 Made email failed:", e);
@@ -982,7 +997,7 @@ async function sendRequestEmail(request) {
     return;
   }
   try {
-    await fetch("/api/send-email", {
+    const _r = await fetch("/api/send-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1017,6 +1032,11 @@ async function sendRequestEmail(request) {
         },
       }),
     });
+    if (!_r.ok) {
+      const _b = await _r.text().catch(() => "");
+      console.error("📧 Request email REJECTED — HTTP", _r.status, _b.slice(0, 300));
+      return false;
+    }
     console.log("📧 Request email sent successfully");
   } catch (e) {
     console.error("📧 Request email send failed:", e);
@@ -1036,7 +1056,7 @@ async function sendStockOrderEmail(stockOrder) {
       grouped[key] = (grouped[key] || 0) + 1;
     });
     const itemsList = Object.entries(grouped).map(([k, v]) => `${v}× ${k}`).join("\n");
-    await fetch("/api/send-email", {
+    const _r = await fetch("/api/send-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1057,6 +1077,11 @@ async function sendStockOrderEmail(stockOrder) {
         },
       }),
     });
+    if (!_r.ok) {
+      const _b = await _r.text().catch(() => "");
+      console.error("📧 Stock order email REJECTED — HTTP", _r.status, _b.slice(0, 300));
+      return false;
+    }
     console.log("📧 Stock order email sent successfully");
   } catch (e) {
     console.error("📧 Stock order email failed:", e);
