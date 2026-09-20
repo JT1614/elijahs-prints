@@ -955,8 +955,10 @@ async function sendShippedEmail(order) {
       return false;
     }
     console.log("📧 Shipped email sent to", order.customer.email);
+    return true;
   } catch (e) {
     console.error("📧 Shipped email failed:", e);
+    return false;
   }
 }
 
@@ -986,8 +988,10 @@ async function sendMadeEmail(order) {
       return false;
     }
     console.log("📧 Made email sent to", order.customer.email);
+    return true;
   } catch (e) {
     console.error("📧 Made email failed:", e);
+    return false;
   }
 }
 
@@ -8759,10 +8763,28 @@ function ElijahsPrintsInner() {
     const wasProduced = order?.status?.produced;
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     await updateOrderStatus(orderId, newStatus);
+    // These go to the CUSTOMER, and they used to be fire-and-forget: if the send failed
+    // the customer simply never heard, and nothing anywhere said so. John is sitting at
+    // this screen at the moment he ticks the box, so the cheapest possible alarm is to
+    // tell him right here rather than build any infrastructure for it.
     if (newStatus.despatched && !wasDespatched && order) {
-      sendShippedEmail(order);
+      const sent = await sendShippedEmail(order);
+      if (!sent) {
+        alert(
+          `⚠️ The DESPATCH email did NOT send to ${order.customer?.email || "the customer"}.\n\n` +
+          `Order ${order.id} is still marked despatched, but ${order.customer?.name || "they"} has not been told.\n\n` +
+          `Email is likely broken (check EmailJS). Once it's working, un-tick and re-tick Despatched to send it.`
+        );
+      }
     } else if (newStatus.produced && !wasProduced && !newStatus.despatched && order) {
-      sendMadeEmail(order);
+      const sent = await sendMadeEmail(order);
+      if (!sent) {
+        alert(
+          `⚠️ The "it's made" email did NOT send to ${order.customer?.email || "the customer"}.\n\n` +
+          `Order ${order.id} is still marked produced, but ${order.customer?.name || "they"} has not been told.\n\n` +
+          `Email is likely broken (check EmailJS). Once it's working, un-tick and re-tick Produced to send it.`
+        );
+      }
     }
   };
   const handleOrderPlaced = (order) => { setOrders(prev => [...prev, order]); };

@@ -9,6 +9,7 @@
 
 import Stripe from "stripe";
 import admin from "firebase-admin";
+import { alertOps } from "../lib/alert.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -333,6 +334,27 @@ export default async function handler(req, res) {
           } catch (e) {
             console.error("⚠️ Webhook: could not stamp email status on", order.id, e);
           }
+        }
+
+        // The order is safely saved and paid for — but nobody has been told about it.
+        // Shout down a channel that does NOT depend on email, because email is the
+        // thing that just failed. Without this, a real paid order (EP-MU8VLZ87,
+        // 23:38 on a Saturday night) sat unseen until it was spotted by luck.
+        if (!emailResult.ok) {
+          const who = order.customer?.name || "a customer";
+          const what = (order.items || [])
+            .filter((i) => !i.isTip)
+            .map((i) => `${i.qty}x ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""}`)
+            .join(", ");
+          await alertOps(
+            "ET Print World: ORDER EMAIL FAILED",
+            `Order ${order.id} from ${who} (GBP ${Number(order.total).toFixed(2)}) is PAID and saved, ` +
+              `but the notification email did NOT send.\n\n` +
+              `Items: ${what || "(tip only)"}\n` +
+              `Reason: ${emailResult.error}\n\n` +
+              `The order is safe in the admin order book. Email is broken - check EmailJS.`,
+            "urgent"
+          );
         }
       } else {
         console.log(
