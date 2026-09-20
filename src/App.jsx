@@ -1955,6 +1955,7 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
             {CLICKER_EMOJIS.map(e => (
               <button
                 key={e.id}
+                className="ep-emoji-tile"
                 onClick={() => handleEmojiPick(e.id)}
                 title={`${e.label} (${e.colour})`}
                 aria-label={e.label}
@@ -9067,6 +9068,13 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
              same way .ep-swatch already is: many small, low-stakes, non-destructive picks
              in a row, not a primary action button. */
           .ep-cat-bar button { padding: 4px 8px !important; font-size: 10px !important; min-height: 28px !important; }
+          /* Emoji tiles: KEEP the 44px touch target (these are real picks, not chips —
+             the .ep-cat-bar exemption above deliberately does not apply), but scale the
+             glyph up to match. Measured 2026-09-20: the card is wider on mobile, so the
+             tiles land at 44px while the inline 15px glyph stays put — a 0.34 glyph/tile
+             ratio against 0.47 on desktop, i.e. the emoji looks lost in its own button.
+             20px restores the desktop proportion at the mobile tile size. */
+          .ep-emoji-tile { font-size: 20px !important; }
           /* 2026-09-05, John: on mobile the category bar takes up half the screen, and
              the floating "lights out" bar balloons into a giant circle — its border-radius
              (999, meant for a slim one-line pill) turns into a circle once the long text
