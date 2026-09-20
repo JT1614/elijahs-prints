@@ -59,6 +59,19 @@ function getOrderFromMetadata(metadata) {
   }
 }
 
+// Renders a personalised item's text: the name, plus the emoji tile on the side the
+// customer chose, plus the tile's NAME in brackets. The label is not padding — the
+// four smiley tiles are indistinguishable at email font size, and this email is what
+// Elijah actually prints from, so it has to say which physical tile to pick up.
+// Mirrors personalisedSuffix() in src/App.jsx.
+function personalisedSuffix(i) {
+  if (!i.personalizedName && !i.personalizedEmoji) return "";
+  const e = i.personalizedEmoji || "";
+  const before = e && i.personalizedEmojiPos === "before";
+  const txt = `${before ? e + " " : ""}${i.personalizedName || ""}${!before && e ? " " + e : ""}`.trim();
+  return ` "${txt}"${i.personalizedEmojiLabel ? ` [emoji tile: ${i.personalizedEmojiLabel}]` : ""}`;
+}
+
 // Send order email notification via existing EmailJS endpoint
 async function sendEmailNotification(order) {
   try {
@@ -66,7 +79,7 @@ async function sendEmailNotification(order) {
       .map((i) =>
         i.isTip
           ? `🧡 Tip: £${i.price.toFixed(2)}`
-          : `${i.qty}× ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
+          : `${i.qty}× ${i.name}${personalisedSuffix(i)} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
       )
       .join("\n");
 
@@ -344,7 +357,7 @@ export default async function handler(req, res) {
           const who = order.customer?.name || "a customer";
           const what = (order.items || [])
             .filter((i) => !i.isTip)
-            .map((i) => `${i.qty}x ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""}`)
+            .map((i) => `${i.qty}x ${i.name}${personalisedSuffix(i)}`)
             .join(", ");
           await alertOps(
             "ET Print World: ORDER EMAIL FAILED",

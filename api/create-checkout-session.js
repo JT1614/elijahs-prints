@@ -27,6 +27,30 @@ if (!admin.apps.length) {
 }
 const db = admin.apps.length ? admin.firestore() : null;
 
+// Emoji tiles that physically exist on the Kong 3D "Emoji" plate (MakerWorld design
+// 2854834 — product 295's own sourceUrl). The client sends only an ID; the character
+// and the printable label are resolved HERE, so no client-supplied text can reach a
+// Stripe line item, an order record or an order email. Mirrors CLICKER_EMOJIS in
+// src/App.jsx — if a tile is ever added or removed there, change it here too.
+const CLICKER_EMOJI_TILES = {
+  grin:       { char: "😀", label: "Big grin" },
+  smile:      { char: "🙂", label: "Smile" },
+  hearteyes:  { char: "😍", label: "Heart eyes" },
+  happy:      { char: "😊", label: "Happy face" },
+  heart:      { char: "❤️", label: "Heart" },
+  flower:     { char: "🌸", label: "Flower" },
+  star:       { char: "⭐", label: "Star" },
+  thumbsup:   { char: "👍", label: "Thumbs up" },
+  paw:        { char: "🐾", label: "Paw print" },
+  clover:     { char: "🍀", label: "Four-leaf clover" },
+  fire:       { char: "🔥", label: "Fire" },
+  cat:        { char: "🐱", label: "Cat" },
+  football:   { char: "⚽", label: "Football" },
+  basketball: { char: "🏀", label: "Basketball" },
+  volleyball: { char: "🏐", label: "Volleyball" },
+  nflball:    { char: "🏈", label: "American football" },
+};
+
 // --- Trusted money config — mirrors src/App.jsx (single source of truth is the
 //     client for DISPLAY; this server copy is authoritative for CHARGING). ---
 const SHIPPING_OPTIONS = {
@@ -248,9 +272,27 @@ export default async function handler(req, res) {
       // Sanitised server-side to the exact same rule the client UI enforces (never
       // trust client text reaching Stripe's product_data.name) rather than trusting
       // whatever the client already cleaned.
+      // Emoji tile (added 2026-09-20). Resolved from a server-side ALLOWLIST by id —
+      // never echoed from whatever string the client sent. These 16 ids are the tiles
+      // that physically exist on the Kong 3D "Emoji" plate; anything else has no tile
+      // to print, and an unvalidated string here would flow straight into an order
+      // record and an order email. Same reasoning as never trusting a client price.
+      const emojiTile = CLICKER_EMOJI_TILES[String(it.personalizedEmojiId || "")] || null;
+      const emojiPos = it.personalizedEmojiPos === "before" ? "before" : "after";
+
+      // An emoji occupies one of the base's 10 button slots, so the name cap drops to 9
+      // when one is chosen. Enforced here as well as in the UI — the physical build
+      // plate is the real constraint and the client is not trusted to respect it.
+      const nameCap = emojiTile ? 9 : 10;
       const personalizedName = typeof it.personalizedName === "string"
-        ? it.personalizedName.toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, 12)
+        ? it.personalizedName.toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, nameCap)
         : null;
+      // Human-readable combined form, used for the Stripe line item and the order record.
+      const personalisedLabel = emojiTile
+        ? (emojiPos === "before"
+            ? `${emojiTile.char} ${personalizedName || ""}`.trim()
+            : `${personalizedName || ""} ${emojiTile.char}`.trim())
+        : personalizedName;
 
       // Keyring add-on (found 2026-08-29 while adding the toggle — same class of gap as
       // the quantityTiers bug above: this endpoint must know about EVERY pricing feature,
@@ -288,14 +330,14 @@ export default async function handler(req, res) {
         price_data: {
           currency: "gbp",
           product_data: {
-            name: (tier ? `${prod.name} — ${tier.label || qty + " pack"}` : prod.name) + (personalizedName ? ` — "${personalizedName}"` : "") + (keyringWanted ? " + Keyring" : ""),
+            name: (tier ? `${prod.name} — ${tier.label || qty + " pack"}` : prod.name) + (personalisedLabel ? ` — "${personalisedLabel}"` : "") + (keyringWanted ? " + Keyring" : ""),
             description: it.selectedColors ? `Colour: ${(it.selectedColors || []).join(" + ")}` : undefined,
           },
           unit_amount: Math.round((tier ? lineAmount : price) * 100),
         },
         quantity: stripeQty,
       });
-      trustedItems.push({ id: prod.id, name: prod.name, price, qty, selectedColors: it.selectedColors || [], ...(keyringWanted ? { hasKeyring: true } : {}), ...(personalizedName ? { personalizedName } : {}) });
+      trustedItems.push({ id: prod.id, name: prod.name, price, qty, selectedColors: it.selectedColors || [], ...(keyringWanted ? { hasKeyring: true } : {}), ...(personalizedName ? { personalizedName } : {}), ...(emojiTile ? { personalizedEmoji: emojiTile.char, personalizedEmojiLabel: emojiTile.label, personalizedEmojiPos: emojiPos } : {}) });
     }
     subtotal = round2(subtotal);
     productSubtotal = round2(productSubtotal);

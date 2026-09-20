@@ -868,6 +868,24 @@ async function updateRequestStatus(reqId, status) {
              {{subtotal}} {{shipping_cost}} {{total}} {{address}}
           4) Replace the IDs below
    ═══════════════════════════════════════════════ */
+/* One place that renders a personalised item's text for humans — cart, checkout,
+   admin, CSV export and every order email. Deliberately a single function: the
+   personalisation already had 14 separate display sites before the emoji tile was
+   added, and updating 11 of them is exactly how a field goes missing from the two
+   that actually matter (the emails Elijah prints from).
+   withLabel=true also prints the emoji's NAME, because 😀 / 🙂 / 😍 / 😊 cannot be
+   told apart at email font size and Elijah has to know which tile to pick up. */
+function personalisedText(i) {
+  const e = i.personalizedEmoji || "";
+  const before = e && i.personalizedEmojiPos === "before";
+  return `${before ? e + " " : ""}${i.personalizedName || ""}${!before && e ? " " + e : ""}`.trim();
+}
+function personalisedSuffix(i, withLabel = false) {
+  if (!i.personalizedName && !i.personalizedEmoji) return "";
+  const lbl = withLabel && i.personalizedEmojiLabel ? ` [emoji tile: ${i.personalizedEmojiLabel}]` : "";
+  return ` "${personalisedText(i)}"${lbl}`;
+}
+
 const EMAILJS_CONFIG = {
   recipientEmail: "johnianthompson78@outlook.com, etprintworld@outlook.com",
   enabled: true,
@@ -888,7 +906,7 @@ async function sendOrderEmail(order) {
   }
   try {
     const itemsList = order.items.map(i =>
-      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name}${personalisedSuffix(i, true)} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
     ).join("\n");
     const address = isPickupShipping(order.shipping)
       ? `${order.shipping.icon || "🎒"} ${order.shipping.name || "Collection"}` + (order.shipping.id === "collection-local" && order.customer?.address1 ? ` — ${[order.customer.address1, order.customer.postcode].filter(Boolean).join(", ")}` : "")
@@ -928,7 +946,7 @@ async function sendShippedEmail(order) {
   if (!EMAILJS_CONFIG.enabled) return;
   try {
     const itemsList = order.items.map(i =>
-      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name}${personalisedSuffix(i, true)} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
     ).join("\n");
     const isCollection = isPickupShipping(order.shipping);
     const _r = await fetch("/api/send-email", {
@@ -966,7 +984,7 @@ async function sendMadeEmail(order) {
   if (!EMAILJS_CONFIG.enabled) return;
   try {
     const itemsList = order.items.map(i =>
-      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
+      i.isTip ? `🧡 Tip: £${i.price.toFixed(2)}` : `${i.qty}× ${i.name}${personalisedSuffix(i, true)} (${(i.selectedColors || []).join(" + ")})${i.hasKeyring ? " + Keyring" : ""}`
     ).join("\n");
     const _r = await fetch("/api/send-email", {
       method: "POST",
@@ -1789,7 +1807,43 @@ const PERSONALIZED_NAME_MAX = 10; // hard physical ceiling — John's own build-
                                    // even though the Kong 3D design's customizer tool will
                                    // generate a base up to 15. Letters/numbers/space only
                                    // (matches the physical tile set: A-Z, 0-9, blank).
-const cleanPersonalizedName = (raw) => raw.toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, PERSONALIZED_NAME_MAX);
+// The 16 emoji tiles that physically exist on the Kong 3D design's "Emoji" plate
+// (MakerWorld design 2854834 — the same sourceUrl stored on product 295). Read
+// directly off that plate's render, left-to-right, top-to-bottom; the design's own
+// description independently confirms "16 emoji options".
+//
+// DO NOT add an emoji here that isn't on that plate — there is no tile to print it.
+//
+// `label` is not decoration: the four smileys are near-indistinguishable at email
+// font size, and the label is what tells Elijah WHICH tile to actually print.
+// `colour` is the icon's own colour on the physical tile (the tile base is white and
+// the icon is coloured — the opposite way round to letter tiles, which are a coloured
+// tile with a white letter). It is shown to the customer so there is no surprise.
+const CLICKER_EMOJIS = [
+  { id: "grin",       char: "😀", label: "Big grin",          colour: "Yellow" },
+  { id: "smile",      char: "🙂", label: "Smile",             colour: "Yellow" },
+  { id: "hearteyes",  char: "😍", label: "Heart eyes",        colour: "Yellow" },
+  { id: "happy",      char: "😊", label: "Happy face",        colour: "Yellow" },
+  { id: "heart",      char: "❤️", label: "Heart",             colour: "Red" },
+  { id: "flower",     char: "🌸", label: "Flower",            colour: "Pink" },
+  { id: "star",       char: "⭐", label: "Star",              colour: "Gold" },
+  { id: "thumbsup",   char: "👍", label: "Thumbs up",         colour: "Blue" },
+  { id: "paw",        char: "🐾", label: "Paw print",         colour: "Tan" },
+  { id: "clover",     char: "🍀", label: "Four-leaf clover",  colour: "Green" },
+  { id: "fire",       char: "🔥", label: "Fire",              colour: "Red" },
+  { id: "cat",        char: "🐱", label: "Cat",               colour: "Blue" },
+  { id: "football",   char: "⚽", label: "Football",          colour: "Black & white" },
+  { id: "basketball", char: "🏀", label: "Basketball",        colour: "Orange" },
+  { id: "volleyball", char: "🏐", label: "Volleyball",        colour: "White" },
+  { id: "nflball",    char: "🏈", label: "American football",  colour: "Brown" },
+];
+const EMOJI_BY_ID = Object.fromEntries(CLICKER_EMOJIS.map(e => [e.id, e]));
+
+// An emoji occupies one of the base's 10 button slots, exactly like a letter does —
+// so choosing one lowers the name cap to 9. This is a physical limit, not a UI choice.
+const nameMaxFor = (emojiId) => PERSONALIZED_NAME_MAX - (emojiId ? 1 : 0);
+const cleanPersonalizedName = (raw, emojiId) =>
+  raw.toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, nameMaxFor(emojiId));
 // "Mixed" is a deliberate non-filament token, not a real colour — colourMode:"mixed"
 // means Elijah picks the actual mix at print time, the customer doesn't choose per
 // letter. Using a name that isn't a FILAMENTS key makes it price as standard tier
@@ -1802,8 +1856,20 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
   const [personalizedName, setPersonalizedName] = useState("");
   const [colourMode, setColourMode] = useState("single"); // "single" | "mixed"
   const [singleColor, setSingleColor] = useState(defaultColourFor(product.colors));
+  const [emojiId, setEmojiId] = useState(null);           // null = no emoji tile
+  const [emojiPos, setEmojiPos] = useState("after");      // "before" | "after"
 
-  const handleNameChange = (raw) => setPersonalizedName(cleanPersonalizedName(raw));
+  const emoji = emojiId ? EMOJI_BY_ID[emojiId] : null;
+
+  const handleNameChange = (raw) => setPersonalizedName(cleanPersonalizedName(raw, emojiId));
+
+  // Picking an emoji costs a tile, so a 10-letter name has to lose its last letter.
+  // Do it visibly rather than silently refusing the emoji or over-filling the base.
+  const handleEmojiPick = (id) => {
+    const next = emojiId === id ? null : id;   // tapping the chosen one clears it
+    setEmojiId(next);
+    setPersonalizedName(prev => cleanPersonalizedName(prev, next));
+  };
 
   // letterColors is what pricing + the cart/order actually see — one entry per
   // character either way, so getTierPrice/highestTier (unchanged) just work.
@@ -1811,7 +1877,17 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
     ? Array(personalizedName.length).fill(colourMode === "mixed" ? MIXED_COLOUR_TOKEN : singleColor)
     : [];
 
-  const canAdd = personalizedName.trim().length > 0;
+  // The tile strip exactly as it will be printed, top to bottom on the keyring.
+  const tileStrip = [
+    ...(emoji && emojiPos === "before" ? [emoji.char] : []),
+    ...personalizedName.split(""),
+    ...(emoji && emojiPos === "after" ? [emoji.char] : []),
+  ];
+
+  // An emoji on its own is a legitimate product — a single ❤️ or ⚽ tile on a keyring
+  // base. The colour path handles it correctly (no letters means no letter colour to
+  // choose, and the emoji tile carries its own colours), so don't block it.
+  const canAdd = personalizedName.trim().length > 0 || !!emoji;
   const hasGlowColor = colourMode === "single" && getFilamentTier(FILAMENTS[singleColor]) === "glow";
   const hasPremium = colourMode === "single" && highestTier(letterColors) !== "standard";
   // isPremiumOnly (fixed 2026-09-16): same fix as the main ProductCard — a
@@ -1822,7 +1898,19 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
 
   const handleAdd = () => {
     if (!canAdd) return;
-    onAddToCart({ ...product, personalizedName }, letterColors, 1, false);
+    onAddToCart({
+      ...product,
+      personalizedName,
+      // Deliberately three fields, not one: the char displays, the label is what makes
+      // the order unambiguous to print from (😀 vs 🙂 vs 😍 vs 😊 at email font size),
+      // and the position decides which end of the keyring the tile goes on.
+      ...(emoji ? {
+        personalizedEmojiId: emoji.id,
+        personalizedEmoji: emoji.char,
+        personalizedEmojiLabel: emoji.label,
+        personalizedEmojiPos: emojiPos,
+      } : {}),
+    }, letterColors, 1, false);
   };
 
   return (
@@ -1849,7 +1937,7 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
           type="text"
           value={personalizedName}
           onChange={e => handleNameChange(e.target.value)}
-          placeholder={`Type a name (max ${PERSONALIZED_NAME_MAX} letters)`}
+          placeholder={`Type a name (max ${nameMaxFor(emojiId)} letters)`}
           style={{
             width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${S.border}`,
             background: "rgba(255,255,255,0.04)", color: S.text, fontFamily: S.fontHead, fontSize: 13,
@@ -1857,6 +1945,68 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
             marginBottom: 8, boxSizing: "border-box",
           }}
         />
+        {/* Emoji tile picker — only the 16 that physically exist on the MakerWorld
+            "Emoji" plate. Tap again to remove. */}
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 10, color: S.dimmer, marginBottom: 4, fontWeight: 600 }}>
+            Add an emoji tile? <span style={{ fontWeight: 400 }}>(optional — uses one of the {PERSONALIZED_NAME_MAX} spaces)</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 3 }}>
+            {CLICKER_EMOJIS.map(e => (
+              <button
+                key={e.id}
+                onClick={() => handleEmojiPick(e.id)}
+                title={`${e.label} (${e.colour})`}
+                aria-label={e.label}
+                aria-pressed={emojiId === e.id}
+                style={{
+                  aspectRatio: "1", padding: 0, borderRadius: 6, cursor: "pointer",
+                  fontSize: 15, lineHeight: 1, transition: "all 0.15s",
+                  border: `1px solid ${emojiId === e.id ? S.teal : S.border}`,
+                  background: emojiId === e.id ? "rgba(0,201,167,0.18)" : "rgba(255,255,255,0.03)",
+                  transform: emojiId === e.id ? "scale(1.08)" : "scale(1)",
+                }}
+              >{e.char}</button>
+            ))}
+          </div>
+          {emoji && (
+            <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 5 }}>
+              <span style={{ fontSize: 10, color: S.muted, fontWeight: 600, whiteSpace: "nowrap" }}>
+                {emoji.char} {emoji.label}
+              </span>
+              <span style={{ fontSize: 10, color: S.dimmer }}>on a white tile ·</span>
+              {[{ id: "before", label: "Before name" }, { id: "after", label: "After name" }].map(opt => (
+                <button key={opt.id} onClick={() => setEmojiPos(opt.id)} style={{
+                  padding: "3px 6px", borderRadius: 6, cursor: "pointer", fontSize: 9.5, fontWeight: 700,
+                  fontFamily: S.fontHead, transition: "all 0.2s",
+                  border: `1px solid ${emojiPos === opt.id ? S.teal : S.border}`,
+                  background: emojiPos === opt.id ? "rgba(0,201,167,0.12)" : "rgba(255,255,255,0.02)",
+                  color: emojiPos === opt.id ? S.teal : S.dimmer,
+                }}>{opt.label}</button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Live tile strip — what actually gets printed, in order. */}
+        {tileStrip.length > 0 && (
+          <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginBottom: 8, alignItems: "center" }}>
+            {tileStrip.map((t, i) => (
+              <span key={i} style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                minWidth: 20, height: 20, padding: "0 3px", borderRadius: 5, fontSize: 11,
+                fontWeight: 700, fontFamily: S.fontHead,
+                background: t === " " ? "transparent" : "rgba(0,201,167,0.10)",
+                border: `1px solid ${t === " " ? "transparent" : "rgba(0,201,167,0.30)"}`,
+                color: S.text,
+              }}>{t === " " ? "" : t}</span>
+            ))}
+            <span style={{ fontSize: 9.5, color: S.dimmer, marginLeft: 2 }}>
+              {tileStrip.length}/{PERSONALIZED_NAME_MAX} tiles
+            </span>
+          </div>
+        )}
+
         {personalizedName.length > 0 && <>
           <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
             {[{ id: "single", label: "Single colour" }, { id: "mixed", label: "🎨 Mix colours" }].map(opt => (
@@ -1890,7 +2040,7 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
           color: cartAnimation === product.id ? "#1a1a2e" : canAdd ? S.teal : "rgba(255,255,255,0.2)",
           fontSize: 12, fontWeight: 700, cursor: canAdd ? "pointer" : "default",
           fontFamily: S.fontHead, letterSpacing: "0.5px", textTransform: "uppercase",
-        }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? "Type a name first" : "Add to Cart"}</button>
+        }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? "Type a name or pick an emoji" : "Add to Cart"}</button>
       </div>
     </div>
   );
@@ -2660,7 +2810,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
       : [order.customer.address1, order.customer.address2, order.customer.city, order.customer.county, order.customer.postcode].filter(Boolean).map(esc).join("\n");
 
     // Items list
-    const itemsList = order.items.filter(i => !i.isTip).map(i => `${i.qty}× ${esc(i.name)}${i.personalizedName ? ` "${esc(i.personalizedName)}"` : ""} (${(i.selectedColors || []).map(esc).join(" + ")})`).join("\n");
+    const itemsList = order.items.filter(i => !i.isTip).map(i => `${i.qty}× ${esc(i.name)}${esc(personalisedSuffix(i, true))} (${(i.selectedColors || []).map(esc).join(" + ")})`).join("\n");
     const tipItem = order.items.find(i => i.isTip);
     const orderDate = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
@@ -3394,7 +3544,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
                       ) : (<>
                         <span style={{ fontWeight: 600, color: S.text }}>{item.qty}×</span>
                         <span onClick={() => { const prod = products.find(p => p.id === item.id); if (prod && onEditProduct) onEditProduct(prod); }} style={{ cursor: "pointer", color: S.text, textDecoration: "underline", textDecorationColor: "rgba(255,255,255,0.15)", textUnderlineOffset: 2 }}>{item.name}</span>
-                        {item.personalizedName && <span style={{ fontSize: 10, fontWeight: 700, color: S.purple, background: "rgba(132,94,247,0.1)", padding: "1px 5px", borderRadius: 4 }}>"{item.personalizedName}"</span>}
+                        {(item.personalizedName || item.personalizedEmoji) && <span style={{ fontSize: 10, fontWeight: 700, color: S.purple, background: "rgba(132,94,247,0.1)", padding: "1px 5px", borderRadius: 4 }}>"{personalisedText(item)}"</span>}
                         <span style={{ fontSize: 10, color: S.dimmer }}>({(item.selectedColors || []).join(" + ")})</span>
                         {(() => { const prod = products.find(p => p.id === item.id); if (!prod?.sourceUrl) return null; return <a href={prod.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, color: "#f59f00", background: "rgba(245,159,0,0.1)", padding: "1px 6px", borderRadius: 6, fontFamily: S.fontHead, fontWeight: 600, marginLeft: 2, textDecoration: "none" }} title={`Open: ${prod.sourceUrl}`}>🔗 {prod.creator || "Source"}</a>; })()}
                         {(() => { const prod = products.find(p => p.id === item.id); if (!prod) return null; const isBox = productUsesBoxLabels(prod, categoryMeta); return <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, marginLeft: 2, fontWeight: 700, background: isBox ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.04)", color: isBox ? "#10b981" : S.dimmer }}>{isBox ? "📦 Box" : "📬 Bag"}</span>; })()}
@@ -5213,7 +5363,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           Object.entries(o.shipping).forEach(([k, v]) => { flat["shipping_" + k] = v; });
         }
         // Items summary
-        flat.items = (o.items || []).map(i => `${i.qty}x ${i.name}${i.personalizedName ? ` "${i.personalizedName}"` : ""} (${(i.selectedColors || []).join("/")})`).join("; ");
+        flat.items = (o.items || []).map(i => `${i.qty}x ${i.name}${personalisedSuffix(i, true)} (${(i.selectedColors || []).join("/")})`).join("; ");
         flat.itemCount = (o.items || []).reduce((s, i) => s + (i.qty || 1), 0);
         // Total
         flat.total = o.total;
@@ -7754,7 +7904,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
       // Generate order ID and nonce before redirect
       const orderId = "EP-" + Date.now().toString(36).toUpperCase();
       const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-      const orderItems = cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}), ...(i.personalizedName ? { personalizedName: i.personalizedName } : {}) }));
+      const orderItems = cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}), ...(i.personalizedName ? { personalizedName: i.personalizedName } : {}), ...(i.personalizedEmoji ? { personalizedEmojiId: i.personalizedEmojiId, personalizedEmoji: i.personalizedEmoji, personalizedEmojiLabel: i.personalizedEmojiLabel, personalizedEmojiPos: i.personalizedEmojiPos } : {}) }));
       // Save pending order to localStorage (backup in case webhook is delayed)
       const pendingOrder = {
         orderId,
@@ -7816,7 +7966,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
       date: new Date().toISOString(),
       customer: { ...form },
       shipping: { id: shipping.id, name: shipping.name },
-      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}), ...(i.personalizedName ? { personalizedName: i.personalizedName } : {}) })),
+      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}), ...(i.personalizedName ? { personalizedName: i.personalizedName } : {}), ...(i.personalizedEmoji ? { personalizedEmojiId: i.personalizedEmojiId, personalizedEmoji: i.personalizedEmoji, personalizedEmojiLabel: i.personalizedEmojiLabel, personalizedEmojiPos: i.personalizedEmojiPos } : {}) })),
       subtotal, shippingCost, stripeFee, total,
       promoCode: appliedPromo?.code || null,
       discountAmount,
@@ -7983,7 +8133,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
               <div style={{ width: 32, height: 32, borderRadius: 6, overflow: "hidden", flexShrink: 0, background: item.isTip ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {item.isTip ? <span style={{ fontSize: 16 }}>🧡</span> : item.img ? <img src={item.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 14, opacity: 0.4 }}>📷</span>}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: item.isTip ? S.teal : S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}{item.personalizedName && ` — "${item.personalizedName}"`}</div>{!item.isTip && <div style={{ fontSize: 10, color: S.dimmer }}>{(item.selectedColors || []).join(" + ")} × {item.qty}{item.qty > 1 && ` (£${item.price.toFixed(2)} each)`}{item.hasKeyring && " · 🔑 Keyring"}</div>}</div>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 600, color: item.isTip ? S.teal : S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}{(item.personalizedName || item.personalizedEmoji) && ` — "${personalisedText(item)}"`}</div>{!item.isTip && <div style={{ fontSize: 10, color: S.dimmer }}>{(item.selectedColors || []).join(" + ")} × {item.qty}{item.qty > 1 && ` (£${item.price.toFixed(2)} each)`}{item.hasKeyring && " · 🔑 Keyring"}</div>}</div>
               <span style={{ fontSize: 12, fontWeight: 700, color: item.isTip ? S.teal : S.text, fontFamily: S.fontMono, whiteSpace: "nowrap" }}>£{(item.price * item.qty).toFixed(2)}</span>
             </div>
           ))}
@@ -8024,7 +8174,7 @@ function CartDrawer({ cart, onClose, onRemove, onUpdateQty, onCheckout }) {
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, color: item.isTip ? S.teal : S.text }}>{item.name}{item.personalizedName && ` — "${item.personalizedName}"`}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: S.fontHead, color: item.isTip ? S.teal : S.text }}>{item.name}{(item.personalizedName || item.personalizedEmoji) && ` — "${personalisedText(item)}"`}</span>
                   <button onClick={() => onRemove(i)} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 14 }}>✕</button>
                 </div>
                 {!item.isTip && (
