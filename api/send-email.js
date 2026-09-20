@@ -101,7 +101,15 @@ export default async function handler(req, res) {
     if (!response.ok) {
       const text = await response.text();
       console.error("EmailJS error:", response.status, text);
-      return res.status(500).json({ error: "EmailJS send failed" });
+      // Return WHY, not just THAT. A bare "EmailJS send failed" told a caller nothing
+      // actionable — when delivery broke on 2026-09-20 the reason was only visible in
+      // a Vercel log nobody reads. Callers now log this, so the reason reaches a human.
+      // Truncated, and _tok-gated like the rest of the endpoint.
+      return res.status(500).json({
+        error: "EmailJS send failed",
+        emailjsStatus: response.status,
+        detail: String(text || "").slice(0, 200),
+      });
     }
 
     return res.status(200).json({ success: true });
