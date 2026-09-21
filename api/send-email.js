@@ -85,36 +85,87 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Invalid email type: " + type });
   }
 
-  try {
-    const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        service_id: SERVICE_ID,
-        template_id: templateId,
-        user_id: PUBLIC_KEY,
-        template_params: templateParams,
-        accessToken: PRIVATE_KEY,
-      }),
-    });
+  // Fan out to one message PER recipient, rather than one message addressed to many.
+  //
+  // Why (2026-09-21): every internal notification passed a hardcoded two-address
+  // string ("johnianthompson78@…, etprintworld@…") straight into to_email, so EmailJS
+  // produced a SINGLE message with two recipients. Three problems with that:
+  //   1. One bad/blocked address could take the whole notification down for everyone.
+  //   2. Nothing recorded which mailbox was actually reached, so "I got two copies of
+  //      EP-MU9MV9IW" could not be answered from the data at all.
+  //   3. Two addresses that resolve to the same mailbox silently double-deliver.
+  // Splitting here — rather than at each of the six call sites — means every caller
+  // (webhook, client order, special request, stock order) gets the fix at once, and
+  // there is exactly ONE place that decides what a recipient list means.
+  //
+  // Normalised and de-duplicated, so the same mailbox can never be addressed twice.
+  const rawTo = String(templateParams.to_email || "");
+  const recipients = [
+    ...new Set(
+      rawTo
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => s.toLowerCase())
+    ),
+  ];
 
-    if (!response.ok) {
-      const text = await response.text();
-      console.error("EmailJS error:", response.status, text);
-      // Return WHY, not just THAT. A bare "EmailJS send failed" told a caller nothing
-      // actionable — when delivery broke on 2026-09-20 the reason was only visible in
-      // a Vercel log nobody reads. Callers now log this, so the reason reaches a human.
-      // Truncated, and _tok-gated like the rest of the endpoint.
-      return res.status(500).json({
-        error: "EmailJS send failed",
-        emailjsStatus: response.status,
-        detail: String(text || "").slice(0, 200),
-      });
-    }
-
-    return res.status(200).json({ success: true });
-  } catch (e) {
-    console.error("Email send error:", e);
-    return res.status(500).json({ error: "Email send failed" });
+  if (recipients.length === 0) {
+    return res.status(400).json({ error: "No recipient in to_email" });
   }
+
+  const results = [];
+  for (const to of recipients) {
+    try {
+      const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service_id: SERVICE_ID,
+          template_id: templateId,
+          user_id: PUBLIC_KEY,
+          template_params: { ...templateParams, to_email: to },
+          accessToken: PRIVATE_KEY,
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error("EmailJS error for", to, "—", response.status, text);
+        results.push({
+          to,
+          ok: false,
+          emailjsStatus: response.status,
+          detail: String(text || "").slice(0, 200),
+        });
+      } else {
+        console.log("[send-email] sent", type, "to", to);
+        results.push({ to, ok: true });
+      }
+    } catch (e) {
+      console.error("Email send error for", to, e);
+      results.push({ to, ok: false, detail: String((e && e.message) || e).slice(0, 200) });
+    }
+  }
+
+  const failed = results.filter((r) => !r.ok);
+
+  // Non-2xx only when NOTHING got through. A partial failure still returns 200 —
+  // the caller's primary job (an order is paid and saved) succeeded and must not be
+  // treated as failed — but `recipients` carries the per-address truth so the caller
+  // can stamp it, alarm on it, and never again assert a send it did not verify.
+  if (failed.length === results.length) {
+    return res.status(500).json({
+      error: "EmailJS send failed",
+      emailjsStatus: failed[0].emailjsStatus,
+      detail: failed[0].detail,
+      recipients: results,
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    partial: failed.length > 0,
+    recipients: results,
+  });
 }

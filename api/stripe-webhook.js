@@ -72,6 +72,33 @@ function personalisedSuffix(i) {
   return ` "${txt}"${i.personalizedEmojiLabel ? ` [emoji tile: ${i.personalizedEmojiLabel}]` : ""}`;
 }
 
+// Who gets told about a new order.
+//
+// SINGLE SOURCE OF TRUTH for the server side, and deliberately a LIST, not a
+// comma-joined string. Until 2026-09-21 both addresses were crammed into one
+// `to_email` field ("a@x, b@y"), producing ONE message addressed to TWO mailboxes.
+// That made it impossible to tell, from anything the system records, whether a
+// given mailbox was actually reached — and one bad address could take the whole
+// notification down. Each recipient now gets its own send, its own response check,
+// and its own recorded outcome.
+//
+// Overridable at runtime via ORDER_NOTIFY_TO (comma-separated) so the recipient
+// list can change without a deploy. Normalised and de-duplicated so the same
+// mailbox can never be addressed twice by accident.
+function orderNotifyRecipients() {
+  const raw =
+    process.env.ORDER_NOTIFY_TO ||
+    "johnianthompson78@outlook.com,etprintworld@outlook.com";
+  return [
+    ...new Set(
+      raw
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean)
+    ),
+  ];
+}
+
 // Send order email notification via existing EmailJS endpoint
 async function sendEmailNotification(order) {
   try {
@@ -104,6 +131,12 @@ async function sendEmailNotification(order) {
       ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
       : "https://www.etprintworld.com";
 
+    // ONE HTTP call carrying the whole recipient list; /api/send-email fans it out to
+    // one message per address inside that single invocation and returns a per-address
+    // result. Deliberately not a loop of HTTP calls from here — that would be two
+    // serverless round-trips racing Stripe's webhook timeout for no extra information.
+    const recipients = orderNotifyRecipients();
+
     // Hard timeout so an unresponsive email hop can never hold the webhook open past
     // Stripe's own timeout — we must always get our 200 back to Stripe.
     const ac = new AbortController();
@@ -116,7 +149,7 @@ async function sendEmailNotification(order) {
         type: "order",
         _tok: "ep_email_2026_s3cure",
         templateParams: {
-          to_email: "johnianthompson78@outlook.com, etprintworld@outlook.com",
+          to_email: recipients.join(","),
           order_id: order.id,
           customer_name: order.customer.name,
           customer_email: order.customer.email,
@@ -135,23 +168,50 @@ async function sendEmailNotification(order) {
     });
     clearTimeout(timer);
 
+    const payload = await resp.json().catch(() => null);
+    // Per-address truth, straight from the endpoint. Falls back to an inferred list so
+    // a malformed/absent body can never make this throw on the order-creation path.
+    const results =
+      payload && Array.isArray(payload.recipients)
+        ? payload.recipients
+        : recipients.map((to) => ({ to, ok: resp.ok }));
+
     // A non-2xx here used to be logged as SUCCESS — fetch does not throw on 4xx/5xx.
     // That is how a 403/400/500 from /api/send-email (or EmailJS behind it) became a
     // silently missing order notification. Read the status, say what actually happened.
     if (!resp.ok) {
-      const body = await resp.text().catch(() => "");
       console.error(
         "📧 Webhook: order email REJECTED for", order.id,
-        "— HTTP", resp.status, body.slice(0, 300)
+        "— HTTP", resp.status, JSON.stringify(payload || {}).slice(0, 300)
       );
-      return { ok: false, error: `HTTP ${resp.status} ${body.slice(0, 160)}`.trim() };
     }
-    console.log("📧 Webhook: order email sent for", order.id);
-    return { ok: true };
+
+    const okCount = results.filter((r) => r.ok).length;
+    const failedList = results.filter((r) => !r.ok);
+    if (okCount > 0) {
+      console.log(
+        "📧 Webhook: order email sent for", order.id, "→",
+        results.filter((r) => r.ok).map((r) => r.to).join(", ")
+      );
+    }
+
+    return {
+      // ok = at least one human was actually told. Deliberately NOT "all succeeded":
+      // _emailSent gates whether a Stripe REDELIVERY re-sends, and re-sending to a
+      // mailbox that already received it is the exact duplicate this change removes.
+      // A partial failure is surfaced loudly via the alarm + results instead.
+      ok: okCount > 0,
+      allOk: okCount === results.length && results.length > 0,
+      results,
+      error:
+        failedList
+          .map((r) => `${r.to}: ${r.detail || r.error || `HTTP ${resp.status}`}`)
+          .join(" | ") || null,
+    };
   } catch (e) {
     // Email failure must not block order creation — but it must not be invisible either.
     console.error("📧 Webhook: email send failed for", order.id, e);
-    return { ok: false, error: String((e && e.message) || e).slice(0, 160) };
+    return { ok: false, allOk: false, results: [], error: String((e && e.message) || e).slice(0, 160) };
   }
 }
 
@@ -335,13 +395,25 @@ export default async function handler(req, res) {
         if (orderRef) {
           try {
             await orderRef.set(
-              emailResult.ok
-                ? { _emailSent: true, _emailSentAt: new Date().toISOString() }
-                : {
-                    _emailSent: false,
-                    _emailError: emailResult.error,
-                    _emailFailedAt: new Date().toISOString(),
-                  },
+              {
+                // _emailSent = at least one recipient was reached (see ok vs allOk in
+                // sendEmailNotification). It gates Stripe-redelivery re-sends, so it
+                // must not go false just because ONE of several mailboxes bounced.
+                _emailSent: emailResult.ok,
+                // Exactly who the site addressed, and what each one returned. Recorded
+                // because "John got two copies of EP-MU9MV9IW" (2026-09-21) could not be
+                // answered from the data: the old code sent ONE message to a hardcoded
+                // two-address string and stored nothing about recipients, so there was no
+                // way to tell a double-send from a mail-server/rule duplicate. Now there is.
+                _emailTo: (emailResult.results || []).map((r) => r.to),
+                _emailResults: emailResult.results || [],
+                ...(emailResult.ok
+                  ? { _emailSentAt: new Date().toISOString() }
+                  : { _emailFailedAt: new Date().toISOString() }),
+                ...(emailResult.allOk === false && emailResult.error
+                  ? { _emailError: emailResult.error }
+                  : { _emailError: admin.firestore.FieldValue.delete() }),
+              },
               { merge: true }
             );
           } catch (e) {
@@ -349,24 +421,32 @@ export default async function handler(req, res) {
           }
         }
 
-        // The order is safely saved and paid for — but nobody has been told about it.
-        // Shout down a channel that does NOT depend on email, because email is the
-        // thing that just failed. Without this, a real paid order (EP-MU8VLZ87,
-        // 23:38 on a Saturday night) sat unseen until it was spotted by luck.
-        if (!emailResult.ok) {
+        // The order is safely saved and paid for — but somebody who should have been
+        // told was not. Shout down a channel that does NOT depend on email, because
+        // email is the thing that just failed. Without this, a real paid order
+        // (EP-MU8VLZ87, 23:38 on a Saturday night) sat unseen until spotted by luck.
+        // Fires on PARTIAL failure too: one mailbox silently dropping out is exactly
+        // how this goes unnoticed again.
+        if (!emailResult.allOk) {
           const who = order.customer?.name || "a customer";
           const what = (order.items || [])
             .filter((i) => !i.isTip)
             .map((i) => `${i.qty}x ${i.name}${personalisedSuffix(i)}`)
             .join(", ");
+          const reached = (emailResult.results || []).filter((r) => r.ok).map((r) => r.to);
+          const total = emailResult.ok
+            ? `PARTIAL: reached ${reached.join(", ") || "nobody"}`
+            : "TOTAL FAILURE: nobody was told";
           await alertOps(
-            "ET Print World: ORDER EMAIL FAILED",
-            `Order ${order.id} from ${who} (GBP ${Number(order.total).toFixed(2)}) is PAID and saved, ` +
-              `but the notification email did NOT send.\n\n` +
+            emailResult.ok
+              ? "ET Print World: order email PARTIALLY failed"
+              : "ET Print World: ORDER EMAIL FAILED",
+            `Order ${order.id} from ${who} (GBP ${Number(order.total).toFixed(2)}) is PAID and saved.\n\n` +
+              `${total}\n` +
               `Items: ${what || "(tip only)"}\n` +
               `Reason: ${emailResult.error}\n\n` +
-              `The order is safe in the admin order book. Email is broken - check EmailJS.`,
-            "urgent"
+              `The order is safe in the admin order book. Check EmailJS.`,
+            emailResult.ok ? "high" : "urgent"
           );
         }
       } else {
