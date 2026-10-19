@@ -930,6 +930,7 @@ async function sendOrderEmail(order) {
           subtotal: `£${order.subtotal.toFixed(2)}`,
           shipping_cost: order.shippingCost === 0 ? "FREE" : `£${order.shippingCost.toFixed(2)}`,
           total: `£${order.total.toFixed(2)}`,
+          ...(order.stripeFee ? { card_fee: `£${Number(order.stripeFee).toFixed(2)}` } : {}),
           address: address,
         },
       }),
@@ -969,6 +970,9 @@ async function sendShippedEmail(order) {
         },
       }),
     });
+    // 429 = the server already sent this email for this order in the last 2 minutes
+    // (a quick un-tick/re-tick) — the customer WAS told, so don't raise the alarm.
+    if (_r.status === 429) { console.log("📧 Shipped email already sent recently for", order.id); return true; }
     if (!_r.ok) {
       const _b = await _r.text().catch(() => "");
       console.error("📧 Shipped email REJECTED — HTTP", _r.status, _b.slice(0, 300));
@@ -1002,6 +1006,9 @@ async function sendMadeEmail(order) {
         },
       }),
     });
+    // 429 = the server already sent this email for this order in the last 2 minutes
+    // (a quick un-tick/re-tick) — the customer WAS told, so don't raise the alarm.
+    if (_r.status === 429) { console.log("📧 Made email already sent recently for", order.id); return true; }
     if (!_r.ok) {
       const _b = await _r.text().catch(() => "");
       console.error("📧 Made email REJECTED — HTTP", _r.status, _b.slice(0, 300));
@@ -8926,7 +8933,7 @@ function ElijahsPrintsInner() {
         alert(
           `⚠️ The DESPATCH email did NOT send to ${order.customer?.email || "the customer"}.\n\n` +
           `Order ${order.id} is still marked despatched, but ${order.customer?.name || "they"} has not been told.\n\n` +
-          `Email is likely broken (check EmailJS). Once it's working, un-tick and re-tick Despatched to send it.`
+          `Email is likely broken (check Resend at resend.com/emails). Once it's working, un-tick and re-tick Despatched to send it.`
         );
       }
     } else if (newStatus.produced && !wasProduced && !newStatus.despatched && order) {
@@ -8935,7 +8942,7 @@ function ElijahsPrintsInner() {
         alert(
           `⚠️ The "it's made" email did NOT send to ${order.customer?.email || "the customer"}.\n\n` +
           `Order ${order.id} is still marked produced, but ${order.customer?.name || "they"} has not been told.\n\n` +
-          `Email is likely broken (check EmailJS). Once it's working, un-tick and re-tick Produced to send it.`
+          `Email is likely broken (check Resend at resend.com/emails). Once it's working, un-tick and re-tick Produced to send it.`
         );
       }
     }

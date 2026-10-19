@@ -10,6 +10,7 @@
 import Stripe from "stripe";
 import admin from "firebase-admin";
 import { alertOps } from "../lib/alert.js";
+import { orderNotifyRecipients } from "../lib/email.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -85,19 +86,8 @@ function personalisedSuffix(i) {
 // Overridable at runtime via ORDER_NOTIFY_TO (comma-separated) so the recipient
 // list can change without a deploy. Normalised and de-duplicated so the same
 // mailbox can never be addressed twice by accident.
-function orderNotifyRecipients() {
-  const raw =
-    process.env.ORDER_NOTIFY_TO ||
-    "johnianthompson78@outlook.com,etprintworld@outlook.com";
-  return [
-    ...new Set(
-      raw
-        .split(",")
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean)
-    ),
-  ];
-}
+// (orderNotifyRecipients now lives in lib/email.js — shared with /api/send-email,
+// which is the place that actually decides recipients.)
 
 // Send order email notification via existing EmailJS endpoint
 async function sendEmailNotification(order) {
@@ -144,7 +134,12 @@ async function sendEmailNotification(order) {
     const resp = await fetch(`${origin}/api/send-email`, {
       signal: ac.signal,
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // Server-only bearer marks this as the trusted webhook caller (skips the order-book
+      // existence check and the firebase-admin cold start in /api/send-email).
+      headers: {
+        "Content-Type": "application/json",
+        ...(process.env.HAL_EXPORT_TOKEN ? { Authorization: `Bearer ${process.env.HAL_EXPORT_TOKEN}` } : {}),
+      },
       body: JSON.stringify({
         type: "order",
         _tok: "ep_email_2026_s3cure",
@@ -162,6 +157,10 @@ async function sendEmailNotification(order) {
               ? "FREE"
               : `£${order.shippingCost.toFixed(2)}`,
           total: `£${order.total.toFixed(2)}`,
+          // Filled since 2026-10-19 — the old EmailJS template showed "Card fee:" but no
+          // caller ever sent it, so the line was blank on every order alert.
+          ...(order.stripeFee ? { card_fee: `£${Number(order.stripeFee).toFixed(2)}` } : {}),
+          ...(order.discountAmount ? { discount: `−£${Number(order.discountAmount).toFixed(2)}${order.promoCode ? ` (${order.promoCode})` : ""}` } : {}),
           address: address,
         },
       }),
