@@ -456,6 +456,8 @@ function getStripeFee(amount) {
 // Promo codes — flat lookup. Keep small; expand to admin/Firebase if catalogue grows.
 const PROMO_CODES = {
   GWERN10: { rate: 0.10, label: "Local launch offer (Gwernaffield)" },
+  // Halloween 2026 past-customer email — shared code, mirrors api/create-checkout-session.js. Remove after Halloween.
+  "IDARE20%": { rate: 0.20, label: "Halloween offer for past customers" },
 };
 // Free local delivery is restricted to Gwernaffield + Pantymwyn (CH7 5 prefix).
 function isLocalPostcode(postcode) {

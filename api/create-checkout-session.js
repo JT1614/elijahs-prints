@@ -59,7 +59,8 @@ const SHIPPING_OPTIONS = {
   standard: { name: "Royal Mail Tracked 48", price: 3.49, pickup: false },
 };
 const FREE_SHIPPING_THRESHOLD = 30;
-const PROMO_CODES = { GWERN10: { rate: 0.1 } };
+// "IDARE20%" = Halloween 2026 past-customer email (shared code; remove after Halloween).
+const PROMO_CODES = { GWERN10: { rate: 0.1 }, "IDARE20%": { rate: 0.2 } };
 const TIP_MAX = 1000;
 const QTY_MAX = 1000;
 const getStripeFee = (amount) => Math.ceil((0.2 + amount * 0.015) * 100) / 100;
