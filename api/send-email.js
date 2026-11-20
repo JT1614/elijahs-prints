@@ -2,10 +2,9 @@
 // through (webhook order alert, client fallback order, stock order, special request,
 // and the customer "made" / "shipped" emails).
 //
-// Transport (2026-10-19): EMAIL_TRANSPORT=resend sends from the shop's own domain via
-// Resend, with templates in lib/email.js. Anything else (default) keeps the old EmailJS
-// path, so the switch is a one-line env change + redeploy in either direction. The
-// EmailJS branch is deleted once Resend has run clean for 14 days.
+// Transport: Resend only, from the shop's own domain, with templates in lib/email.js.
+// (Live since 2026-10-20. The old EmailJS fallback was deleted 2026-11-20 after a month
+// clean, including a real customer order; rollback now means reverting that commit.)
 //
 // Recipients are decided HERE, never by the caller: the client token below is bundled
 // into the public JS, so anyone can call this endpoint. Order/request/stock alerts go
@@ -20,7 +19,7 @@
 // stranger can't make a convincing fake "New Order" email from orders@etprintworld.com
 // (an alert for an order that isn't in the order book is sent flagged UNVERIFIED).
 
-import { orderNotifyRecipients, renderEmail, sendViaResend, itemsListFromOrder, deliveryWording } from "../lib/email.js";
+import { orderNotifyRecipients, renderEmail, sendViaResend } from "../lib/email.js";
 
 // firebase-admin is loaded lazily — only the paths that need the order store pay its
 // cold-start cost. The webhook's order alert (trusted) never touches it, keeping that
@@ -57,7 +56,7 @@ const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { type, templateParams, _tok, testTo, forceTransport } = req.body || {};
+  const { type, templateParams, _tok, testTo } = req.body || {};
 
   const EXPECTED_TOKEN = process.env.EMAIL_API_TOKEN;
   if (!EXPECTED_TOKEN || _tok !== EXPECTED_TOKEN) return res.status(403).json({ error: "Forbidden" });
@@ -166,26 +165,19 @@ export default async function handler(req, res) {
   else recipients = orderNotifyRecipients();
   if (recipients.length === 0) return res.status(400).json({ error: "No recipient" });
 
-  const transport =
-    (isTest && forceTransport === "resend") || process.env.EMAIL_TRANSPORT === "resend" ? "resend" : "emailjs";
-
-  let results;
-  if (transport === "resend") {
-    const rendered = renderEmail(type, CUSTOMER_TYPES.has(type) ? storedOrder : templateParams);
-    const subject = isTest ? `[TEST] ${rendered.subject}` : rendered.subject;
-    // In parallel: each send is capped at 4 s, so the whole hop stays inside the
-    // webhook's 8 s budget even when Resend is slow.
-    results = await Promise.all(
-      recipients.map(async (to) => {
-        const r = await sendViaResend({ from: rendered.from, to, subject, html: rendered.html, text: rendered.text });
-        if (r.ok) console.log("[send-email] resend", type, "→", to, r.id);
-        else console.error("[send-email] resend FAILED", type, "→", to, r.resendStatus || "", r.detail);
-        return { ...r, via: "resend" };
-      })
-    );
-  } else {
-    results = await sendViaEmailjs(type, templateParams, storedOrder, recipients);
-  }
+  const transport = "resend";
+  const rendered = renderEmail(type, CUSTOMER_TYPES.has(type) ? storedOrder : templateParams);
+  const subject = isTest ? `[TEST] ${rendered.subject}` : rendered.subject;
+  // In parallel: each send is capped at 4 s, so the whole hop stays inside the
+  // webhook's 8 s budget even when Resend is slow.
+  const results = await Promise.all(
+    recipients.map(async (to) => {
+      const r = await sendViaResend({ from: rendered.from, to, subject, html: rendered.html, text: rendered.text });
+      if (r.ok) console.log("[send-email] resend", type, "→", to, r.id);
+      else console.error("[send-email] resend FAILED", type, "→", to, r.resendStatus || "", r.detail);
+      return { ...r, via: "resend" };
+    })
+  );
 
   const failed = results.filter((r) => !r.ok);
 
@@ -205,7 +197,6 @@ export default async function handler(req, res) {
     }
     return res.status(500).json({
       error: `${transport} send failed`,
-      emailjsStatus: failed[0].emailjsStatus,
       resendStatus: failed[0].resendStatus,
       detail: failed[0].detail,
       transport,
@@ -215,55 +206,4 @@ export default async function handler(req, res) {
   // A partial failure still returns 200 (the caller's primary job succeeded) but
   // `recipients` carries the per-address truth for the webhook to stamp and alarm on.
   return res.status(200).json({ success: true, partial: failed.length > 0, transport, recipients: results });
-}
-
-// ---- Legacy EmailJS transport (default until EMAIL_TRANSPORT=resend). DELETE after
-// 14 clean days on Resend, along with the EMAILJS_* env vars. ----
-async function sendViaEmailjs(type, templateParams, storedOrder, recipients) {
-  const TEMPLATES = {
-    order: process.env.EMAILJS_ORDER_TEMPLATE_ID,
-    shipped: process.env.EMAILJS_SHIPPED_TEMPLATE_ID,
-    request: process.env.EMAILJS_REQUEST_TEMPLATE_ID,
-    made: process.env.EMAILJS_MADE_TEMPLATE_ID,
-  };
-  // Customer templates are filled from the stored order, not from the caller.
-  let params = templateParams;
-  if (templateParams.unverified) params = { ...templateParams, order_id: `⚠️ UNVERIFIED ${templateParams.order_id}` };
-  if (storedOrder) {
-    const { how, msg } = deliveryWording(storedOrder.shipping);
-    params = {
-      order_id: storedOrder.id,
-      customer_name: String(storedOrder.customer?.name || "").split(" ")[0],
-      order_items: itemsListFromOrder(storedOrder),
-      ...(type === "shipped" ? { delivery_method: how, delivery_message: msg } : {}),
-    };
-  }
-  const out = [];
-  for (const to of recipients) {
-    try {
-      const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          service_id: process.env.EMAILJS_SERVICE_ID,
-          template_id: TEMPLATES[type],
-          user_id: process.env.EMAILJS_PUBLIC_KEY,
-          template_params: { ...params, to_email: to },
-          accessToken: process.env.EMAILJS_PRIVATE_KEY,
-        }),
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        console.error("EmailJS error for", to, "—", response.status, text);
-        out.push({ to, ok: false, via: "emailjs", emailjsStatus: response.status, detail: String(text || "").slice(0, 200) });
-      } else {
-        console.log("[send-email] emailjs", type, "→", to);
-        out.push({ to, ok: true, via: "emailjs" });
-      }
-    } catch (e) {
-      console.error("Email send error for", to, e);
-      out.push({ to, ok: false, via: "emailjs", detail: String((e && e.message) || e).slice(0, 200) });
-    }
-  }
-  return out;
 }

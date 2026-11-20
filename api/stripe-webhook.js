@@ -89,7 +89,7 @@ function personalisedSuffix(i) {
 // (orderNotifyRecipients now lives in lib/email.js — shared with /api/send-email,
 // which is the place that actually decides recipients.)
 
-// Send order email notification via existing EmailJS endpoint
+// Send order email notification via /api/send-email (Resend)
 async function sendEmailNotification(order) {
   try {
     const itemsList = order.items
@@ -444,7 +444,7 @@ export default async function handler(req, res) {
               `${total}\n` +
               `Items: ${what || "(tip only)"}\n` +
               `Reason: ${emailResult.error}\n\n` +
-              `The order is safe in the admin order book. Check EmailJS.`,
+              `The order is safe in the admin order book. Check the Resend log (resend.com/emails).`,
             emailResult.ok ? "high" : "urgent"
           );
         }
