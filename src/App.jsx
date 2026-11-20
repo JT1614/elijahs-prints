@@ -1702,19 +1702,22 @@ const XMAS_CATEGORY = "Christmas";
 const XMAS_FONT = "'Mountains of Christmas', 'Space Grotesk', cursive";
 const XMAS_SIDES = {
   nice: {
-    cat: "Nice List", emoji: "😇", label: "Nice", stamp: "NICE!", ink: "#1f8a4c", accent: "#ffd43b",
-    title: "Nice List", heroTitle: "You're on the Nice List! 😇",
+    // Green for Nice, red for Naughty (John, 2026-11-20: "feels more xmassy").
+    cat: "Nice List", emoji: "😇", label: "Nice", stamp: "NICE!", ink: "#1f8a4c", accent: "#3ddc84", bulb: "#2ecc71",
+    title: "Nice List", heroPre: "You're on the ", heroPost: "! 😇",
+    revealBg: "radial-gradient(circle at 50% 45%, rgba(18,96,54,0.96), rgba(3,24,12,0.98))",
     tagline: "Good-kid gifts Santa would definitely approve of.",
     flip: "Actually… I've been naughty 😈",
-    button: { background: "linear-gradient(135deg, #fff1a6, #f2b705)", color: "#3a2600", border: "2px solid #fff6c9", boxShadow: "0 0 26px rgba(255,212,59,0.55)" },
-    bannerBg: "linear-gradient(135deg, rgba(255,212,59,0.14), rgba(46,160,67,0.10))", bannerBorder: "rgba(255,212,59,0.4)",
+    button: { background: "linear-gradient(135deg, #34d36f, #127a3a)", color: "#fff", border: "2px solid #8ff0b4", boxShadow: "0 0 26px rgba(46,204,113,0.55)" },
+    bannerBg: "linear-gradient(135deg, rgba(46,204,113,0.16), rgba(8,60,30,0.32))", bannerBorder: "rgba(61,220,132,0.45)",
     // Demo-only placeholders (?xmaspreview=1 with an empty list) — product IDEAS for
     // Elijah, never rendered as buyable cards.
     ideas: [["🎄", "Personalised name bauble"], ["⛄", "Snowman tree decoration"], ["🦌", "Reindeer keyring"], ["⭐", "Star tree topper"], ["🛷", "Santa's sleigh desk toy"], ["❄️", "Snowflake ornament set"]],
   },
   naughty: {
-    cat: "Naughty List", emoji: "😈", label: "Naughty", stamp: "NAUGHTY!", ink: "#c1121f", accent: "#ff5a6a",
-    title: "Naughty List", heroTitle: "Uh-oh… the Naughty List! 😈",
+    cat: "Naughty List", emoji: "😈", label: "Naughty", stamp: "NAUGHTY!", ink: "#c1121f", accent: "#ff5a6a", bulb: "#ff2b2b",
+    title: "Naughty List", heroPre: "Uh-oh… the ", heroPost: "! 😈",
+    revealBg: "radial-gradient(circle at 50% 45%, rgba(110,12,24,0.96), rgba(18,2,6,0.98))",
     tagline: "Santa says no. Elijah says yes.",
     flip: "OK fine, I've been nice 😇",
     button: { background: "linear-gradient(135deg, #e63946, #8b0018)", color: "#fff", border: "2px solid #ff8a93", boxShadow: "0 0 26px rgba(230,57,70,0.55)" },
@@ -1791,11 +1794,53 @@ const XMAS_CSS = `
     100% { transform: translate(0, 106vh); }
   }
   @keyframes xmCoalFall { 0% { transform: translate(0, -4vh) rotate(0deg); } 100% { transform: translate(var(--sway), 106vh) rotate(540deg); } }
+  /* Santa's four passes per 32s loop (John 2026-11-20: "repeatedly fly across the sky in
+     different directions"): high left-to-right, a dipping right-to-left, a take-off from
+     behind the hills, then a gliding right-to-left. Every turn-round (scaleX flip) and
+     height change happens off-screen, between passes. Same transform list in every
+     keyframe so each one interpolates cleanly. */
   @keyframes xmSleighAmbient {
-    0% { transform: translate(-110%, 34px) rotate(-4deg); }
-    42% { transform: translate(calc(100vw + 10%), -26px) rotate(-7deg); }
-    100% { transform: translate(calc(100vw + 10%), -26px) rotate(-7deg); }
+    0%     { transform: translate(-115%, 40px) rotate(-4deg) scaleX(1); }
+    9.4%   { transform: translate(calc(50vw - 50%), 8px) rotate(-6deg) scaleX(1); }
+    18.75% { transform: translate(calc(100vw + 15%), -12px) rotate(-4deg) scaleX(1); }
+    21.9%  { transform: translate(calc(100vw + 15%), 110px) rotate(-5deg) scaleX(-1); }
+    25%    { transform: translate(calc(100vw + 15%), 110px) rotate(-5deg) scaleX(-1); }
+    34.4%  { transform: translate(calc(50vw - 50%), 135px) rotate(0deg) scaleX(-1); }
+    43.75% { transform: translate(-115%, 90px) rotate(6deg) scaleX(-1); }
+    46.9%  { transform: translate(-115%, 310px) rotate(-14deg) scaleX(1); }
+    50%    { transform: translate(-115%, 310px) rotate(-14deg) scaleX(1); }
+    59.4%  { transform: translate(calc(50vw - 50%), 120px) rotate(-12deg) scaleX(1); }
+    68.75% { transform: translate(calc(100vw + 15%), -40px) rotate(-8deg) scaleX(1); }
+    71.9%  { transform: translate(calc(100vw + 15%), -20px) rotate(-6deg) scaleX(-1); }
+    75%    { transform: translate(calc(100vw + 15%), -20px) rotate(-6deg) scaleX(-1); }
+    84.4%  { transform: translate(calc(50vw - 50%), 30px) rotate(-5deg) scaleX(-1); }
+    93.75% { transform: translate(-115%, 60px) rotate(-3deg) scaleX(-1); }
+    96.9%  { transform: translate(-115%, 40px) rotate(-4deg) scaleX(1); }
+    100%   { transform: translate(-115%, 40px) rotate(-4deg) scaleX(1); }
   }
+  /* The naughty animation: an elf on a stolen rocket. Zigzags left-to-right with a
+     loop-the-loop, then comes back lower, right-to-left. 14s loop. */
+  @keyframes xmElfRocket {
+    0%   { transform: translate(-170px, 30px) rotate(8deg) scaleX(1); }
+    6%   { transform: translate(15vw, -10px) rotate(-10deg) scaleX(1); }
+    12%  { transform: translate(30vw, 30px) rotate(10deg) scaleX(1); }
+    16%  { transform: translate(42vw, 40px) rotate(0deg) scaleX(1); }
+    18%  { transform: translate(calc(42vw + 60px), -10px) rotate(-90deg) scaleX(1); }
+    20%  { transform: translate(calc(42vw + 10px), -60px) rotate(-180deg) scaleX(1); }
+    22%  { transform: translate(calc(42vw - 40px), -10px) rotate(-270deg) scaleX(1); }
+    24%  { transform: translate(calc(42vw + 20px), 40px) rotate(-360deg) scaleX(1); }
+    30%  { transform: translate(72vw, 0px) rotate(-372deg) scaleX(1); }
+    36%  { transform: translate(calc(100vw + 40px), 30px) rotate(-350deg) scaleX(1); }
+    40%  { transform: translate(calc(100vw + 40px), 130px) rotate(0deg) scaleX(-1); }
+    50%  { transform: translate(calc(100vw + 40px), 130px) rotate(0deg) scaleX(-1); }
+    58%  { transform: translate(70vw, 90px) rotate(-10deg) scaleX(-1); }
+    66%  { transform: translate(45vw, 150px) rotate(12deg) scaleX(-1); }
+    74%  { transform: translate(22vw, 80px) rotate(-10deg) scaleX(-1); }
+    86%  { transform: translate(-170px, 130px) rotate(8deg) scaleX(-1); }
+    90%  { transform: translate(-170px, 30px) rotate(8deg) scaleX(1); }
+    100% { transform: translate(-170px, 30px) rotate(8deg) scaleX(1); }
+  }
+  @keyframes xmFlame { from { transform: scaleX(0.75); opacity: 0.85; } to { transform: scaleX(1.25); opacity: 1; } }
   @keyframes xmTwinkle { from { opacity: 0.45; } to { opacity: 1; } }
   @keyframes xmFlicker { 0%, 100% { opacity: 1 } 12% { opacity: 0.15 } 18% { opacity: 1 } 47% { opacity: 0.1 } 52% { opacity: 0.9 } 70% { opacity: 0.25 } 78% { opacity: 1 } }
   @keyframes xmStar { 0%, 100% { opacity: 0.25 } 50% { opacity: 1 } }
@@ -1809,9 +1854,24 @@ const XMAS_CSS = `
   .ep-xmas-pick:hover { transform: translateY(-2px) scale(1.03); }
   @media (prefers-reduced-motion: reduce) {
     .ep-xmas-hero *, .ep-xmas-fx, .ep-xmas-fx * { animation: none !important; }
-    .xm-ambient-sleigh { display: none; }
+    .xm-ambient-sleigh, .xm-ambient-elf { display: none; }
   }
 `;
+
+// The naughty animation's star: an elf riding a rocket. 🚀 points up-right on every
+// major platform, so a 45° turn makes it point the way it flies.
+function ElfRocket() {
+  return (
+    <div style={{ position: "relative", width: 100, height: 72 }}>
+      {[[-4, 46, 4], [-18, 40, 3], [-30, 50, 2.5], [-42, 42, 2], [-54, 48, 1.6]].map(([x, y, r], i) => (
+        <span key={i} style={{ position: "absolute", left: x, top: y, width: r * 2, height: r * 2, borderRadius: "50%", background: i % 2 ? "#ffb703" : "#ff4d2e", boxShadow: "0 0 6px #ff7b00", animation: `xmSpark 0.5s ease-in-out ${i * 0.08}s infinite alternate` }} />
+      ))}
+      <span style={{ position: "absolute", left: 4, top: 40, width: 28, height: 16, borderRadius: "50%", background: "radial-gradient(circle at 75% 50%, #fff3b0, #ffb703 40%, #ff4d2e 72%, transparent 74%)", transformOrigin: "100% 50%", animation: "xmFlame 0.16s ease-in-out infinite alternate" }} />
+      <span style={{ position: "absolute", left: 22, top: 20, fontSize: 48, lineHeight: 1, transform: "rotate(45deg)" }}>🚀</span>
+      <span style={{ position: "absolute", left: 40, top: 0, fontSize: 34, lineHeight: 1 }}>🧝</span>
+    </div>
+  );
+}
 
 // Santa's sleigh + four reindeer, drawn as SVG rather than emoji so it faces the way it
 // flies on every phone (🦌/🛷 point different ways on Apple, Google and Windows).
@@ -1869,8 +1929,8 @@ function SleighSvg({ silhouette = false }) {
   );
 }
 
-// Fairy lights strung along the top of the hero: multicolour twinkle when nice (or
-// undecided), every bulb red and flickering when naughty.
+// Fairy lights strung along the top of the hero: multicolour twinkle until the visitor
+// picks, then every bulb goes green (twinkling) for nice or red (flickering) for naughty.
 const XMAS_BULBS = ["#ff3b3b", "#ffd43b", "#2ecc71", "#3fa9ff", "#ff7ad9"];
 const xmasWireY = f => 9 + 10 * (1 - Math.cos(2 * Math.PI * f * 4)) / 2;
 const XMAS_WIRE_PATH = "M" + Array.from({ length: 101 }, (_, i) => `${i} ${xmasWireY(i / 100).toFixed(2)}`).join(" L");
@@ -1883,7 +1943,7 @@ function XmasLights({ side }) {
       </svg>
       {Array.from({ length: 20 }, (_, i) => {
         const f = (i + 0.5) / 20;
-        const c = naughty ? "#ff2b2b" : XMAS_BULBS[i % XMAS_BULBS.length];
+        const c = side ? XMAS_SIDES[side].bulb : XMAS_BULBS[i % XMAS_BULBS.length];
         return (
           <span key={i} style={{ position: "absolute", left: `${f * 100}%`, top: xmasWireY(f) - 1, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center" }}>
             <span style={{ width: 5, height: 4, background: "#3b4670", borderRadius: 1 }} />
@@ -1942,16 +2002,32 @@ function ChristmasHero({ side, onPick, onShowAll, onGoToList, orderBy }) {
         <span key={i} aria-hidden="true" style={{ position: "absolute", top: t, left: l, width: s, height: s, borderRadius: "50%", background: "#fff", boxShadow: "0 0 4px rgba(255,255,255,0.8)", pointerEvents: "none", animation: `xmStar ${2.4 + (i % 4) * 0.6}s ease-in-out ${d}s infinite` }} />
       ))}
       <div aria-hidden="true" style={{ position: "absolute", top: 54, right: "8%", width: "clamp(48px, 8vw, 100px)", aspectRatio: "1", borderRadius: "50%", pointerEvents: "none", background: "radial-gradient(circle at 38% 36%, #fffdf0 0%, #f6e8b8 58%, #e7cf86 100%)", boxShadow: "0 0 40px rgba(255,240,190,0.55), 0 0 110px rgba(255,240,190,0.22)" }} />
-      <div className="xm-ambient-sleigh" aria-hidden="true" style={{ position: "absolute", top: 72, left: 0, width: "clamp(150px, 24vw, 290px)", zIndex: 1, pointerEvents: "none", animation: "xmSleighAmbient 19s linear 1.2s infinite both" }}>
-        <SleighSvg silhouette />
-      </div>
+      {/* Who flies (2026-11-20): before a choice, both Santa and the naughty rocket elf
+          are in the sky. Pick nice and only Santa stays; pick naughty and Santa stays away
+          ("Santa says no") while the elf takes over. Santa is now full colour and bigger,
+          so he reads against the dark sky, not only when crossing the moon. Both sit
+          IN FRONT of the headline (zIndex 3 > 2): behind it, the pill and headline hid
+          most of the sleigh. A pass covers any one word for about a second, and
+          pointer-events:none keeps the buttons clickable underneath. */}
+      {side !== "naughty" && (
+        <div className="xm-ambient-sleigh" aria-hidden="true" style={{ position: "absolute", top: 60, left: 0, width: "clamp(200px, 36vw, 460px)", zIndex: 3, pointerEvents: "none", filter: "drop-shadow(0 0 12px rgba(255,226,138,0.45))", animation: "xmSleighAmbient 32s linear 0.8s infinite both" }}>
+          <SleighSvg />
+        </div>
+      )}
+      {side !== "nice" && (
+        <div className="xm-ambient-elf" aria-hidden="true" style={{ position: "absolute", top: 70, left: 0, zIndex: 3, pointerEvents: "none", animation: `xmElfRocket 14s linear ${side === "naughty" ? 0.4 : 7}s infinite both` }}>
+          <ElfRocket />
+        </div>
+      )}
 
       <div style={{ position: "relative", zIndex: 2, maxWidth: 760, margin: "0 auto" }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 16px", borderRadius: 999, background: "rgba(255,212,59,0.12)", border: "1px solid rgba(255,212,59,0.4)", color: "#ffd43b", fontFamily: S.fontHead, fontWeight: 700, fontSize: 13, marginBottom: 14 }}>
           🎄 {sleeps === 0 ? "It's Christmas Day!" : `${sleeps} sleep${sleeps === 1 ? "" : "s"} till Christmas`}
         </div>
         <h1 style={{ fontFamily: XMAS_FONT, fontWeight: 700, fontSize: "clamp(36px, 7.4vw, 76px)", lineHeight: 1.04, margin: "0 0 10px", color: "#fff", animation: "xmHeadline 4s ease-in-out infinite" }}>
-          {cfg ? cfg.heroTitle : <>Have you been <span style={glowWord("#ff5a6a")}>naughty</span><br />or <span style={glowWord("#ffd43b")}>nice</span> this year?</>}
+          {cfg
+            ? <>{cfg.heroPre}<span style={glowWord(cfg.accent)}>{cfg.title}</span>{cfg.heroPost}</>
+            : <>Have you been <span style={glowWord(XMAS_SIDES.naughty.accent)}>naughty</span><br />or <span style={glowWord(XMAS_SIDES.nice.accent)}>nice</span> this year?</>}
         </h1>
         <p style={{ fontFamily: S.fontHead, fontWeight: 600, fontSize: "clamp(12px, 2vw, 15px)", color: "rgba(255,255,255,0.75)", margin: "0 0 22px", lineHeight: 1.5 }}>
           {cfg ? cfg.tagline : "Christmas prints made by Elijah, age 10 — pick a side to see your list"}
@@ -1963,8 +2039,8 @@ function ChristmasHero({ side, onPick, onShowAll, onGoToList, orderBy }) {
             const on = side === k;
             return (
               <button key={k} className="ep-xmas-pick" onClick={() => onPick(k)} style={{
-                flex: "1 1 140px", maxWidth: 220, padding: "16px 20px", borderRadius: 16, cursor: "pointer",
-                fontFamily: S.fontHead, fontWeight: 800, fontSize: 19, transition: "transform 0.2s", ...c.button,
+                flex: "1 1 140px", maxWidth: 220, padding: "16px 10px", borderRadius: 16, cursor: "pointer", whiteSpace: "nowrap",
+                fontFamily: S.fontHead, fontWeight: 800, fontSize: "clamp(15px, 4.4vw, 19px)", transition: "transform 0.2s", ...c.button,
                 ...(on ? { outline: "3px solid #fff", outlineOffset: 3 } : {}),
               }}>
                 {c.emoji} {c.label}{on ? " ✓" : ""}
@@ -2037,7 +2113,7 @@ const XmasReveal = React.memo(function XmasReveal({ side, onSkip }) {
   const row = { display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: "1px dashed rgba(74,53,32,0.28)", fontSize: 15, fontFamily: S.font };
   return (
     <div className="ep-xmas-fx" onClick={onSkip} role="presentation" style={{ position: "fixed", inset: 0, zIndex: 200, cursor: "pointer", overflow: "hidden" }}>
-      <div style={{ position: "absolute", inset: 0, opacity: 0, animation: "xmBackdrop 3.4s ease forwards", background: nice ? "radial-gradient(circle at 50% 45%, rgba(38,64,122,0.96), rgba(6,10,30,0.98))" : "radial-gradient(circle at 50% 45%, rgba(110,12,24,0.96), rgba(18,2,6,0.98))" }} />
+      <div style={{ position: "absolute", inset: 0, opacity: 0, animation: "xmBackdrop 3.4s ease forwards", background: cfg.revealBg }} />
       <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div style={{ opacity: 0, animation: "xmCardIn 3.4s ease forwards" }}>
           <div style={{ animation: "xmShake 0.42s ease 1.15s 1 both" }}>
@@ -2087,7 +2163,7 @@ const XmasReveal = React.memo(function XmasReveal({ side, onSkip }) {
           </div>
         </>
       )}
-      <div style={{ position: "absolute", left: "50%", bottom: "13%", fontFamily: XMAS_FONT, fontWeight: 700, fontSize: "clamp(34px, 7vw, 56px)", color: "#fff", whiteSpace: "nowrap", opacity: 0, textShadow: nice ? "0 0 14px #ffd43b, 0 0 30px rgba(255,212,59,0.6)" : "0 0 14px #ff4d5e, 0 0 30px rgba(255,77,94,0.6)", animation: "xmPop 1.7s ease 1.5s both" }}>{nice ? "Ho ho ho!" : "Ho ho… no."}</div>
+      <div style={{ position: "absolute", left: "50%", bottom: "13%", fontFamily: XMAS_FONT, fontWeight: 700, fontSize: "clamp(34px, 7vw, 56px)", color: "#fff", whiteSpace: "nowrap", opacity: 0, textShadow: `0 0 14px ${cfg.accent}, 0 0 30px ${cfg.accent}99`, animation: "xmPop 1.7s ease 1.5s both" }}>{nice ? "Ho ho ho!" : "Ho ho… no."}</div>
       <div style={{ position: "absolute", bottom: 16, left: 0, right: 0, textAlign: "center", fontSize: 11, color: "rgba(255,255,255,0.55)", fontFamily: S.fontHead, opacity: 0, animation: "xmFadeIn 0.4s ease 0.6s both" }}>tap to skip</div>
     </div>
   );
