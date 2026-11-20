@@ -146,8 +146,8 @@ async function saveFilaments(f) {
 }
 
 // Feature flags — gate hardware-dependent features (e.g. glow filament) until physically tested.
-// Default OFF for any new flag. Flip ON via admin Colours tab once verified.
-const DEFAULT_FEATURE_FLAGS = { glowEnabled: false, halloweenEnabled: false };
+// Default OFF for any new flag. Flip ON via admin Themes tab once verified.
+const DEFAULT_FEATURE_FLAGS = { glowEnabled: false, halloweenEnabled: false, christmasEnabled: false };
 
 // Hidden Halloween hero Easter egg (added 2026-09-04, John: more wow ideas). One picked
 // at random per click, for replay value if a visitor finds the bat more than once.
@@ -179,11 +179,13 @@ async function loadCategories() {
 async function saveCategories(cats) {
   try { await storageSet("categories-v1", JSON.stringify(cats)); } catch (e) { console.error("Save categories failed:", e); }
 }
+// Throws on a failed read; null means ONLY "the doc doesn't exist" (changed 2026-11-20).
+// It used to return null for both, and the boot path seeds DEFAULT_CATEGORY_META on null,
+// so one transient read failure in a signed-in admin tab would have overwritten every
+// launchFlag, password and hero photo — the 11-Jul catalogue-wipe shape on another doc.
 async function loadCategoryMeta() {
-  try {
-    const r = await storageGet("category-meta-v1");
-    return r ? JSON.parse(r) : null;
-  } catch { return null; }
+  const r = await storageGet("category-meta-v1");
+  return r ? JSON.parse(r) : null;
 }
 async function saveCategoryMeta(meta) {
   try { await storageSet("category-meta-v1", JSON.stringify(meta)); } catch (e) { console.error("Save category meta failed:", e); }
@@ -297,6 +299,42 @@ function isCategoryLocked(cat, meta) {
 }
 function isCategoryUnlocked(cat, meta, unlockedCategories) {
   return !isCategoryLocked(cat, meta) || unlockedCategories.includes(cat);
+}
+/* Launch-readiness checks for a seasonal range. Written for Halloween 2026 (inside
+   AdminPanel), lifted out 2026-11-20 so Christmas runs exactly the same checks. Reads
+   the `photoSource`/`photoRights` fields every product/creator already carries rather
+   than regexing a URL, and never hard-blocks on `status` (the available-toggle forces
+   status:"live" whenever available:true, so that check could never go green). */
+function seasonReadiness(products, creators, cat, meta) {
+  const seasonProducts = (products || []).filter(p => productInCategoryOrSub(p, cat, meta || {}));
+  const creatorByName = new Map((creators || []).map(c => [c.name, c]));
+  const clearStatuses = new Set(["subscribed", "free", "no_licence_needed"]);
+  const creatorNames = [...new Set(seasonProducts.map(p => p.creator).filter(Boolean))];
+  const unpaidCreators = creatorNames.filter(name => {
+    const cr = creatorByName.get(name);
+    return !cr || !clearStatuses.has(cr.licenceStatus);
+  });
+  const noColours = seasonProducts.filter(p => !(p.colors || []).length);
+  const stillHotlinked = seasonProducts.filter(p => p.photoSource !== "own");
+  const photoBlockers = creatorNames.filter(name => {
+    const cr = creatorByName.get(name);
+    const hasOwnPhotos = seasonProducts.some(p => p.creator === name && p.photoSource === "own");
+    return !hasOwnPhotos && (!cr || cr.photoRights !== "included");
+  });
+  const glowCount = seasonProducts.filter(p => (p.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow")).length;
+  // Informational only — the ET pricing ladder. Large/bespoke items (the 3ft aliens)
+  // are expected to sit off it; this is a nudge to check, not a rule that's been broken.
+  const LADDER = [2, 3, 4.5, 5, 7.5, 10, 12.5];
+  const offLadder = seasonProducts.filter(p => typeof p.price === "number" && !LADDER.includes(p.price));
+
+  const blockers = [];
+  if (seasonProducts.length === 0) blockers.push(`No ${cat} products exist yet`);
+  if (unpaidCreators.length) blockers.push(`${unpaidCreators.length} creator${unpaidCreators.length === 1 ? "" : "s"} not paid or licence-free: ${unpaidCreators.join(", ")}`);
+  if (noColours.length) blockers.push(`${noColours.length} product${noColours.length === 1 ? "" : "s"} with no colours to pick`);
+  if (stillHotlinked.length) blockers.push(`${stillHotlinked.length} photo${stillHotlinked.length === 1 ? "" : "s"} still on MakerWorld`);
+  if (photoBlockers.length) blockers.push(`${photoBlockers.length} creator${photoBlockers.length === 1 ? "" : "s"} haven't confirmed photo rights: ${photoBlockers.join(", ")}`);
+
+  return { seasonProducts, unpaidCreators, noColours, stillHotlinked, photoBlockers, glowCount, offLadder, blockers };
 }
 async function loadCreators() {
   try {
@@ -1644,6 +1682,448 @@ function HalloweenPicksStrip({ picks, products, featureFlags, onAddToCart }) {
       {items.length > 2 && (
         <div style={{ textAlign: "center", fontSize: 10, color: S.dimmer, fontFamily: S.fontHead, marginTop: 4 }}>← swipe for more →</div>
       )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════
+   CHRISTMAS 2026 — "Naughty or Nice?" skin (added 2026-11-20)
+   ═══════════════════════════════════════
+   Same shape as the Halloween takeover: one seasonal hero behind a feature flag
+   (christmasEnabled, Themes tab) plus a chrome-only ?xmaspreview=1, with the range
+   itself gated by launchFlag on the Christmas / Nice List / Naughty List categories
+   (isCategoryHidden — client AND create-checkout-session.js). The visitor's answer to
+   "naughty or nice?" is also the navigation: it picks which sub-category the grid shows.
+   Animation rules carried over from Halloween (CLAUDE.md "Animation stability"): every
+   moving thing is a plain CSS keyframe on an element that mounts once and keeps the same
+   animation string for its whole run — the reveal is its own memoised component, keyed
+   per click, so nothing re-renders it mid-flight. */
+const XMAS_CATEGORY = "Christmas";
+const XMAS_FONT = "'Mountains of Christmas', 'Space Grotesk', cursive";
+const XMAS_SIDES = {
+  nice: {
+    cat: "Nice List", emoji: "😇", label: "Nice", stamp: "NICE!", ink: "#1f8a4c", accent: "#ffd43b",
+    title: "Nice List", heroTitle: "You're on the Nice List! 😇",
+    tagline: "Good-kid gifts Santa would definitely approve of.",
+    flip: "Actually… I've been naughty 😈",
+    button: { background: "linear-gradient(135deg, #fff1a6, #f2b705)", color: "#3a2600", border: "2px solid #fff6c9", boxShadow: "0 0 26px rgba(255,212,59,0.55)" },
+    bannerBg: "linear-gradient(135deg, rgba(255,212,59,0.14), rgba(46,160,67,0.10))", bannerBorder: "rgba(255,212,59,0.4)",
+    // Demo-only placeholders (?xmaspreview=1 with an empty list) — product IDEAS for
+    // Elijah, never rendered as buyable cards.
+    ideas: [["🎄", "Personalised name bauble"], ["⛄", "Snowman tree decoration"], ["🦌", "Reindeer keyring"], ["⭐", "Star tree topper"], ["🛷", "Santa's sleigh desk toy"], ["❄️", "Snowflake ornament set"]],
+  },
+  naughty: {
+    cat: "Naughty List", emoji: "😈", label: "Naughty", stamp: "NAUGHTY!", ink: "#c1121f", accent: "#ff5a6a",
+    title: "Naughty List", heroTitle: "Uh-oh… the Naughty List! 😈",
+    tagline: "Santa says no. Elijah says yes.",
+    flip: "OK fine, I've been nice 😇",
+    button: { background: "linear-gradient(135deg, #e63946, #8b0018)", color: "#fff", border: "2px solid #ff8a93", boxShadow: "0 0 26px rgba(230,57,70,0.55)" },
+    bannerBg: "linear-gradient(135deg, rgba(214,40,40,0.18), rgba(40,0,10,0.35))", bannerBorder: "rgba(255,90,106,0.45)",
+    ideas: [["coal", "Lump-of-coal keyring (glows!)"], ["🧝", "Cheeky elf fidget"], ["🍪", "Bitten gingerbread man"], ["😈", "Krampus mini figure"], ["🎁", "Prank present clicker"], ["🧦", "Stinky sock decoration"]],
+  },
+};
+const XMAS_ALL_CATEGORIES = [XMAS_CATEGORY, XMAS_SIDES.nice.cat, XMAS_SIDES.naughty.cat];
+// Hidden present on the hill — same idea as the Halloween bat. Placeholder jokes:
+// Elijah should swap in his own.
+const XMAS_EASTER_EGGS = [
+  "🎄 Why did the Christmas tree go to the barber? It needed a trim.",
+  "❄️ What do snowmen eat for breakfast? Snowflakes!",
+  "🦌 What do you call a reindeer with no eyes? No eye-deer.",
+  "🧝 What do elves learn at school? The elf-abet.",
+  "🎁 You found the present! Your prize: absolutely nothing except my respect. — Elijah",
+];
+// Sleeps (midnights) until 25 Dec on the visitor's own clock. Math.round absorbs the
+// 23-hour day when the clocks go back in October.
+function xmasSleeps(now = new Date()) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let xmas = new Date(now.getFullYear(), 11, 25);
+  if (today > xmas) xmas = new Date(now.getFullYear() + 1, 11, 25);
+  return Math.round((xmas - today) / 86400000);
+}
+
+const XMAS_WALLPAPER = `url("data:image/svg+xml,${encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'>" +
+  "<g stroke='rgba(220,235,255,0.13)' stroke-width='1.6' stroke-linecap='round' fill='none'><path d='M34 22V50M22 29L46 43M22 43L46 29M30 24L34 28L38 24M30 48L34 44L38 48'/></g>" +
+  "<polygon points='128,31 130.35,36.76 136.56,37.22 131.8,41.24 133.29,47.28 128,44 122.71,47.28 124.2,41.24 119.44,37.22 125.65,36.76' fill='rgba(255,212,59,0.12)'/>" +
+  "<circle cx='60' cy='120' r='10' fill='none' stroke='rgba(255,120,130,0.13)' stroke-width='1.6'/><rect x='56' y='107' width='8' height='4' fill='rgba(255,120,130,0.13)'/>" +
+  "<path d='M136 145V122Q136 114 143 114Q150 114 150 121' fill='none' stroke='rgba(255,140,140,0.13)' stroke-width='3' stroke-linecap='round'/>" +
+  "<ellipse cx='90' cy='84' rx='7' ry='3.5' transform='rotate(-25 90 84)' fill='rgba(120,200,140,0.11)'/><ellipse cx='101' cy='84' rx='7' ry='3.5' transform='rotate(25 101 84)' fill='rgba(120,200,140,0.11)'/>" +
+  "<circle cx='95' cy='80' r='2' fill='rgba(255,90,90,0.18)'/><circle cx='98.5' cy='82.5' r='2' fill='rgba(255,90,90,0.18)'/>" +
+  "<g fill='rgba(255,255,255,0.1)'><circle cx='10' cy='90' r='1.5'/><circle cx='170' cy='95' r='1.5'/><circle cx='80' cy='165' r='1.5'/><circle cx='165' cy='10' r='1.2'/></g>" +
+  "</svg>"
+)}")`;
+
+const XMAS_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Mountains+of+Christmas:wght@700&display=swap');
+  @keyframes xmBackdrop { 0% { opacity: 0 } 8% { opacity: 1 } 86% { opacity: 1 } 100% { opacity: 0 } }
+  @keyframes xmCardIn {
+    0% { opacity: 0; transform: scale(0.55) rotate(-8deg); }
+    9% { opacity: 1; transform: scale(1.04) rotate(-1deg); }
+    14% { transform: scale(1) rotate(-2deg); }
+    84% { opacity: 1; transform: scale(1) rotate(-2deg); }
+    100% { opacity: 0; transform: scale(1.06) rotate(-2deg); }
+  }
+  @keyframes xmShake { 0%, 100% { transform: translate(0, 0) } 20% { transform: translate(-7px, 4px) rotate(-1deg) } 40% { transform: translate(6px, -3px) rotate(1deg) } 60% { transform: translate(-4px, 2px) } 80% { transform: translate(3px, -1px) } }
+  @keyframes xmStamp { 0% { opacity: 0; transform: scale(3.2); } 65% { opacity: 1; transform: scale(0.9); } 100% { opacity: 1; transform: scale(1); } }
+  @keyframes xmMagnify { 0% { opacity: 0; transform: translate(0, 0) rotate(-10deg); } 15% { opacity: 1; } 85% { opacity: 1; transform: translate(10px, 104px) rotate(8deg); } 100% { opacity: 0; transform: translate(10px, 104px) rotate(8deg); } }
+  @keyframes xmFadeOut { to { opacity: 0 } }
+  @keyframes xmFadeIn { from { opacity: 0 } to { opacity: 1 } }
+  @keyframes xmBurst {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+    15% { opacity: 1; }
+    100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.1) rotate(var(--rot)); }
+  }
+  @keyframes xmSleighFly { 0% { transform: translate(-105%, 40px) rotate(-5deg); } 100% { transform: translate(105vw, -60px) rotate(-9deg); } }
+  @keyframes xmPop {
+    0% { opacity: 0; transform: translateX(-50%) scale(0.3); }
+    18% { opacity: 1; transform: translateX(-50%) scale(1.12); }
+    28% { transform: translateX(-50%) scale(1); }
+    80% { opacity: 1; transform: translateX(-50%) scale(1); }
+    100% { opacity: 0; transform: translateX(-50%) scale(1); }
+  }
+  @keyframes xmCoalDrop { 0% { transform: translateY(0) rotate(0deg); } 100% { transform: translateY(118vh) rotate(var(--rot)); } }
+  @keyframes xmElfPeek { 0% { transform: translateY(115%); } 22% { transform: translateY(0); } 80% { transform: translateY(0); } 100% { transform: translateY(115%); } }
+  @keyframes xmSnowFall {
+    0% { transform: translate(0, -4vh); }
+    25% { transform: translate(var(--sway), 24vh); }
+    50% { transform: translate(0, 52vh); }
+    75% { transform: translate(var(--sway), 78vh); }
+    100% { transform: translate(0, 106vh); }
+  }
+  @keyframes xmCoalFall { 0% { transform: translate(0, -4vh) rotate(0deg); } 100% { transform: translate(var(--sway), 106vh) rotate(540deg); } }
+  @keyframes xmSleighAmbient {
+    0% { transform: translate(-110%, 34px) rotate(-4deg); }
+    42% { transform: translate(calc(100vw + 10%), -26px) rotate(-7deg); }
+    100% { transform: translate(calc(100vw + 10%), -26px) rotate(-7deg); }
+  }
+  @keyframes xmTwinkle { from { opacity: 0.45; } to { opacity: 1; } }
+  @keyframes xmFlicker { 0%, 100% { opacity: 1 } 12% { opacity: 0.15 } 18% { opacity: 1 } 47% { opacity: 0.1 } 52% { opacity: 0.9 } 70% { opacity: 0.25 } 78% { opacity: 1 } }
+  @keyframes xmStar { 0%, 100% { opacity: 0.25 } 50% { opacity: 1 } }
+  @keyframes xmSpark { from { opacity: 0.2 } to { opacity: 1 } }
+  @keyframes xmBob { from { transform: translateY(-2px) } to { transform: translateY(3px) } }
+  @keyframes xmNose { from { opacity: 0.3 } to { opacity: 0.85 } }
+  @keyframes xmGiftWiggle { 0%, 82%, 100% { transform: rotate(0) } 86% { transform: rotate(-12deg) } 90% { transform: rotate(10deg) } 94% { transform: rotate(-6deg) } }
+  @keyframes xmHeadline { 0%, 100% { text-shadow: 0 0 12px rgba(255,255,255,0.22), 0 4px 18px rgba(0,0,0,0.5) } 50% { text-shadow: 0 0 24px rgba(255,255,255,0.45), 0 4px 18px rgba(0,0,0,0.5) } }
+  .xm-bob { animation: xmBob 0.55s ease-in-out infinite alternate; }
+  .xm-nose-halo { animation: xmNose 1.1s ease-in-out infinite alternate; }
+  .ep-xmas-pick:hover { transform: translateY(-2px) scale(1.03); }
+  @media (prefers-reduced-motion: reduce) {
+    .ep-xmas-hero *, .ep-xmas-fx, .ep-xmas-fx * { animation: none !important; }
+    .xm-ambient-sleigh { display: none; }
+  }
+`;
+
+// Santa's sleigh + four reindeer, drawn as SVG rather than emoji so it faces the way it
+// flies on every phone (🦌/🛷 point different ways on Apple, Google and Windows).
+// `silhouette` = the classic dark shape across the moon; otherwise full colour.
+const XMAS_REINDEER = [{ x: 150, y: 34, d: 0 }, { x: 212, y: 28, d: 0.12 }, { x: 274, y: 34, d: 0.24 }, { x: 336, y: 26, d: 0.36, lead: true }];
+function SleighSvg({ silhouette = false }) {
+  const sil = "#0a1230";
+  const C = silhouette
+    ? { body: sil, antler: sil, leg: sil, sleigh: sil, trim: sil, runner: sil, suit: sil, skin: sil, beard: sil, belt: sil, sack: sil, gift1: sil, gift2: sil, rein: "rgba(10,18,48,0.9)", collar: sil }
+    : { body: "#8b5a2b", antler: "#5c3d1e", leg: "#6b4423", sleigh: "#c1121f", trim: "#e9c46a", runner: "#e9c46a", suit: "#e63946", skin: "#f4c7a1", beard: "#ffffff", belt: "#1d1d1d", sack: "#8d5a2b", gift1: "#2a9d8f", gift2: "#ffd43b", rein: "#e9c46a", collar: "#c1121f" };
+  return (
+    <svg viewBox="-130 -16 540 126" style={{ display: "block", width: "100%", height: "auto", overflow: "visible" }} aria-hidden="true">
+      {[[-14, 74, 3], [-34, 66, 2.4], [-52, 78, 2], [-70, 62, 1.8], [-88, 72, 1.5], [-104, 60, 1.2], [-120, 70, 1]].map(([x, y, r], i) => (
+        <circle key={i} cx={x} cy={y} r={r} fill="#ffe28a" style={{ animation: `xmSpark 0.9s ease-in-out ${i * 0.11}s infinite alternate` }} />
+      ))}
+      {XMAS_REINDEER.map(({ x, y, d, lead }, i) => (
+        <g key={i} className="xm-bob" style={{ animationDelay: `${d}s` }}>
+          <g transform={`translate(${x} ${y})`}>
+            <path d="M9 26 L2 21 L6 31 Z" fill={C.body} />
+            <g stroke={C.leg} strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" fill="none">
+              <path d="M44 35 L55 40 L61 37" /><path d="M40 37 L49 46 L55 47" />
+              <path d="M15 35 L4 40 L-2 37" /><path d="M19 37 L10 46 L4 47" />
+            </g>
+            <ellipse cx="28" cy="30" rx="20" ry="9.5" fill={C.body} />
+            <path d="M41 25 L51 11 L58 14 L49 33 Z" fill={C.body} />
+            <ellipse cx="57" cy="11" rx="7.5" ry="5" fill={C.body} />
+            <ellipse cx="64" cy="13" rx="4.5" ry="3.2" fill={C.body} />
+            <path d="M52 7 L48 1 L55 6 Z" fill={C.body} />
+            <g stroke={C.antler} strokeWidth="1.9" strokeLinecap="round" fill="none">
+              <path d="M55 7 L51 -7 M52.8 -1 L46 -4 M51.6 -4.5 L48.5 -10" />
+              <path d="M58 7 L60 -7 M59.3 -1 L65 -5 M59.8 -4.5 L63 -11" />
+            </g>
+            <path d="M46 20 L52 27" stroke={C.collar} strokeWidth="2.4" strokeLinecap="round" />
+            {lead && <><circle cx="68.5" cy="13" r="7" fill="#ff2d2d" className="xm-nose-halo" /><circle cx="68.5" cy="13" r="3.2" fill="#ff3b3b" /></>}
+          </g>
+        </g>
+      ))}
+      <polyline points="92,38 198,56 260,50 322,56 384,48" fill="none" stroke={C.rein} strokeWidth="1.3" />
+      <path d="M8 50 Q2 20 22 18 Q40 16 42 46 Z" fill={C.sack} />
+      <rect x="14" y="11" width="11" height="10" rx="1.5" fill={C.gift1} />
+      <rect x="26" y="7" width="9" height="12" rx="1.5" fill={C.gift2} />
+      <ellipse cx="62" cy="40" rx="15" ry="14" fill={C.suit} />
+      <rect x="48" y="42" width="28" height="4" fill={C.belt} />
+      <path d="M68 36 L92 38" stroke={C.suit} strokeWidth="5.5" strokeLinecap="round" />
+      <circle cx="70" cy="21" r="7" fill={C.skin} />
+      <path d="M63 23 Q70 37 78 23 Z" fill={C.beard} />
+      <path d="M63 18 L78 18 L58 5 Z" fill={C.suit} />
+      <circle cx="57" cy="5" r="3" fill={C.beard} />
+      <rect x="62" y="16" width="17" height="4" rx="2" fill={C.beard} />
+      <path d="M4 48 Q2 80 28 80 L86 80 Q104 80 108 62 L112 44 Q102 52 88 52 L20 52 Q10 52 4 48 Z" fill={C.sleigh} />
+      <path d="M6 53 L106 51" stroke={C.trim} strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M30 80 V92 M80 80 V92" stroke={C.runner} strokeWidth="3" />
+      <path d="M-2 86 Q-4 92 4 92 L98 92 Q114 92 114 78" fill="none" stroke={C.runner} strokeWidth="4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// Fairy lights strung along the top of the hero: multicolour twinkle when nice (or
+// undecided), every bulb red and flickering when naughty.
+const XMAS_BULBS = ["#ff3b3b", "#ffd43b", "#2ecc71", "#3fa9ff", "#ff7ad9"];
+const xmasWireY = f => 9 + 10 * (1 - Math.cos(2 * Math.PI * f * 4)) / 2;
+const XMAS_WIRE_PATH = "M" + Array.from({ length: 101 }, (_, i) => `${i} ${xmasWireY(i / 100).toFixed(2)}`).join(" L");
+function XmasLights({ side }) {
+  const naughty = side === "naughty";
+  return (
+    <div aria-hidden="true" style={{ position: "absolute", top: 0, left: 0, right: 0, height: 46, pointerEvents: "none", zIndex: 1 }}>
+      <svg viewBox="0 0 100 46" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+        <path d={XMAS_WIRE_PATH} fill="none" stroke="#2c3866" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+      </svg>
+      {Array.from({ length: 20 }, (_, i) => {
+        const f = (i + 0.5) / 20;
+        const c = naughty ? "#ff2b2b" : XMAS_BULBS[i % XMAS_BULBS.length];
+        return (
+          <span key={i} style={{ position: "absolute", left: `${f * 100}%`, top: xmasWireY(f) - 1, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <span style={{ width: 5, height: 4, background: "#3b4670", borderRadius: 1 }} />
+            <span style={{
+              width: 9, height: 13, borderRadius: "50% 50% 50% 50% / 40% 40% 60% 60%", background: c, boxShadow: `0 0 8px ${c}, 0 0 16px ${c}88`,
+              animation: naughty ? `xmFlicker ${1.1 + (i % 4) * 0.37}s steps(1) infinite` : `xmTwinkle ${1.4 + (i % 3) * 0.4}s ease-in-out ${(i % 5) * 0.23}s infinite alternate`,
+            }} />
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function XmasHills() {
+  return (
+    <svg viewBox="0 0 1200 140" preserveAspectRatio="xMidYMax slice" aria-hidden="true" style={{ display: "block", width: "calc(100% + 40px)", height: "clamp(80px, 12vw, 140px)", margin: "26px -20px 0" }}>
+      <path d="M0 78 Q160 34 330 64 T660 58 T980 50 T1200 66 V140 H0 Z" fill="#33467a" />
+      {[[110, 62], [150, 56], [188, 60], [905, 50], [948, 46], [990, 52], [1040, 58]].map(([x, y], i) => (
+        <g key={i}>
+          <path d={`M${x} ${y - 34} L${x + 13} ${y} L${x - 13} ${y} Z`} fill="#142453" />
+          <path d={`M${x} ${y - 34} L${x + 6} ${y - 18} L${x - 6} ${y - 18} Z`} fill="#e8f0ff" opacity="0.85" />
+        </g>
+      ))}
+      <path d="M0 104 Q220 66 450 92 T860 86 T1200 98 V140 H0 Z" fill="#9fb3d8" />
+      <path d="M0 104 Q220 66 450 92 T860 86 T1200 98" fill="none" stroke="#e6eeff" strokeWidth="3" opacity="0.7" />
+      <g transform="translate(700 50)">
+        <rect x="0" y="16" width="54" height="30" fill="#25355f" />
+        <path d="M-6 18 L27 -6 L60 18 Z" fill="#eef4ff" />
+        <rect x="40" y="-4" width="7" height="14" fill="#25355f" />
+        <rect x="6" y="21" width="17" height="16" fill="#ffcf6b" opacity="0.3" />
+        <rect x="9" y="24" width="11" height="10" fill="#ffcf6b" />
+        <rect x="32" y="26" width="10" height="20" fill="#5b3a1f" />
+      </g>
+    </svg>
+  );
+}
+
+const XMAS_STARS = [["7%", "5%", 2, 0], ["14%", "13%", 1.5, 1.2], ["9%", "22%", 2.5, 0.6], ["22%", "31%", 1.5, 2.1], ["6%", "38%", 2, 1.6], ["18%", "46%", 1.5, 0.3], ["11%", "54%", 2.5, 2.6], ["25%", "61%", 1.5, 1.1], ["8%", "68%", 2, 0.8], ["30%", "8%", 1.5, 1.9], ["34%", "20%", 2, 0.4], ["38%", "42%", 1.5, 2.4], ["28%", "74%", 2, 1.4], ["42%", "86%", 1.5, 0.2], ["16%", "93%", 2.5, 1.7], ["45%", "3%", 1.5, 2.8], ["48%", "57%", 1.5, 0.9], ["36%", "95%", 2, 2.2], ["20%", "80%", 1.5, 0.5], ["52%", "28%", 1.5, 1.3], ["12%", "77%", 1.5, 2.0], ["40%", "66%", 2, 0.7]];
+
+function ChristmasHero({ side, onPick, onShowAll, onGoToList, orderBy }) {
+  const [egg, setEgg] = useState(null);
+  const sleeps = xmasSleeps();
+  const cfg = side ? XMAS_SIDES[side] : null;
+  const glowWord = (hex) => ({ color: hex, textShadow: `0 0 14px ${hex}, 0 0 34px ${hex}99` });
+  return (
+    <section className={`ep-xmas-hero${side ? ` is-${side}` : ""}`} style={{
+      position: "relative", overflow: "hidden", textAlign: "center", padding: "62px 20px 0",
+      background: `${XMAS_WALLPAPER}, ${side === "naughty"
+        ? "radial-gradient(ellipse at 50% 0%, #5a1a3a 0%, #2a0f2e 45%, #12081f 100%)"
+        : "radial-gradient(ellipse at 50% 0%, #2b4785 0%, #152656 45%, #0a1230 100%)"}`,
+      borderBottom: `1px solid ${side === "naughty" ? "rgba(255,77,94,0.25)" : "rgba(255,212,59,0.2)"}`,
+    }}>
+      <XmasLights side={side} />
+      {XMAS_STARS.map(([t, l, s, d], i) => (
+        <span key={i} aria-hidden="true" style={{ position: "absolute", top: t, left: l, width: s, height: s, borderRadius: "50%", background: "#fff", boxShadow: "0 0 4px rgba(255,255,255,0.8)", pointerEvents: "none", animation: `xmStar ${2.4 + (i % 4) * 0.6}s ease-in-out ${d}s infinite` }} />
+      ))}
+      <div aria-hidden="true" style={{ position: "absolute", top: 54, right: "8%", width: "clamp(48px, 8vw, 100px)", aspectRatio: "1", borderRadius: "50%", pointerEvents: "none", background: "radial-gradient(circle at 38% 36%, #fffdf0 0%, #f6e8b8 58%, #e7cf86 100%)", boxShadow: "0 0 40px rgba(255,240,190,0.55), 0 0 110px rgba(255,240,190,0.22)" }} />
+      <div className="xm-ambient-sleigh" aria-hidden="true" style={{ position: "absolute", top: 72, left: 0, width: "clamp(150px, 24vw, 290px)", zIndex: 1, pointerEvents: "none", animation: "xmSleighAmbient 19s linear 1.2s infinite both" }}>
+        <SleighSvg silhouette />
+      </div>
+
+      <div style={{ position: "relative", zIndex: 2, maxWidth: 760, margin: "0 auto" }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 16px", borderRadius: 999, background: "rgba(255,212,59,0.12)", border: "1px solid rgba(255,212,59,0.4)", color: "#ffd43b", fontFamily: S.fontHead, fontWeight: 700, fontSize: 13, marginBottom: 14 }}>
+          🎄 {sleeps === 0 ? "It's Christmas Day!" : `${sleeps} sleep${sleeps === 1 ? "" : "s"} till Christmas`}
+        </div>
+        <h1 style={{ fontFamily: XMAS_FONT, fontWeight: 700, fontSize: "clamp(36px, 7.4vw, 76px)", lineHeight: 1.04, margin: "0 0 10px", color: "#fff", animation: "xmHeadline 4s ease-in-out infinite" }}>
+          {cfg ? cfg.heroTitle : <>Have you been <span style={glowWord("#ff5a6a")}>naughty</span><br />or <span style={glowWord("#ffd43b")}>nice</span> this year?</>}
+        </h1>
+        <p style={{ fontFamily: S.fontHead, fontWeight: 600, fontSize: "clamp(12px, 2vw, 15px)", color: "rgba(255,255,255,0.75)", margin: "0 0 22px", lineHeight: 1.5 }}>
+          {cfg ? cfg.tagline : "Christmas prints made by Elijah, age 10 — pick a side to see your list"}
+          {orderBy ? ` · order by ${orderBy}` : ""}
+        </p>
+        <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 10 }}>
+          {["naughty", "nice"].map(k => {
+            const c = XMAS_SIDES[k];
+            const on = side === k;
+            return (
+              <button key={k} className="ep-xmas-pick" onClick={() => onPick(k)} style={{
+                flex: "1 1 140px", maxWidth: 220, padding: "16px 20px", borderRadius: 16, cursor: "pointer",
+                fontFamily: S.fontHead, fontWeight: 800, fontSize: 19, transition: "transform 0.2s", ...c.button,
+                ...(on ? { outline: "3px solid #fff", outlineOffset: 3 } : {}),
+              }}>
+                {c.emoji} {c.label}{on ? " ✓" : ""}
+              </button>
+            );
+          })}
+        </div>
+        <button onClick={side ? onGoToList : onShowAll} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.75)", fontFamily: S.fontHead, fontSize: 13, fontWeight: 600, cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 3, padding: 8 }}>
+          {cfg ? `↓ Show me the ${cfg.title}` : "↓ Show me everything else"}
+        </button>
+      </div>
+
+      <button onClick={() => setEgg(XMAS_EASTER_EGGS[Math.floor(Math.random() * XMAS_EASTER_EGGS.length)])} aria-label="A present" style={{ position: "absolute", left: "7%", bottom: "clamp(26px, 5vw, 54px)", zIndex: 5, background: "none", border: "none", cursor: "pointer", fontSize: 30, padding: 4, lineHeight: 1, transformOrigin: "50% 90%", animation: "xmGiftWiggle 4s ease-in-out infinite" }}>🎁</button>
+      {egg && (
+        <div style={{ position: "absolute", left: "4%", bottom: "clamp(78px, 10vw, 112px)", zIndex: 6, maxWidth: 240, background: "rgba(10,18,48,0.97)", border: "1px solid rgba(255,212,59,0.45)", borderRadius: 12, padding: "12px 14px", boxShadow: "0 0 24px rgba(255,212,59,0.25)", fontFamily: S.font, fontSize: 12.5, color: S.text, textAlign: "left", lineHeight: 1.45 }}>
+          {egg}
+          <button onClick={() => setEgg(null)} style={{ display: "block", marginTop: 8, background: "none", border: "none", color: "#ffd43b", fontSize: 11, fontFamily: S.fontHead, fontWeight: 700, cursor: "pointer", padding: 0 }}>Close</button>
+        </div>
+      )}
+      <XmasHills />
+    </section>
+  );
+}
+
+// Page-wide snowfall (shop page only). Negative delays so the screen starts already
+// snowing rather than empty. When naughty, a third of the flakes turn to coal.
+const XMAS_FLAKES = Array.from({ length: 26 }, (_, i) => ({
+  left: `${(i * 39 + 11) % 100}%`,
+  size: 3 + (i * 5) % 5,
+  dur: 9 + (i * 7) % 9,
+  delay: -((i * 13) % 17),
+  sway: `${(i % 2 ? 1 : -1) * (14 + (i * 3) % 18)}px`,
+  glyph: i % 5 === 0,
+}));
+const XmasSnow = React.memo(function XmasSnow({ side }) {
+  return (
+    <>
+      {XMAS_FLAKES.map((f, i) => {
+        const coal = side === "naughty" && i % 3 === 1;
+        return (
+          <div key={i} className="ep-xmas-fx" aria-hidden="true" style={{ position: "fixed", top: 0, left: f.left, zIndex: 3, pointerEvents: "none", "--sway": f.sway, animation: `${coal ? "xmCoalFall" : "xmSnowFall"} ${coal ? f.dur * 0.75 : f.dur}s linear ${f.delay}s infinite` }}>
+            {coal
+              ? <span style={{ display: "block", width: f.size + 6, height: f.size + 4, borderRadius: "42% 58% 46% 54% / 55% 45% 55% 45%", background: "radial-gradient(circle at 35% 30%, #666, #1a1a1a 60%, #000)", boxShadow: "0 0 7px rgba(255,90,0,0.6)" }} />
+              : f.glyph
+                ? <span style={{ display: "block", fontSize: 11 + f.size * 1.4, color: "#fff", opacity: 0.85, lineHeight: 1, textShadow: "0 0 6px rgba(190,220,255,0.9)" }}>❄</span>
+                : <span style={{ display: "block", width: f.size, height: f.size, borderRadius: "50%", background: "#fff", opacity: 0.55 + (f.size - 3) * 0.1, boxShadow: "0 0 5px rgba(255,255,255,0.8)" }} />}
+          </div>
+        );
+      })}
+    </>
+  );
+});
+
+// The verdict moment: Santa's list is checked, a rubber stamp slams down, then Santa's
+// sleigh flies past (nice) or coal rains down and an elf says "Busted!" (naughty).
+// ~3.4s, tap anywhere to skip. Mounted fresh per click (key) and memoised.
+const XMAS_LIST_ROWS = [["Elijah", "nice"], ["Rudolph", "nice"], ["The cat", "naughty"]];
+const XMAS_BURST = Array.from({ length: 14 }, (_, i) => {
+  const a = (i / 14) * Math.PI * 2;
+  const r = 150 + (i % 3) * 40;
+  return { dx: `${Math.round(Math.cos(a) * r)}px`, dy: `${Math.round(Math.sin(a) * r)}px`, rot: `${(i % 2 ? 1 : -1) * (90 + i * 20)}deg`, g: i % 3 === 0 ? "⭐" : "✨", s: 18 + (i % 4) * 5 };
+});
+const XMAS_COAL = Array.from({ length: 16 }, (_, i) => ({
+  left: `${(i * 37 + 7) % 96 + 2}%`, size: 14 + (i * 7) % 14,
+  delay: 1.12 + (i % 8) * 0.07 + Math.floor(i / 8) * 0.18, rot: `${(i % 2 ? 1 : -1) * (180 + i * 25)}deg`,
+}));
+const XmasReveal = React.memo(function XmasReveal({ side, onSkip }) {
+  const cfg = XMAS_SIDES[side];
+  const nice = side === "nice";
+  const row = { display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: "1px dashed rgba(74,53,32,0.28)", fontSize: 15, fontFamily: S.font };
+  return (
+    <div className="ep-xmas-fx" onClick={onSkip} role="presentation" style={{ position: "fixed", inset: 0, zIndex: 200, cursor: "pointer", overflow: "hidden" }}>
+      <div style={{ position: "absolute", inset: 0, opacity: 0, animation: "xmBackdrop 3.4s ease forwards", background: nice ? "radial-gradient(circle at 50% 45%, rgba(38,64,122,0.96), rgba(6,10,30,0.98))" : "radial-gradient(circle at 50% 45%, rgba(110,12,24,0.96), rgba(18,2,6,0.98))" }} />
+      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ opacity: 0, animation: "xmCardIn 3.4s ease forwards" }}>
+          <div style={{ animation: "xmShake 0.42s ease 1.15s 1 both" }}>
+            <div style={{ position: "relative", width: "min(80vw, 300px)", padding: "20px 22px 24px", borderRadius: 14, background: "linear-gradient(180deg, #fdf6e3, #efdfb8)", boxShadow: "0 24px 70px rgba(0,0,0,0.55), inset 0 0 34px rgba(150,110,50,0.25)", color: "#4a3520", textAlign: "left" }}>
+              <div style={{ fontFamily: XMAS_FONT, fontWeight: 700, fontSize: 34, color: "#b3001b", textAlign: "center", lineHeight: 1 }}>Santa's List</div>
+              <div style={{ textAlign: "center", fontSize: 10, letterSpacing: "2.5px", textTransform: "uppercase", opacity: 0.6, margin: "4px 0 12px", fontFamily: S.fontHead, fontWeight: 700 }}>Checked twice</div>
+              {XMAS_LIST_ROWS.map(([name, v]) => (
+                <div key={name} style={row}>
+                  <span>{name}</span>
+                  <span style={{ color: v === "nice" ? "#1f8a4c" : "#c1121f", fontWeight: 700 }}>{v === "nice" ? "✓ nice" : "✗ naughty"}</span>
+                </div>
+              ))}
+              <div style={{ ...row, borderBottom: "none", fontWeight: 700 }}>
+                <span>You</span>
+                <span style={{ position: "relative", minWidth: 90, textAlign: "right" }}>
+                  <span style={{ animation: "xmFadeOut 0.15s linear 1.05s both" }}>checking…</span>
+                  <span style={{ position: "absolute", right: 0, top: 0, color: cfg.ink, opacity: 0, animation: "xmFadeIn 0.2s linear 1.12s both" }}>{nice ? "✓ nice" : "✗ naughty"}</span>
+                </span>
+              </div>
+              <div style={{ position: "absolute", top: 66, right: 22, fontSize: 30, opacity: 0, animation: "xmMagnify 0.95s ease-in-out 0.25s both" }}>🔍</div>
+              <div style={{ position: "absolute", left: "50%", top: "60%", transform: "translate(-50%, -50%) rotate(-14deg)", pointerEvents: "none" }}>
+                <div style={{ opacity: 0, animation: "xmStamp 0.34s cubic-bezier(.2,1.3,.4,1) 1.1s both", border: `5px solid ${cfg.ink}`, color: cfg.ink, borderRadius: 10, padding: "4px 16px", fontFamily: S.fontHead, fontWeight: 900, fontSize: "clamp(28px, 8vw, 38px)", letterSpacing: "3px", whiteSpace: "nowrap", mixBlendMode: "multiply", boxShadow: `inset 0 0 0 2px ${cfg.ink}55` }}>{cfg.stamp}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {nice ? (
+        <>
+          {XMAS_BURST.map((b, i) => (
+            <span key={i} style={{ position: "absolute", left: "50%", top: "50%", fontSize: b.s, opacity: 0, "--dx": b.dx, "--dy": b.dy, "--rot": b.rot, animation: `xmBurst 1s cubic-bezier(.15,.7,.3,1) ${1.15 + (i % 3) * 0.04}s both` }}>{b.g}</span>
+          ))}
+          <div style={{ position: "absolute", top: "6%", left: 0, width: "min(92vw, 600px)", filter: "drop-shadow(0 0 18px rgba(255,226,138,0.55))", animation: "xmSleighFly 2s cubic-bezier(.25,.15,.75,.85) 1.15s both" }}>
+            <SleighSvg />
+          </div>
+        </>
+      ) : (
+        <>
+          {XMAS_COAL.map((c, i) => (
+            <span key={i} style={{ position: "absolute", top: -40, left: c.left, width: c.size, height: c.size * 0.85, borderRadius: "42% 58% 46% 54% / 55% 45% 55% 45%", background: "radial-gradient(circle at 35% 30%, #6a6a6a, #1c1c1c 58%, #050505)", boxShadow: "0 0 10px rgba(255,90,0,0.55), inset -2px -3px 5px rgba(255,110,0,0.45)", "--rot": c.rot, animation: `xmCoalDrop 1.25s cubic-bezier(.5,0,.9,.5) ${c.delay}s both` }} />
+          ))}
+          <div style={{ position: "absolute", left: "5%", bottom: 0, animation: "xmElfPeek 2s ease 1.3s both" }}>
+            <div style={{ position: "relative", fontSize: "clamp(64px, 12vw, 96px)", lineHeight: 1 }}>
+              🧝
+              <span style={{ position: "absolute", left: "88%", top: -6, background: "#fff", color: "#b3001b", fontFamily: S.fontHead, fontWeight: 800, fontSize: 15, padding: "6px 10px", borderRadius: 12, whiteSpace: "nowrap", boxShadow: "0 4px 14px rgba(0,0,0,0.4)" }}>Busted! 😈</span>
+            </div>
+          </div>
+        </>
+      )}
+      <div style={{ position: "absolute", left: "50%", bottom: "13%", fontFamily: XMAS_FONT, fontWeight: 700, fontSize: "clamp(34px, 7vw, 56px)", color: "#fff", whiteSpace: "nowrap", opacity: 0, textShadow: nice ? "0 0 14px #ffd43b, 0 0 30px rgba(255,212,59,0.6)" : "0 0 14px #ff4d5e, 0 0 30px rgba(255,77,94,0.6)", animation: "xmPop 1.7s ease 1.5s both" }}>{nice ? "Ho ho ho!" : "Ho ho… no."}</div>
+      <div style={{ position: "absolute", bottom: 16, left: 0, right: 0, textAlign: "center", fontSize: 11, color: "rgba(255,255,255,0.55)", fontFamily: S.fontHead, opacity: 0, animation: "xmFadeIn 0.4s ease 0.6s both" }}>tap to skip</div>
+    </div>
+  );
+});
+
+// Sits directly above the product grid once a side is picked: says which list you're
+// looking at and lets you flip. With an empty list it shows idea tiles in preview, or
+// a "coming soon" line on the live site — never fake buyable cards.
+function XmasListBanner({ side, onFlip, count, preview }) {
+  const cfg = XMAS_SIDES[side];
+  return (
+    <div id="ep-xmas-list" style={{ maxWidth: 1200, margin: "0 auto", padding: "8px 24px 18px", scrollMarginTop: 140 }}>
+      <div style={{ borderRadius: 18, padding: "16px 20px 18px", textAlign: "center", background: cfg.bannerBg, border: `1px solid ${cfg.bannerBorder}` }}>
+        <div style={{ fontFamily: XMAS_FONT, fontWeight: 700, fontSize: "clamp(28px, 4.4vw, 40px)", lineHeight: 1.05, color: cfg.accent }}>{cfg.emoji} The {cfg.title}</div>
+        <div style={{ fontSize: 14, color: S.text, opacity: 0.85, margin: "4px 0 12px", fontFamily: S.fontHead, fontWeight: 600 }}>{cfg.tagline}</div>
+        <button onClick={onFlip} style={{ padding: "9px 16px", borderRadius: 999, border: `1px solid ${cfg.bannerBorder}`, background: "rgba(0,0,0,0.25)", color: S.text, fontFamily: S.fontHead, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{cfg.flip}</button>
+      </div>
+      {count === 0 && (preview ? (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ textAlign: "center", fontSize: 11, color: "#f59e0b", fontFamily: S.fontMono, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 10 }}>Demo · ideas for the {cfg.title} — real products appear here</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
+            {cfg.ideas.map(([e, n]) => (
+              <div key={n} style={{ background: S.card, border: `1px dashed ${cfg.bannerBorder}`, borderRadius: 14, padding: "16px 10px 12px", textAlign: "center" }}>
+                {/* No emoji draws as coal on every platform (🪨 is a pale crystal on Windows), so coal is CSS — same lump as the reveal. */}
+                {e === "coal"
+                  ? <div style={{ width: 46, height: 38, margin: "3px auto 11px", borderRadius: "42% 58% 46% 54% / 55% 45% 55% 45%", background: "radial-gradient(circle at 35% 30%, #6a6a6a, #1c1c1c 58%, #050505)", boxShadow: "0 0 12px rgba(255,90,0,0.55), inset -3px -4px 6px rgba(255,110,0,0.45)" }} />
+                  : <div style={{ fontSize: 44, lineHeight: 1, marginBottom: 8 }}>{e}</div>}
+                <div style={{ fontSize: 12, fontWeight: 700, fontFamily: S.fontHead, color: S.text, lineHeight: 1.3, minHeight: 32 }}>{n}</div>
+                <div style={{ fontSize: 10, color: S.dimmer, marginTop: 4 }}>Idea · not on sale</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p style={{ textAlign: "center", color: S.muted, fontSize: 13, marginTop: 12 }}>Elijah's elves are still printing these — check back soon! 🎄</p>
+      ))}
     </div>
   );
 }
@@ -5026,6 +5506,426 @@ function HalloweenPicksEditor({ products, halloweenPicks, onSave }) {
   );
 }
 
+/* ═══════════════════════════════════════
+   THEMES & LAUNCHES TAB (added 2026-11-20)
+   ═══════════════════════════════════════
+   The seasonal skins and launch switches used to sit at the top of the Colours tab
+   (Glow 2026-05, Halloween 2026-09); John asked for their own tab once Christmas made
+   it three. Every write from here goes through setFlag / patchMeta, which re-read the
+   live document first and refuse to save if that read fails — saving whole documents
+   from in-memory state after a failed boot read is the catalogue-wipe shape. */
+function ThemesTab({ products, creators, categoryMeta, onSaveCategoryMeta, onSaveCategories, featureFlags, onSaveFeatureFlags, halloweenPicks, onSaveHalloweenPicks }) {
+  const [busy, setBusy] = useState(false);
+  const savedOrderBy = categoryMeta?.[XMAS_CATEGORY]?.orderBy || "";
+  const [orderByDraft, setOrderByDraft] = useState(savedOrderBy);
+  useEffect(() => { setOrderByDraft(savedOrderBy); }, [savedOrderBy]);
+
+  const hwReadiness = useMemo(() => seasonReadiness(products, creators, "Halloween", categoryMeta), [products, creators, categoryMeta]);
+  const xmReadiness = useMemo(() => {
+    const r = seasonReadiness(products, creators, XMAS_CATEGORY, categoryMeta);
+    const onList = (cat) => r.seasonProducts.filter(p => getProductCategories(p).includes(cat));
+    const nice = onList(XMAS_SIDES.nice.cat);
+    const naughty = onList(XMAS_SIDES.naughty.cat);
+    const neither = r.seasonProducts.filter(p => !nice.includes(p) && !naughty.includes(p));
+    const blockers = [...r.blockers];
+    if (r.seasonProducts.length && !nice.length) blockers.push("Nothing on the Nice List yet");
+    if (r.seasonProducts.length && !naughty.length) blockers.push("Nothing on the Naughty List yet");
+    return { ...r, nice, naughty, neither, blockers };
+  }, [products, creators, categoryMeta]);
+  const xmConnected = XMAS_ALL_CATEGORIES.every(c => categories.includes(c) && categoryMeta?.[c]?.launchFlag === "christmasEnabled")
+    && [XMAS_SIDES.nice.cat, XMAS_SIDES.naughty.cat].every(c => categoryMeta?.[c]?.parent === XMAS_CATEGORY);
+  const xmBlockers = xmConnected ? xmReadiness.blockers : ["Christmas categories not set up yet", ...xmReadiness.blockers];
+
+  const setFlag = async (name, value) => {
+    let fresh;
+    try {
+      const raw = await storageGet("feature-flags-v1");
+      fresh = { ...DEFAULT_FEATURE_FLAGS, ...(raw ? JSON.parse(raw) : {}) };
+    } catch (e) {
+      console.error("Fresh read of feature-flags-v1 failed:", e);
+      alert("⚠️ Couldn't read the current switches, so nothing was changed. Check your connection and try again.");
+      return;
+    }
+    await onSaveFeatureFlags({ ...fresh, [name]: value });
+  };
+  // patches = { [category]: { field: value } }; a value of undefined removes the field.
+  const patchMeta = async (patches) => {
+    let fresh;
+    try {
+      const raw = await storageGet("category-meta-v1");
+      if (!raw) throw new Error("category-meta-v1 is missing");
+      fresh = JSON.parse(raw);
+      if (!fresh || typeof fresh !== "object" || Array.isArray(fresh)) throw new Error("unexpected shape");
+    } catch (e) {
+      console.error("Fresh read of category-meta-v1 failed:", e);
+      alert("⚠️ Couldn't read the current category settings, so nothing was saved (saving anyway could have overwritten them). Check your connection and try again.");
+      return false;
+    }
+    const next = { ...fresh };
+    Object.entries(patches).forEach(([cat, patch]) => {
+      const entry = { ...(next[cat] || {}) };
+      Object.entries(patch).forEach(([k, v]) => { if (v === undefined) delete entry[k]; else entry[k] = v; });
+      next[cat] = entry;
+    });
+    await onSaveCategoryMeta(next);
+    // saveCategoryMeta swallows write errors, so read it back and check it landed.
+    try {
+      const back = JSON.parse((await storageGet("category-meta-v1")) || "{}");
+      const landed = Object.entries(patches).every(([cat, patch]) => Object.entries(patch).every(([k, v]) => JSON.stringify(back?.[cat]?.[k]) === JSON.stringify(v)));
+      if (!landed) throw new Error("read-back mismatch");
+    } catch (e) {
+      console.error("category-meta-v1 read-back failed:", e);
+      alert("⚠️ That change may not have saved. Reload the admin page and check before relying on it.");
+      return false;
+    }
+    return true;
+  };
+
+  const setUpChristmas = async () => {
+    setBusy(true);
+    try {
+      const base = { audience: "kids", hasDimensions: false, hasBoxLabels: false, launchFlag: "christmasEnabled", paused: false };
+      // Gate first: the launchFlag is on the category settings before the categories
+      // themselves exist, so there's never a moment the range could show un-gated.
+      const ok = await patchMeta({
+        [XMAS_CATEGORY]: { ...base, sortOrder: categoryMeta?.[XMAS_CATEGORY]?.sortOrder ?? -2 },
+        [XMAS_SIDES.nice.cat]: { ...base, parent: XMAS_CATEGORY, sortOrder: 0 },
+        [XMAS_SIDES.naughty.cat]: { ...base, parent: XMAS_CATEGORY, sortOrder: 1 },
+      });
+      if (!ok) return;
+      let live;
+      try {
+        const raw = await storageGet("categories-v1");
+        if (!raw) throw new Error("categories-v1 is missing");
+        live = JSON.parse(raw);
+        if (!Array.isArray(live)) throw new Error("unexpected shape");
+      } catch (e) {
+        console.error("Fresh read of categories-v1 failed:", e);
+        alert("⚠️ Settings saved, but couldn't read the category list, so the Christmas categories weren't added. Try the button again.");
+        return;
+      }
+      const missing = XMAS_ALL_CATEGORIES.filter(c => !live.includes(c));
+      if (missing.length) await onSaveCategories([...live, ...missing]);
+    } finally { setBusy(false); }
+  };
+  const saveOrderBy = async () => {
+    setBusy(true);
+    try { await patchMeta({ [XMAS_CATEGORY]: { orderBy: orderByDraft.trim() || undefined } }); }
+    finally { setBusy(false); }
+  };
+
+  const xmLive = !!featureFlags.christmasEnabled;
+  const xmBlocked = xmBlockers.length > 0;
+  const toggleChristmas = () => {
+    if (xmLive) { setFlag("christmasEnabled", false); return; }
+    const warning = xmBlocked
+      ? `\n\n⚠️ ${xmBlockers.length} check(s) not clear yet:\n${xmBlockers.map(b => "• " + b).join("\n")}\n\nNothing becomes purchasable from this alone — products stay hidden until you also mark them available — but real visitors will see the Christmas hero while this is on.`
+      : "";
+    const hwNote = featureFlags.halloweenEnabled ? "\n\nHalloween is still switched on. Christmas takes over the homepage, but the Halloween range stays on sale until you switch it off below." : "";
+    const ok = window.confirm(`Go LIVE with Christmas?${warning}${hwNote}\n\n${xmReadiness.seasonProducts.length} products will become visible and buyable on etprintworld.com once you also mark them available. Only do that once the creator subscriptions are paid and every price is one you've set yourself.`);
+    if (ok) setFlag("christmasEnabled", true);
+  };
+  const xmAccent = "#ff5a6a";
+  const xmRows = [
+    { ok: xmConnected, text: xmConnected ? `"Christmas", "Nice List" and "Naughty List" are set up and connected to this switch` : "Christmas categories not set up yet (button below)" },
+    { ok: xmReadiness.seasonProducts.length > 0, text: `${xmReadiness.seasonProducts.length} Christmas products · ${xmReadiness.nice.length} on the Nice List · ${xmReadiness.naughty.length} on the Naughty List` },
+    { ok: xmReadiness.nice.length > 0 && xmReadiness.naughty.length > 0, text: xmReadiness.nice.length > 0 && xmReadiness.naughty.length > 0 ? "Both lists have products" : "Each list needs at least one product" },
+    { ok: xmReadiness.unpaidCreators.length === 0, text: xmReadiness.unpaidCreators.length === 0 ? "Every creator behind a product is paid" : `${xmReadiness.unpaidCreators.length} creator(s) not paid: ${xmReadiness.unpaidCreators.join(", ")}` },
+    { ok: xmReadiness.noColours.length === 0, text: xmReadiness.noColours.length === 0 ? "Every product has colours to pick" : `${xmReadiness.noColours.length} product(s) have no colours` },
+    { ok: xmReadiness.stillHotlinked.length === 0, text: xmReadiness.stillHotlinked.length === 0 ? "All photos are hosted on our own storage" : `${xmReadiness.stillHotlinked.length} photo(s) still from MakerWorld` },
+    { ok: xmReadiness.photoBlockers.length === 0, text: xmReadiness.photoBlockers.length === 0 ? "Photo rights confirmed for every creator" : `${xmReadiness.photoBlockers.length} creator(s) haven't confirmed photo rights` },
+  ];
+
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: S.muted, marginBottom: 20, lineHeight: 1.6 }}>
+        Seasonal skins and launch switches. Only one homepage hero shows at a time: <strong style={{ color: S.text }}>Christmas</strong> first, then <strong style={{ color: S.text }}>Halloween</strong>, then <strong style={{ color: S.text }}>Glow</strong>.
+      </p>
+
+      {/* Christmas 2026 — "Naughty or Nice?" skin + readiness gate (added 2026-11-20).
+          Same panel pattern as Halloween below. */}
+      <div style={{
+        marginBottom: 24, borderRadius: 16, padding: "18px 20px",
+        background: xmLive ? "rgba(255,90,106,0.07)" : "rgba(255,90,106,0.02)",
+        border: `1px solid ${xmLive ? "rgba(255,90,106,0.45)" : "rgba(255,90,106,0.18)"}`,
+        boxShadow: xmLive ? "0 0 24px rgba(255,90,106,0.12)" : "none",
+      }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: xmAccent, marginBottom: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              🎄 Christmas 2026 · Naughty or Nice
+              <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 999, background: xmLive ? xmAccent : xmBlocked ? "rgba(220,53,69,0.15)" : "rgba(255,255,255,0.08)", color: xmLive ? "#1a0005" : xmBlocked ? "#dc3545" : S.muted, fontFamily: S.fontMono, fontWeight: 700 }}>
+                {xmLive ? "LIVE" : xmBlocked ? `NOT READY · ${xmBlockers.length} TO DO` : "READY · NOT LIVE"}
+              </span>
+            </div>
+            <p style={{ fontSize: 13, color: S.muted, lineHeight: 1.6, marginBottom: 8 }}>
+              Master switch for the Christmas skin and range. When ON, the top of the homepage becomes a snowy night sky with Santa's sleigh
+              asking <strong style={{ color: S.text }}>"Have you been naughty or nice this year?"</strong> — the answer takes the customer to
+              the <strong style={{ color: S.text }}>Nice List</strong> or the <strong style={{ color: S.text }}>Naughty List</strong>. The Christmas tab appears
+              in the shop and every Christmas product you've made available goes on sale. When OFF, nothing Christmassy shows anywhere. Nothing is deleted either way.
+            </p>
+            <p style={{ fontSize: 12, color: S.muted, lineHeight: 1.6, marginBottom: 8 }}>
+              To put a product on a list, give it the category <strong style={{ color: S.text }}>Nice List</strong> or <strong style={{ color: S.text }}>Naughty List</strong> in the product editor — both sit inside Christmas automatically.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+              {xmRows.map((r, i) => (
+                <span key={i} style={{ fontSize: 12, color: r.ok ? "#2fbf71" : "#dc3545", fontFamily: S.fontMono }}>{r.ok ? "✓" : "✕"} {r.text}</span>
+              ))}
+              {xmReadiness.neither.length > 0 && (
+                <span style={{ fontSize: 12, color: "#f59e0b", fontFamily: S.fontMono }}>! {xmReadiness.neither.length} Christmas product(s) aren't on either list — they show under the Christmas tab, but not after naughty/nice: {xmReadiness.neither.map(p => `#${p.id}`).join(", ")}</span>
+              )}
+              {xmReadiness.offLadder.length > 0 && (
+                <span style={{ fontSize: 12, color: "#f59e0b", fontFamily: S.fontMono }}>! {xmReadiness.offLadder.length} price(s) off the standard ladder — worth a glance: {xmReadiness.offLadder.map(p => `#${p.id} £${p.price}`).join(", ")}</span>
+              )}
+            </div>
+            <p style={{ fontSize: 12, color: xmLive ? xmAccent : "#f59e0b", fontWeight: 600, marginTop: 8 }}>
+              ⚠️ This puts real products on sale for real money. Every creator behind them has to be paid first — same rule as the FootballLab trophies.
+            </p>
+            {!xmConnected ? (
+              <button disabled={busy} onClick={setUpChristmas} style={{ marginTop: 8, padding: "8px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.muted, fontSize: 12, fontWeight: 600, cursor: busy ? "wait" : "pointer", fontFamily: S.fontHead }}>
+                🔧 Set up the Christmas, Nice List and Naughty List categories (safe — they stay hidden until you go live)
+              </button>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                <label style={{ fontSize: 12, color: S.muted, fontFamily: S.fontHead, fontWeight: 600 }}>Order-by date shown on the hero:</label>
+                <input value={orderByDraft} onChange={e => setOrderByDraft(e.target.value)} placeholder="e.g. Sat 19 Dec" style={{ width: 150, padding: "7px 10px", borderRadius: 8, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.03)", color: S.text, fontFamily: S.font }} />
+                <button disabled={busy || orderByDraft.trim() === savedOrderBy} onClick={saveOrderBy} style={{ padding: "7px 12px", borderRadius: 8, border: "none", background: orderByDraft.trim() === savedOrderBy ? "rgba(255,255,255,0.05)" : S.teal, color: orderByDraft.trim() === savedOrderBy ? S.dimmer : "#1a1a2e", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>Save</button>
+                <span style={{ fontSize: 11, color: S.dimmer }}>Leave blank to hide it. Check the Royal Mail last posting date first.</span>
+              </div>
+            )}
+            <a href="/?xmaspreview=1" target="_blank" rel="noopener noreferrer" style={{ display: "inline-block", marginTop: 12, fontSize: 12, color: "#ffd43b", fontFamily: S.fontHead, fontWeight: 700 }}>
+              👀 Preview the Christmas skin (nothing goes on sale — fine to show Elijah)
+            </a>
+          </div>
+          <button
+            onClick={toggleChristmas}
+            style={{
+              padding: "12px 20px", borderRadius: 12, cursor: "pointer",
+              background: xmLive ? xmAccent : xmBlocked ? "rgba(220,53,69,0.08)" : "rgba(255,90,106,0.08)",
+              color: xmLive ? "#1a0005" : xmBlocked ? "#dc3545" : xmAccent,
+              border: `1px solid ${xmLive ? xmAccent : xmBlocked ? "rgba(220,53,69,0.35)" : "rgba(255,90,106,0.4)"}`,
+              fontSize: 14, fontWeight: 800, fontFamily: S.fontHead,
+              display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap",
+              boxShadow: xmLive ? "0 0 20px rgba(255,90,106,0.4)" : "none",
+            }}
+          >
+            <span style={{ width: 36, height: 20, borderRadius: 999, background: xmLive ? "rgba(0,0,0,0.25)" : "rgba(255,90,106,0.2)", position: "relative", display: "inline-block" }}>
+              <span style={{ position: "absolute", top: 2, left: xmLive ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: xmLive ? "#1a0005" : xmAccent, transition: "left 0.2s" }} />
+            </span>
+            {xmLive ? "CHRISTMAS IS LIVE — click to end it" : xmBlocked ? `GO LIVE ANYWAY (${xmBlockers.length} unresolved) →` : "GO LIVE WITH CHRISTMAS"}
+          </button>
+        </div>
+      </div>
+      {/* Glow Filament Program — feature flag panel (added 2026-05-02 session 7) */}
+      <div style={{
+        marginBottom: 24, borderRadius: 16, padding: "18px 20px",
+        background: featureFlags.glowEnabled ? "rgba(170,255,0,0.06)" : "rgba(170,255,0,0.02)",
+        border: `1px solid ${featureFlags.glowEnabled ? "rgba(170,255,0,0.4)" : "rgba(170,255,0,0.15)"}`,
+        boxShadow: featureFlags.glowEnabled ? "0 0 24px rgba(170,255,0,0.1)" : "none",
+      }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: "#aaff00", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+              🌙 Glow Filament Program
+              <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 999, background: featureFlags.glowEnabled ? "#aaff00" : "rgba(255,255,255,0.08)", color: featureFlags.glowEnabled ? "#0d0d1a" : S.muted, fontFamily: S.fontMono, fontWeight: 700 }}>
+                {featureFlags.glowEnabled ? "LIVE" : "READY · NOT LIVE"}
+              </span>
+            </div>
+            <p style={{ fontSize: 13, color: S.muted, lineHeight: 1.6, marginBottom: 8 }}>
+              Master switch for everything glow-in-the-dark — the homepage hero, product colour pickers, and pricing uplifts.
+              When OFF, customers see the shop exactly as it is today (no glow filaments, no glow hero). When ON, all glow-tagged
+              filaments become selectable AND the GLOW IN THE DARK hero appears at the top of the homepage.
+            </p>
+            <p style={{ fontSize: 12, color: featureFlags.glowEnabled ? "#aaff00" : "#f59e0b", fontWeight: 600, marginTop: 8 }}>
+              ⚠️ Test the filament physically before turning this on. Customer prices add +50% in glow tier (£3 clicker → £4.50, £1 keyring → £1.50). Don't promise customers a glow you haven't proven.
+            </p>
+          </div>
+          <button
+            onClick={() => setFlag("glowEnabled", !featureFlags.glowEnabled)}
+            style={{
+              padding: "12px 20px", borderRadius: 12, cursor: "pointer",
+              background: featureFlags.glowEnabled ? "#aaff00" : "rgba(170,255,0,0.08)",
+              color: featureFlags.glowEnabled ? "#0d0d1a" : "#aaff00",
+              border: `1px solid ${featureFlags.glowEnabled ? "#aaff00" : "rgba(170,255,0,0.4)"}`,
+              fontSize: 14, fontWeight: 800, fontFamily: S.fontHead,
+              display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap",
+              boxShadow: featureFlags.glowEnabled ? "0 0 20px rgba(170,255,0,0.4)" : "none",
+            }}
+          >
+            <span style={{ width: 36, height: 20, borderRadius: 999, background: featureFlags.glowEnabled ? "rgba(0,0,0,0.25)" : "rgba(170,255,0,0.2)", position: "relative", display: "inline-block" }}>
+              <span style={{ position: "absolute", top: 2, left: featureFlags.glowEnabled ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: featureFlags.glowEnabled ? "#0d0d1a" : "#aaff00", transition: "left 0.2s" }} />
+            </span>
+            {featureFlags.glowEnabled ? "GLOW IS LIVE — click to hide" : "Go LIVE with glow"}
+          </button>
+        </div>
+      </div>
+
+      {/* Halloween 2026 Launch — master switch + readiness gate (added 2026-09).
+          Same panel pattern as Glow above: one place, two switches, deliberately —
+          Moved with it from the Colours tab to the Themes tab 2026-11-20. */}
+      {(() => {
+        const hwLive = !!featureFlags.halloweenEnabled;
+        const hwBlocked = hwReadiness.blockers.length > 0;
+        const hwConnected = categoryMeta?.Halloween?.launchFlag === "halloweenEnabled";
+        const accent = "#ff7518";
+        const rows = [
+          { ok: hwReadiness.seasonProducts.length > 0, text: `${hwReadiness.seasonProducts.length} Halloween products ready to go live` },
+          { ok: hwReadiness.unpaidCreators.length === 0, text: hwReadiness.unpaidCreators.length === 0 ? "Every creator behind a live product is paid" : `${hwReadiness.unpaidCreators.length} creator(s) not paid: ${hwReadiness.unpaidCreators.join(", ")}` },
+          { ok: hwReadiness.noColours.length === 0, text: hwReadiness.noColours.length === 0 ? "Every live product has colours to pick" : `${hwReadiness.noColours.length} product(s) have no colours` },
+          { ok: hwReadiness.stillHotlinked.length === 0, text: hwReadiness.stillHotlinked.length === 0 ? "All photos are hosted on our own storage" : `${hwReadiness.stillHotlinked.length} photo(s) still from MakerWorld` },
+          { ok: hwReadiness.photoBlockers.length === 0, text: hwReadiness.photoBlockers.length === 0 ? "Photo rights confirmed for every creator" : `${hwReadiness.photoBlockers.length} creator(s) haven't confirmed photo rights` },
+        ];
+        return (
+          <div style={{
+            marginBottom: 24, borderRadius: 16, padding: "18px 20px",
+            background: hwLive ? "rgba(255,117,24,0.06)" : "rgba(255,117,24,0.02)",
+            border: `1px solid ${hwLive ? "rgba(255,117,24,0.4)" : "rgba(255,117,24,0.15)"}`,
+            boxShadow: hwLive ? "0 0 24px rgba(255,117,24,0.1)" : "none",
+          }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: accent, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                  🎃 Halloween 2026 Launch
+                  <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 999, background: hwLive ? accent : hwBlocked ? "rgba(220,53,69,0.15)" : "rgba(255,255,255,0.08)", color: hwLive ? "#1a0d00" : hwBlocked ? "#dc3545" : S.muted, fontFamily: S.fontMono, fontWeight: 700 }}>
+                    {hwLive ? "LIVE" : hwBlocked ? `BLOCKED · ${hwReadiness.blockers.length} TO FIX` : "READY · NOT LIVE"}
+                  </span>
+                </div>
+                <p style={{ fontSize: 13, color: S.muted, lineHeight: 1.6, marginBottom: 8 }}>
+                  Master switch for the whole Halloween range. When ON, the <strong style={{ color: S.text }}>Halloween</strong> tab appears in the shop,
+                  every Halloween product you've made available becomes visible, and the <strong style={{ color: S.text }}>HALLOWEEN IN THE DARK</strong> hero
+                  takes over the top of the homepage — with the lights-off demo. When OFF, the shop looks exactly as it did before Halloween, and the
+                  glow hero above comes straight back if the Glow Filament Program is still live. Nothing is deleted either way.
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+                  {rows.map((r, i) => (
+                    <span key={i} style={{ fontSize: 12, color: r.ok ? "#2fbf71" : "#dc3545", fontFamily: S.fontMono }}>{r.ok ? "✓" : "✕"} {r.text}</span>
+                  ))}
+                  <span style={{ fontSize: 12, color: "#f59e0b", fontFamily: S.fontMono }}>! {hwReadiness.glowCount} of them glow in the dark</span>
+                  {hwReadiness.offLadder.length > 0 && (
+                    <span style={{ fontSize: 12, color: "#f59e0b", fontFamily: S.fontMono }}>! {hwReadiness.offLadder.length} price(s) off the standard ladder (expected for the big aliens — worth a glance for the rest): {hwReadiness.offLadder.map(p => `#${p.id} £${p.price}`).join(", ")}</span>
+                  )}
+                </div>
+                <p style={{ fontSize: 12, color: hwLive ? accent : "#f59e0b", fontWeight: 600, marginTop: 8 }}>
+                  ⚠️ This puts real products on sale for real money. Every creator behind them has to be paid first — selling a print under a licence you
+                  haven't bought is the same mistake as the FootballLab trophies. The red checks have to be green before this switch will work.
+                </p>
+                {!hwConnected && (
+                  <button
+                    onClick={() => patchMeta({ Halloween: { launchFlag: "halloweenEnabled", paused: false } })}
+                    style={{ marginTop: 4, padding: "8px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}
+                  >
+                    🔧 Connect "Halloween" to this switch (safe — stays hidden until you go live)
+                  </button>
+                )}
+                {hwConnected && <span style={{ fontSize: 12, color: "#2fbf71", fontFamily: S.fontMono, display: "block", marginBottom: 10 }}>✓ "Halloween" category is connected to this switch</span>}
+
+                {/* Hero photo — Elijah's own print, shown as one of the first things a
+                    customer sees when Halloween mode switches on (John, 2026-09). Same
+                    upload pattern as every product photo on the site. Falls back to an
+                    emoji motif on the storefront until this is set.
+                    Extended 2026-09-04 to 3 slots (on / mid / glow) — John supplied 3
+                    real renders of the alien at varying glow intensity, and the hero
+                    below now crossfades through them when the lights-off toggle fires,
+                    instead of swapping a single static photo. Any slot left empty just
+                    falls back gracefully (see the hero render logic). */}
+                <div style={{ display: "flex", gap: 16, alignItems: "flex-start", marginTop: 10, flexWrap: "wrap" }}>
+                  {[
+                    { key: "heroImageUrl", slot: "halloween-alien-on", label: "Lights on", emoji: "👽" },
+                    { key: "heroImageMidUrl", slot: "halloween-alien-mid", label: "Charging", emoji: "🔋" },
+                    { key: "heroImageGlowUrl", slot: "halloween-alien-glow", label: "Full glow", emoji: "🌙" },
+                  ].map(({ key, slot, label, emoji }) => {
+                    const url = categoryMeta?.Halloween?.[key];
+                    return (
+                      <div key={slot} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                        <label style={{
+                          width: 64, height: 64, borderRadius: 12, cursor: "pointer", flexShrink: 0, overflow: "hidden",
+                          border: `2px dashed ${url ? "transparent" : "rgba(255,117,24,0.3)"}`,
+                          background: url ? "none" : "rgba(255,117,24,0.04)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                          {url
+                            ? <img src={url} alt={label} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            : <span style={{ fontSize: 20, opacity: 0.5 }}>{emoji}</span>}
+                          <input type="file" accept="image/*" style={{ display: "none" }} onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              const imageData = await compressImage(file);
+                              const uploadedUrl = await uploadHeroImage(slot, imageData);
+                              if (uploadedUrl === imageData) {
+                                // Storage upload failed (function fell back to base64) — do NOT
+                                // save it into category-meta-v1. Same guard as the label-drawing
+                                // uploader; without it this is the exact 2026-07-13 1 MiB-ceiling
+                                // failure shape (base64 stranded in Firestore instead of Storage),
+                                // just in a different document. Confirmed firing 2026-09-04: all
+                                // 3 hero slots landed as inline base64 before this fix existed.
+                                alert("⚠️ Photo upload to Firebase Storage failed. Check Firebase Storage rules allow authenticated writes to hero-images/. Photo was NOT saved.");
+                                console.error("❌ Storage upload returned base64 — Firebase Storage rules likely blocking writes to hero-images/");
+                              } else {
+                                await patchMeta({ Halloween: { [key]: uploadedUrl } });
+                              }
+                            } catch (err) { console.error("Hero image upload failed:", err); }
+                            e.target.value = "";
+                          }} />
+                        </label>
+                        <span style={{ fontSize: 9, color: S.muted, fontFamily: S.fontHead, fontWeight: 700, letterSpacing: "0.3px" }}>{label}</span>
+                        {url && (
+                          <button onClick={async () => { await deleteHeroImage(slot); await patchMeta({ Halloween: { [key]: undefined } }); }} style={{ padding: "2px 7px", borderRadius: 8, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 9, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>✕</button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <p style={{ fontSize: 12, color: S.muted, margin: "4px 0 0", lineHeight: 1.5, flex: 1, minWidth: 180 }}>
+                    Upload any or all three — the hero crossfades through whichever you've set when a visitor hits "turn the lights off". Just "Lights on" alone works fine too (falls back to the 👽 until then).
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (hwLive) { setFlag("halloweenEnabled", false); return; }
+                  // Soft gate (changed 2026-09, John's explicit request to test the
+                  // switch himself) — matches the glow switch's own pattern elsewhere
+                  // on this page: warn, don't hard-disable. The real purchase gate is
+                  // the server-side check in create-checkout-session.js, which reads
+                  // live category/availability state independently of this button and
+                  // isn't affected by this change either way.
+                  const warning = hwBlocked
+                    ? `\n\n⚠️ ${hwReadiness.blockers.length} check(s) not actually clear yet:\n${hwReadiness.blockers.map(b => "• " + b).join("\n")}\n\nNothing becomes purchasable from this alone — products stay hidden until you also mark them available — but real visitors will see the Halloween tab and hero while this is on.`
+                    : "";
+                  const ok = window.confirm(`Go LIVE with Halloween?${warning}\n\n${hwReadiness.seasonProducts.length} products will become visible and buyable on etprintworld.com immediately once you also mark them available. Only do that once the creator subscriptions are paid and every price is one you set yourself.`);
+                  if (ok) setFlag("halloweenEnabled", true);
+                }}
+                style={{
+                  padding: "12px 20px", borderRadius: 12, cursor: "pointer",
+                  background: hwLive ? accent : hwBlocked ? "rgba(220,53,69,0.08)" : "rgba(255,117,24,0.08)",
+                  color: hwLive ? "#1a0d00" : hwBlocked ? "#dc3545" : accent,
+                  border: `1px solid ${hwLive ? accent : hwBlocked ? "rgba(220,53,69,0.35)" : "rgba(255,117,24,0.4)"}`,
+                  fontSize: 14, fontWeight: 800, fontFamily: S.fontHead,
+                  display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap",
+                  boxShadow: hwLive ? "0 0 20px rgba(255,117,24,0.4)" : "none",
+                }}
+              >
+                <span style={{ width: 36, height: 20, borderRadius: 999, background: hwLive ? "rgba(0,0,0,0.25)" : "rgba(255,117,24,0.2)", position: "relative", display: "inline-block" }}>
+                  <span style={{ position: "absolute", top: 2, left: hwLive ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: hwLive ? "#1a0d00" : accent, transition: "left 0.2s" }} />
+                </span>
+                {hwLive ? "HALLOWEEN IS LIVE — click to end it" : hwBlocked ? `GO LIVE ANYWAY (${hwReadiness.blockers.length} unresolved) →` : "GO LIVE WITH HALLOWEEN"}
+              </button>
+            </div>
+            {hwLive && (
+              <p style={{ fontSize: 12, color: S.muted, lineHeight: 1.6, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${S.border}` }}>
+                🎃 Halloween Takeover is running the homepage hero right now — glow is the star of that story ({hwReadiness.glowCount} glowing products, lights-off mode, GLOWS badges).
+                Products that only come in glow colours will drop out of the shop if you switch glow off until it's back on. Turn Halloween off and the GLOW IN THE DARK hero comes straight back.
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
+      <HalloweenPicksEditor products={products} halloweenPicks={halloweenPicks} onSave={onSaveHalloweenPicks} />
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════
    ADMIN PANEL
    ═══════════════════════════════════════════════ */
@@ -5051,47 +5951,6 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
   const [dataImportDone, setDataImportDone] = useState(false);
   const [requests, setRequests] = useState([]);
   const [requestStatusFilter, setRequestStatusFilter] = useState("all");
-
-  // Halloween 2026 launch readiness (added 2026-09) — computed unconditionally, at the
-  // top of AdminPanel, so the hook order never depends on which admin tab is open.
-  // Deliberately does NOT depend on filamentVer (it doesn't exist in AdminPanel's
-  // props/state — an earlier draft of this gate crashed on exactly that), does NOT
-  // hard-block on `status` (the available-toggle at the product editor forces
-  // status:"live" whenever available:true, so a status!=="approved" check can never
-  // go green for a live product and would lock the button forever), and reads the
-  // `photoSource`/`photoRights` fields every product/creator already carries rather
-  // than regexing a URL (there is no `image` field anywhere in products-v2).
-  const hwReadiness = useMemo(() => {
-    const hwProducts = (products || []).filter(p => getProductCategories(p).includes("Halloween"));
-    const creatorByName = new Map((creators || []).map(c => [c.name, c]));
-    const clearStatuses = new Set(["subscribed", "free", "no_licence_needed"]);
-    const creatorNames = [...new Set(hwProducts.map(p => p.creator).filter(Boolean))];
-    const unpaidCreators = creatorNames.filter(name => {
-      const cr = creatorByName.get(name);
-      return !cr || !clearStatuses.has(cr.licenceStatus);
-    });
-    const noColours = hwProducts.filter(p => !(p.colors || []).length);
-    const stillHotlinked = hwProducts.filter(p => p.photoSource !== "own");
-    const photoBlockers = creatorNames.filter(name => {
-      const cr = creatorByName.get(name);
-      const hasOwnPhotos = hwProducts.some(p => p.creator === name && p.photoSource === "own");
-      return !hasOwnPhotos && (!cr || cr.photoRights !== "included");
-    });
-    const glowCount = hwProducts.filter(p => (p.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow")).length;
-    // Informational only — the ET pricing ladder. Large/bespoke items (the 3ft aliens)
-    // are expected to sit off it; this is a nudge to check, not a rule that's been broken.
-    const LADDER = [2, 3, 4.5, 5, 7.5, 10, 12.5];
-    const offLadder = hwProducts.filter(p => typeof p.price === "number" && !LADDER.includes(p.price));
-
-    const blockers = [];
-    if (hwProducts.length === 0) blockers.push("No Halloween products exist yet");
-    if (unpaidCreators.length) blockers.push(`${unpaidCreators.length} creator${unpaidCreators.length === 1 ? "" : "s"} not paid or licence-free: ${unpaidCreators.join(", ")}`);
-    if (noColours.length) blockers.push(`${noColours.length} product${noColours.length === 1 ? "" : "s"} with no colours to pick`);
-    if (stillHotlinked.length) blockers.push(`${stillHotlinked.length} photo${stillHotlinked.length === 1 ? "" : "s"} still on MakerWorld`);
-    if (photoBlockers.length) blockers.push(`${photoBlockers.length} creator${photoBlockers.length === 1 ? "" : "s"} haven't confirmed photo rights: ${photoBlockers.join(", ")}`);
-
-    return { hwProducts, unpaidCreators, noColours, stillHotlinked, photoBlockers, glowCount, offLadder, blockers };
-  }, [products, creators]);
 
   const handleUpdateRequest = async (id, status) => {
     await updateRequestStatus(id, status);
@@ -5751,6 +6610,7 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
           { id: "orders", label: "📦 Order Book", shortLabel: "📦 Orders", count: pendingOrders },
           { id: "products", label: "🏷️ Products", shortLabel: "🏷️ Products", count: products.length },
 { id: "colours", label: "🎨 Colours", shortLabel: "🎨 Colours", count: ALL_COLORS.length },
+          { id: "themes", label: "✨ Themes & Launches", shortLabel: "✨ Themes", count: [featureFlags.glowEnabled, featureFlags.halloweenEnabled, featureFlags.christmasEnabled].filter(Boolean).length },
           { id: "categories", label: "📂 Categories", shortLabel: "📂 Cats", count: categories.length },
           { id: "creators", label: "👤 Creators", shortLabel: "👤 Creators", count: creators.length },
           { id: "stock", label: "📊 Stock", shortLabel: "📊 Stock", count: stockTargets.reduce((s, t) => s + (t.targetQty || 0), 0) },
@@ -5920,219 +6780,17 @@ function AdminPanel({ products, onSave, onLogout, orders, onUpdateOrders, onSave
       </div>
       </>)}
 
+      {/* Themes & Launches tab (added 2026-11-20) — seasonal skins + launch switches, moved out of Colours */}
+      {adminTab === "themes" && (
+        <ThemesTab products={products} creators={creators} categoryMeta={categoryMeta} onSaveCategoryMeta={onSaveCategoryMeta} onSaveCategories={onSaveCategories} featureFlags={featureFlags} onSaveFeatureFlags={onSaveFeatureFlags} halloweenPicks={halloweenPicks} onSaveHalloweenPicks={onSaveHalloweenPicks} />
+      )}
+
       {/* Colours tab */}
       {adminTab === "colours" && (
         <div>
           <p style={{ fontSize: 13, color: S.muted, marginBottom: 20, lineHeight: 1.6 }}>
             Manage your filament library. Every colour here is automatically available on <strong style={{ color: S.text }}>all products</strong>.
           </p>
-
-          {/* Glow Filament Program — feature flag panel (added 2026-05-02 session 7) */}
-          <div style={{
-            marginBottom: 24, borderRadius: 16, padding: "18px 20px",
-            background: featureFlags.glowEnabled ? "rgba(170,255,0,0.06)" : "rgba(170,255,0,0.02)",
-            border: `1px solid ${featureFlags.glowEnabled ? "rgba(170,255,0,0.4)" : "rgba(170,255,0,0.15)"}`,
-            boxShadow: featureFlags.glowEnabled ? "0 0 24px rgba(170,255,0,0.1)" : "none",
-          }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: 240 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: "#aaff00", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-                  🌙 Glow Filament Program
-                  <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 999, background: featureFlags.glowEnabled ? "#aaff00" : "rgba(255,255,255,0.08)", color: featureFlags.glowEnabled ? "#0d0d1a" : S.muted, fontFamily: S.fontMono, fontWeight: 700 }}>
-                    {featureFlags.glowEnabled ? "LIVE" : "READY · NOT LIVE"}
-                  </span>
-                </div>
-                <p style={{ fontSize: 13, color: S.muted, lineHeight: 1.6, marginBottom: 8 }}>
-                  Master switch for everything glow-in-the-dark — the homepage hero, product colour pickers, and pricing uplifts.
-                  When OFF, customers see the shop exactly as it is today (no glow filaments, no glow hero). When ON, all glow-tagged
-                  filaments become selectable AND the GLOW IN THE DARK hero appears at the top of the homepage.
-                </p>
-                <p style={{ fontSize: 12, color: featureFlags.glowEnabled ? "#aaff00" : "#f59e0b", fontWeight: 600, marginTop: 8 }}>
-                  ⚠️ Test the filament physically before turning this on. Customer prices add +50% in glow tier (£3 clicker → £4.50, £1 keyring → £1.50). Don't promise customers a glow you haven't proven.
-                </p>
-              </div>
-              <button
-                onClick={() => onSaveFeatureFlags({ ...featureFlags, glowEnabled: !featureFlags.glowEnabled })}
-                style={{
-                  padding: "12px 20px", borderRadius: 12, cursor: "pointer",
-                  background: featureFlags.glowEnabled ? "#aaff00" : "rgba(170,255,0,0.08)",
-                  color: featureFlags.glowEnabled ? "#0d0d1a" : "#aaff00",
-                  border: `1px solid ${featureFlags.glowEnabled ? "#aaff00" : "rgba(170,255,0,0.4)"}`,
-                  fontSize: 14, fontWeight: 800, fontFamily: S.fontHead,
-                  display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap",
-                  boxShadow: featureFlags.glowEnabled ? "0 0 20px rgba(170,255,0,0.4)" : "none",
-                }}
-              >
-                <span style={{ width: 36, height: 20, borderRadius: 999, background: featureFlags.glowEnabled ? "rgba(0,0,0,0.25)" : "rgba(170,255,0,0.2)", position: "relative", display: "inline-block" }}>
-                  <span style={{ position: "absolute", top: 2, left: featureFlags.glowEnabled ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: featureFlags.glowEnabled ? "#0d0d1a" : "#aaff00", transition: "left 0.2s" }} />
-                </span>
-                {featureFlags.glowEnabled ? "GLOW IS LIVE — click to hide" : "Go LIVE with glow"}
-              </button>
-            </div>
-          </div>
-
-          {/* Halloween 2026 Launch — master switch + readiness gate (added 2026-09).
-              Same panel pattern as Glow above: one place, two switches, deliberately —
-              John already has muscle memory for "launch switches live under Colours". */}
-          {(() => {
-            const hwLive = !!featureFlags.halloweenEnabled;
-            const hwBlocked = hwReadiness.blockers.length > 0;
-            const hwConnected = categoryMeta?.Halloween?.launchFlag === "halloweenEnabled";
-            const accent = "#ff7518";
-            const rows = [
-              { ok: hwReadiness.hwProducts.length > 0, text: `${hwReadiness.hwProducts.length} Halloween products ready to go live` },
-              { ok: hwReadiness.unpaidCreators.length === 0, text: hwReadiness.unpaidCreators.length === 0 ? "Every creator behind a live product is paid" : `${hwReadiness.unpaidCreators.length} creator(s) not paid: ${hwReadiness.unpaidCreators.join(", ")}` },
-              { ok: hwReadiness.noColours.length === 0, text: hwReadiness.noColours.length === 0 ? "Every live product has colours to pick" : `${hwReadiness.noColours.length} product(s) have no colours` },
-              { ok: hwReadiness.stillHotlinked.length === 0, text: hwReadiness.stillHotlinked.length === 0 ? "All photos are hosted on our own storage" : `${hwReadiness.stillHotlinked.length} photo(s) still from MakerWorld` },
-              { ok: hwReadiness.photoBlockers.length === 0, text: hwReadiness.photoBlockers.length === 0 ? "Photo rights confirmed for every creator" : `${hwReadiness.photoBlockers.length} creator(s) haven't confirmed photo rights` },
-            ];
-            return (
-              <div style={{
-                marginBottom: 24, borderRadius: 16, padding: "18px 20px",
-                background: hwLive ? "rgba(255,117,24,0.06)" : "rgba(255,117,24,0.02)",
-                border: `1px solid ${hwLive ? "rgba(255,117,24,0.4)" : "rgba(255,117,24,0.15)"}`,
-                boxShadow: hwLive ? "0 0 24px rgba(255,117,24,0.1)" : "none",
-              }}>
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-                  <div style={{ flex: 1, minWidth: 240 }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: S.fontHead, color: accent, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-                      🎃 Halloween 2026 Launch
-                      <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 999, background: hwLive ? accent : hwBlocked ? "rgba(220,53,69,0.15)" : "rgba(255,255,255,0.08)", color: hwLive ? "#1a0d00" : hwBlocked ? "#dc3545" : S.muted, fontFamily: S.fontMono, fontWeight: 700 }}>
-                        {hwLive ? "LIVE" : hwBlocked ? `BLOCKED · ${hwReadiness.blockers.length} TO FIX` : "READY · NOT LIVE"}
-                      </span>
-                    </div>
-                    <p style={{ fontSize: 13, color: S.muted, lineHeight: 1.6, marginBottom: 8 }}>
-                      Master switch for the whole Halloween range. When ON, the <strong style={{ color: S.text }}>Halloween</strong> tab appears in the shop,
-                      every Halloween product you've made available becomes visible, and the <strong style={{ color: S.text }}>HALLOWEEN IN THE DARK</strong> hero
-                      takes over the top of the homepage — with the lights-off demo. When OFF, the shop looks exactly as it did before Halloween, and the
-                      glow hero above comes straight back if the Glow Filament Program is still live. Nothing is deleted either way.
-                    </p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
-                      {rows.map((r, i) => (
-                        <span key={i} style={{ fontSize: 12, color: r.ok ? "#2fbf71" : "#dc3545", fontFamily: S.fontMono }}>{r.ok ? "✓" : "✕"} {r.text}</span>
-                      ))}
-                      <span style={{ fontSize: 12, color: "#f59e0b", fontFamily: S.fontMono }}>! {hwReadiness.glowCount} of them glow in the dark</span>
-                      {hwReadiness.offLadder.length > 0 && (
-                        <span style={{ fontSize: 12, color: "#f59e0b", fontFamily: S.fontMono }}>! {hwReadiness.offLadder.length} price(s) off the standard ladder (expected for the big aliens — worth a glance for the rest): {hwReadiness.offLadder.map(p => `#${p.id} £${p.price}`).join(", ")}</span>
-                      )}
-                    </div>
-                    <p style={{ fontSize: 12, color: hwLive ? accent : "#f59e0b", fontWeight: 600, marginTop: 8 }}>
-                      ⚠️ This puts real products on sale for real money. Every creator behind them has to be paid first — selling a print under a licence you
-                      haven't bought is the same mistake as the FootballLab trophies. The red checks have to be green before this switch will work.
-                    </p>
-                    {!hwConnected && (
-                      <button
-                        onClick={async () => { await onSaveCategoryMeta({ ...categoryMeta, Halloween: { ...(categoryMeta.Halloween || {}), launchFlag: "halloweenEnabled", paused: false } }); }}
-                        style={{ marginTop: 4, padding: "8px 14px", borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.04)", color: S.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: S.fontHead }}
-                      >
-                        🔧 Connect "Halloween" to this switch (safe — stays hidden until you go live)
-                      </button>
-                    )}
-                    {hwConnected && <span style={{ fontSize: 12, color: "#2fbf71", fontFamily: S.fontMono, display: "block", marginBottom: 10 }}>✓ "Halloween" category is connected to this switch</span>}
-
-                    {/* Hero photo — Elijah's own print, shown as one of the first things a
-                        customer sees when Halloween mode switches on (John, 2026-09). Same
-                        upload pattern as every product photo on the site. Falls back to an
-                        emoji motif on the storefront until this is set.
-                        Extended 2026-09-04 to 3 slots (on / mid / glow) — John supplied 3
-                        real renders of the alien at varying glow intensity, and the hero
-                        below now crossfades through them when the lights-off toggle fires,
-                        instead of swapping a single static photo. Any slot left empty just
-                        falls back gracefully (see the hero render logic). */}
-                    <div style={{ display: "flex", gap: 16, alignItems: "flex-start", marginTop: 10, flexWrap: "wrap" }}>
-                      {[
-                        { key: "heroImageUrl", slot: "halloween-alien-on", label: "Lights on", emoji: "👽" },
-                        { key: "heroImageMidUrl", slot: "halloween-alien-mid", label: "Charging", emoji: "🔋" },
-                        { key: "heroImageGlowUrl", slot: "halloween-alien-glow", label: "Full glow", emoji: "🌙" },
-                      ].map(({ key, slot, label, emoji }) => {
-                        const url = categoryMeta?.Halloween?.[key];
-                        return (
-                          <div key={slot} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                            <label style={{
-                              width: 64, height: 64, borderRadius: 12, cursor: "pointer", flexShrink: 0, overflow: "hidden",
-                              border: `2px dashed ${url ? "transparent" : "rgba(255,117,24,0.3)"}`,
-                              background: url ? "none" : "rgba(255,117,24,0.04)",
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                            }}>
-                              {url
-                                ? <img src={url} alt={label} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                : <span style={{ fontSize: 20, opacity: 0.5 }}>{emoji}</span>}
-                              <input type="file" accept="image/*" style={{ display: "none" }} onChange={async (e) => {
-                                const file = e.target.files?.[0];
-                                if (!file) return;
-                                try {
-                                  const imageData = await compressImage(file);
-                                  const uploadedUrl = await uploadHeroImage(slot, imageData);
-                                  if (uploadedUrl === imageData) {
-                                    // Storage upload failed (function fell back to base64) — do NOT
-                                    // save it into category-meta-v1. Same guard as the label-drawing
-                                    // uploader; without it this is the exact 2026-07-13 1 MiB-ceiling
-                                    // failure shape (base64 stranded in Firestore instead of Storage),
-                                    // just in a different document. Confirmed firing 2026-09-04: all
-                                    // 3 hero slots landed as inline base64 before this fix existed.
-                                    alert("⚠️ Photo upload to Firebase Storage failed. Check Firebase Storage rules allow authenticated writes to hero-images/. Photo was NOT saved.");
-                                    console.error("❌ Storage upload returned base64 — Firebase Storage rules likely blocking writes to hero-images/");
-                                  } else {
-                                    await onSaveCategoryMeta({ ...categoryMeta, Halloween: { ...(categoryMeta.Halloween || {}), [key]: uploadedUrl } });
-                                  }
-                                } catch (err) { console.error("Hero image upload failed:", err); }
-                                e.target.value = "";
-                              }} />
-                            </label>
-                            <span style={{ fontSize: 9, color: S.muted, fontFamily: S.fontHead, fontWeight: 700, letterSpacing: "0.3px" }}>{label}</span>
-                            {url && (
-                              <button onClick={async () => { await deleteHeroImage(slot); const next = { ...categoryMeta.Halloween }; delete next[key]; await onSaveCategoryMeta({ ...categoryMeta, Halloween: next }); }} style={{ padding: "2px 7px", borderRadius: 8, border: "1px solid rgba(255,107,107,0.3)", background: "rgba(255,107,107,0.08)", color: "#ff6b6b", fontSize: 9, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead }}>✕</button>
-                            )}
-                          </div>
-                        );
-                      })}
-                      <p style={{ fontSize: 12, color: S.muted, margin: "4px 0 0", lineHeight: 1.5, flex: 1, minWidth: 180 }}>
-                        Upload any or all three — the hero crossfades through whichever you've set when a visitor hits "turn the lights off". Just "Lights on" alone works fine too (falls back to the 👽 until then).
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      if (hwLive) { onSaveFeatureFlags({ ...featureFlags, halloweenEnabled: false }); return; }
-                      // Soft gate (changed 2026-09, John's explicit request to test the
-                      // switch himself) — matches the glow switch's own pattern elsewhere
-                      // on this page: warn, don't hard-disable. The real purchase gate is
-                      // the server-side check in create-checkout-session.js, which reads
-                      // live category/availability state independently of this button and
-                      // isn't affected by this change either way.
-                      const warning = hwBlocked
-                        ? `\n\n⚠️ ${hwReadiness.blockers.length} check(s) not actually clear yet:\n${hwReadiness.blockers.map(b => "• " + b).join("\n")}\n\nNothing becomes purchasable from this alone — products stay hidden until you also mark them available — but real visitors will see the Halloween tab and hero while this is on.`
-                        : "";
-                      const ok = window.confirm(`Go LIVE with Halloween?${warning}\n\n${hwReadiness.hwProducts.length} products will become visible and buyable on etprintworld.com immediately once you also mark them available. Only do that once the creator subscriptions are paid and every price is one you set yourself.`);
-                      if (ok) onSaveFeatureFlags({ ...featureFlags, halloweenEnabled: true });
-                    }}
-                    style={{
-                      padding: "12px 20px", borderRadius: 12, cursor: "pointer",
-                      background: hwLive ? accent : hwBlocked ? "rgba(220,53,69,0.08)" : "rgba(255,117,24,0.08)",
-                      color: hwLive ? "#1a0d00" : hwBlocked ? "#dc3545" : accent,
-                      border: `1px solid ${hwLive ? accent : hwBlocked ? "rgba(220,53,69,0.35)" : "rgba(255,117,24,0.4)"}`,
-                      fontSize: 14, fontWeight: 800, fontFamily: S.fontHead,
-                      display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap",
-                      boxShadow: hwLive ? "0 0 20px rgba(255,117,24,0.4)" : "none",
-                    }}
-                  >
-                    <span style={{ width: 36, height: 20, borderRadius: 999, background: hwLive ? "rgba(0,0,0,0.25)" : "rgba(255,117,24,0.2)", position: "relative", display: "inline-block" }}>
-                      <span style={{ position: "absolute", top: 2, left: hwLive ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: hwLive ? "#1a0d00" : accent, transition: "left 0.2s" }} />
-                    </span>
-                    {hwLive ? "HALLOWEEN IS LIVE — click to end it" : hwBlocked ? `GO LIVE ANYWAY (${hwReadiness.blockers.length} unresolved) →` : "GO LIVE WITH HALLOWEEN"}
-                  </button>
-                </div>
-                {hwLive && (
-                  <p style={{ fontSize: 12, color: S.muted, lineHeight: 1.6, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${S.border}` }}>
-                    🎃 Halloween Takeover is running the homepage hero right now — glow is the star of that story ({hwReadiness.glowCount} glowing products, lights-off mode, GLOWS badges).
-                    Products that only come in glow colours will drop out of the shop if you switch glow off until it's back on. Turn Halloween off and the GLOW IN THE DARK hero comes straight back.
-                  </p>
-                )}
-              </div>
-            );
-          })()}
-
-          <HalloweenPicksEditor products={products} halloweenPicks={halloweenPicks} onSave={onSaveHalloweenPicks} />
 
           {/* Print Colour Dots button */}
           <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
@@ -8476,6 +9134,19 @@ function ElijahsPrintsInner() {
   // box's own zoom/fade is rebuilt the same proven way instead of trusting the keyframe.
   const [revealPhase, setRevealPhase] = useState("start"); // "start" | "in" | "out"
   const [easterEgg, setEasterEgg] = useState(null); // hidden bat click message — 2026-09-04
+  // Christmas 2026 "Naughty or Nice?" skin (added 2026-11-20). ?xmaspreview=1 is the
+  // same chrome-only preview as ?hwpreview=1: it never touches flags or category meta,
+  // so it can't make anything purchasable. xmasSide is the visitor's answer; xmasFlash
+  // drives the one-off verdict reveal (keyed per click so a replay remounts it).
+  const [xmasPreview, setXmasPreview] = useState(false);
+  const [xmasSide, setXmasSide] = useState(null); // null | "nice" | "naughty"
+  const [xmasFlash, setXmasFlash] = useState(null); // null | { side, key }
+  const xmasTimer = useRef(null);
+  const [reduceMotion] = useState(() =>
+    typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+  const skipXmasFlash = useCallback(() => { clearTimeout(xmasTimer.current); setXmasFlash(null); }, []);
+  useEffect(() => () => clearTimeout(xmasTimer.current), []);
   const heroStages = [categoryMeta?.Halloween?.heroImageUrl, categoryMeta?.Halloween?.heroImageMidUrl, categoryMeta?.Halloween?.heroImageGlowUrl].filter(Boolean);
   useEffect(() => {
     if (heroStages.length < 2) { setHeroStage(lightsOff ? heroStages.length - 1 : 0); return; }
@@ -8567,7 +9238,7 @@ function ElijahsPrintsInner() {
   // gap `paused` alone has always had.
   useEffect(() => {
     if (activeCat !== "All" && isCategoryHidden(activeCat, categoryMeta, featureFlags)) setActiveCat("All");
-  }, [activeCat, categoryMeta, featureFlags.halloweenEnabled, featureFlags.glowEnabled]);
+  }, [activeCat, categoryMeta, featureFlags.halloweenEnabled, featureFlags.glowEnabled, featureFlags.christmasEnabled]);
 
   // Lights-off demo (added 2026-09): Escape restores it, and it auto-restores if the
   // customer navigates off the shop page or Halloween itself goes off mid-session —
@@ -8667,6 +9338,7 @@ function ElijahsPrintsInner() {
       }
     });
     if (new URLSearchParams(window.location.search).get("hwpreview") === "1") setHwPreview(true);
+    if (new URLSearchParams(window.location.search).get("xmaspreview") === "1") setXmasPreview(true);
     const dp = new URLSearchParams(window.location.search).get("draftPreview");
     if (dp && !Number.isNaN(Number(dp))) setDraftPreview(Number(dp));
     loadFeatureFlags().then(flags => {
@@ -8692,8 +9364,8 @@ function ElijahsPrintsInner() {
         setCategoryMeta(meta);
         if (needsSave) saveCategoryMeta(meta);
       }
-      else saveCategoryMeta({...DEFAULT_CATEGORY_META}); // seed defaults on first run
-    });
+      else saveCategoryMeta({...DEFAULT_CATEGORY_META}); // seed defaults on first run (doc genuinely absent)
+    }).catch(e => console.error("Category meta read failed — showing defaults, writing nothing:", e));
     // Firebase auth state: auto-login if session persists (e.g. browser refresh)
     if (USE_FIREBASE) {
       firebaseOnAuth(user => {
@@ -8832,7 +9504,7 @@ function ElijahsPrintsInner() {
       return a.name.localeCompare(b.name);
     });
     return p;
-  }, [activeCat, search, products, autoBadges, glowOnly, featureFlags.glowEnabled, featureFlags.halloweenEnabled, filamentVer, categoryMeta, unlockedCategories]);
+  }, [activeCat, search, products, autoBadges, glowOnly, featureFlags.glowEnabled, featureFlags.halloweenEnabled, featureFlags.christmasEnabled, filamentVer, categoryMeta, unlockedCategories]);
 
   // initialQty (added for quantityTiers, 2026-08-22): optional 4th param, defaults to 1
   // so every existing call site (single-unit add) is unchanged.
@@ -8953,7 +9625,7 @@ const handleSaveCategories = async (cats) => { categories = cats; setCatVer(v =>
 const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVer(v => v + 1); await saveCategoryMeta(meta); };
 
    
- const displayCategories = useMemo(() => ["All", ...sortCategoriesByMeta(categories.filter(c => !isCategoryHidden(c, categoryMeta, featureFlags) && !isSubCategory(c, categoryMeta)), categoryMeta)], [catVer, categoryMeta, featureFlags.halloweenEnabled]);
+ const displayCategories = useMemo(() => ["All", ...sortCategoriesByMeta(categories.filter(c => !isCategoryHidden(c, categoryMeta, featureFlags) && !isSubCategory(c, categoryMeta)), categoryMeta)], [catVer, categoryMeta, featureFlags.halloweenEnabled, featureFlags.christmasEnabled]);
 
   /* Sub-cat second row: when a category with children is active (or a sub-cat is active),
      show the sibling sub-cats so the customer can drill in further. */
@@ -8961,7 +9633,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
     if (!activeCat || activeCat === "All") return [];
     const parent = (categoryMeta[activeCat] && categoryMeta[activeCat].parent) || activeCat;
     return sortCategoriesByMeta(categories.filter(c => categoryMeta[c]?.parent === parent && !isCategoryHidden(c, categoryMeta, featureFlags)), categoryMeta);
-  }, [activeCat, catVer, categoryMeta, featureFlags.halloweenEnabled]);
+  }, [activeCat, catVer, categoryMeta, featureFlags.halloweenEnabled, featureFlags.christmasEnabled]);
 
   const catCounts = useMemo(() => {
     if (!products) return {};
@@ -8981,7 +9653,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
     /* Top-level cat counts include products in any descendant sub-cat. */
     categories.forEach(cat => { c[cat] = avail.filter(p => productInCategoryOrSub(p, cat, categoryMeta) && visible(p)).length; });
     return c;
-  }, [products, catVer, categoryMeta, unlockedCategories, featureFlags.halloweenEnabled]);
+  }, [products, catVer, categoryMeta, unlockedCategories, featureFlags.halloweenEnabled, featureFlags.christmasEnabled]);
 
   /* A password-locked category (e.g. FootballLab) must keep its nav tab even when every
      product assigned to it is currently paused/unavailable (e.g. pricing not yet live) —
@@ -9005,7 +9677,39 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
     const avail = (products || []).filter(x => x.available !== false && getProductCategories(x).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories) && !isCategoryHidden(c, categoryMeta, featureFlags)));
     const comboCount = avail.reduce((sum, p) => sum + (p.colors || []).filter(c => visibleSet.has(c)).length, 0);
     return { colourCount: visible.length, comboCount };
-  }, [products, filamentVer, featureFlags.glowEnabled, featureFlags.halloweenEnabled, categoryMeta, unlockedCategories]);
+  }, [products, filamentVer, featureFlags.glowEnabled, featureFlags.halloweenEnabled, featureFlags.christmasEnabled, categoryMeta, unlockedCategories]);
+
+  // Christmas takes the homepage over from Halloween and Glow when its switch is on
+  // (or in preview). Both brakes, same as Halloween: the flag AND the category's own
+  // manual pause.
+  const xmasOn = page === "shop" && (xmasPreview || (!!featureFlags.christmasEnabled && !isCategoryPaused(XMAS_CATEGORY, categoryMeta)));
+  const xmasSideCount = (side) => {
+    const cat = XMAS_SIDES[side].cat;
+    return isCategoryHidden(cat, categoryMeta, featureFlags) ? 0 : (catCounts[cat] || 0);
+  };
+  // Picking a side is also the navigation: the grid switches to that list when it has
+  // products to show; otherwise (preview, or a list Elijah hasn't filled yet) the grid
+  // stays on All and the banner explains. Scroll starts under the reveal, so the list
+  // is already in view when it fades.
+  // Lands the list banner just below the sticky nav + category bar. scrollIntoView with a
+  // fixed scroll-margin hid the banner on narrow screens, where the bar wraps to more rows.
+  const scrollToXmasList = () => {
+    const el = document.querySelector("#ep-xmas-list");
+    if (!el) return;
+    const bar = document.querySelector(".ep-cat-bar");
+    const offset = bar ? (parseFloat(getComputedStyle(bar).top) || 64) + bar.offsetHeight + 10 : 140;
+    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - offset, behavior: "smooth" });
+  };
+  const pickXmasSide = (side) => {
+    setXmasSide(side);
+    setActiveCat(xmasSideCount(side) > 0 ? XMAS_SIDES[side].cat : "All");
+    setTimeout(scrollToXmasList, 60);
+    if (reduceMotion) return;
+    clearTimeout(xmasTimer.current);
+    setXmasFlash({ side, key: Date.now() });
+    xmasTimer.current = setTimeout(() => setXmasFlash(null), 3400);
+  };
+  const xmasBannerSide = xmasOn && xmasSide && (activeCat === XMAS_SIDES[xmasSide].cat || (activeCat === "All" && xmasSideCount(xmasSide) === 0)) ? xmasSide : null;
   if (!products) return <div style={{ minHeight: "100vh", background: S.dark, display: "flex", alignItems: "center", justifyContent: "center", color: S.teal, fontFamily: S.fontHead, fontSize: 18 }}>Loading...</div>;
 
   return (
@@ -9173,6 +9877,12 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
       )}
 
       {page === "shop" && (<>
+        {/* Christmas skin (added 2026-11-20): one stylesheet, page-wide snow, and the
+            naughty/nice verdict reveal — all siblings here, outside the hero, so nothing
+            that animates sits inside a subtree that re-renders mid-animation. */}
+        {xmasOn && <style>{XMAS_CSS}</style>}
+        {xmasOn && !reduceMotion && <XmasSnow side={xmasSide} />}
+        {xmasOn && xmasFlash && <XmasReveal key={xmasFlash.key} side={xmasFlash.side} onSkip={skipXmasFlash} />}
         {/* "Dare you enter Halloween?" reveal flash (added 2026-09-04) — a brief
             full-viewport blackout that fades as the lights-off dim sheet settles in,
             giving the single "enter" click a real showstopper moment instead of a flat
@@ -9301,7 +10011,15 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
             hwPreview (the ?hwpreview=1 chrome-only mode) bypasses both, by design — it
             never touches real flag/category state, so it can never make anything
             purchasable regardless of what it renders. */}
-        {(hwPreview || (featureFlags.halloweenEnabled && !isCategoryPaused("Halloween", categoryMeta))) ? (() => {
+        {xmasOn ? (
+          <ChristmasHero
+            side={xmasSide}
+            onPick={pickXmasSide}
+            onShowAll={() => document.querySelector(".ep-hero")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            onGoToList={scrollToXmasList}
+            orderBy={categoryMeta?.[XMAS_CATEGORY]?.orderBy}
+          />
+        ) : (hwPreview || (featureFlags.halloweenEnabled && !isCategoryPaused("Halloween", categoryMeta))) ? (() => {
           const hwProducts = (products || []).filter(x => x.available !== false && getProductCategories(x).includes("Halloween"));
           const hwGlowCount = hwProducts.filter(p => (p.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow")).length;
           const hwGlowColours = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && getFilamentTier(FILAMENTS[c]) === "glow" && hwProducts.some(p => (p.colors || []).includes(c)));
@@ -9713,6 +10431,9 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
 
         {(activeCat === "Halloween" || hwPreview) && (
           <HalloweenPicksStrip picks={halloweenPicks} products={products} featureFlags={featureFlags} onAddToCart={addToCart} />
+        )}
+        {xmasBannerSide && (
+          <XmasListBanner side={xmasBannerSide} onFlip={() => pickXmasSide(xmasBannerSide === "nice" ? "naughty" : "nice")} count={xmasSideCount(xmasBannerSide)} preview={xmasPreview} />
         )}
 
         {activeCat !== "All" && !isCategoryUnlocked(activeCat, categoryMeta, unlockedCategories) ? (
