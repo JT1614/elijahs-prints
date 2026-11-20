@@ -1801,6 +1801,13 @@ const XMAS_CSS = `
     80% { opacity: 1; transform: translateX(-50%) scale(1); }
     100% { opacity: 0; transform: translateX(-50%) scale(1); }
   }
+  @keyframes xmRevealSnow {
+    0% { transform: translate(0, 0); opacity: 0; }
+    8% { opacity: 1; }
+    50% { transform: translate(var(--sway), 55vh); }
+    90% { opacity: 1; }
+    100% { transform: translate(0, 112vh); opacity: 0; }
+  }
   @keyframes xmCoalDrop { 0% { transform: translateY(0) rotate(0deg); } 100% { transform: translateY(118vh) rotate(var(--rot)); } }
   @keyframes xmSnowFall {
     0% { transform: translate(0, -4vh); }
@@ -2134,7 +2141,7 @@ function ChristmasHero({ side, onPick, onShowAll, onGoToList, orderBy, muted, on
             : <>Have you been <span style={glowWord(XMAS_SIDES.naughty.accent)}>naughty</span><br />or <span style={glowWord(XMAS_SIDES.nice.accent)}>nice</span> this year?</>}
         </h1>
         <p style={{ fontFamily: S.fontHead, fontWeight: 600, fontSize: "clamp(12px, 2vw, 15px)", color: "rgba(255,255,255,0.75)", margin: "0 0 22px", lineHeight: 1.5 }}>
-          {cfg ? cfg.tagline : "Christmas prints made by Elijah, age 10 — pick a side to see your list"}
+          {cfg ? cfg.tagline : "Christmas prints made by Elijah, age 11 — pick a side to see your list"}
           {orderBy ? ` · order by ${orderBy}` : ""}
         </p>
         <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 10 }}>
@@ -2207,7 +2214,7 @@ const XmasSnow = React.memo(function XmasSnow({ side }) {
 });
 
 // The verdict moment: Santa's list is checked, a rubber stamp slams down, then Santa's
-// sleigh flies past (nice) or coal rains down while the naughty rocket elf zooms past
+// sleigh flies past through falling snow (nice) or coal rains down while the naughty rocket elf zooms past
 // (naughty). Tap anywhere to skip. Mounted fresh per click (key) and memoised.
 // Slowed by 1.75x on 2026-11-20 (John: "a little slower, by 2-3 seconds"), from 3.4s to
 // ~6s. Delays and long moves scale; the stamp slam and shake stay snappy on purpose.
@@ -2224,6 +2231,16 @@ const XMAS_COAL = Array.from({ length: 16 }, (_, i) => ({
   left: `${(i * 37 + 7) % 96 + 2}%`, size: 14 + (i * 7) % 14,
   delay: 1.12 + (i % 8) * 0.07 + Math.floor(i / 8) * 0.18, rot: `${(i % 2 ? 1 : -1) * (180 + i * 25)}deg`,
 }));
+// Snow for the Nice reveal (Elijah, 2026-11-21: "make snow come down as well"), the nice
+// side's answer to the coal shower. Every flake has landed before the reveal clears.
+const XMAS_REVEAL_SNOW = Array.from({ length: 36 }, (_, i) => ({
+  left: `${(i * 41 + 5) % 98 + 1}%`,
+  size: 4 + (i * 3) % 6,
+  glyph: i % 3 === 0,
+  delay: 0.05 + ((i * 7) % 15) * 0.09,
+  dur: 1.4 + ((i * 5) % 7) * 0.1,
+  sway: `${(i % 2 ? 1 : -1) * (12 + (i * 7) % 26)}px`,
+}));
 const XmasReveal = React.memo(function XmasReveal({ side, onSkip }) {
   const cfg = XMAS_SIDES[side];
   const nice = side === "nice";
@@ -2231,6 +2248,13 @@ const XmasReveal = React.memo(function XmasReveal({ side, onSkip }) {
   return (
     <div className="ep-xmas-fx" onClick={onSkip} role="presentation" style={{ position: "fixed", inset: 0, zIndex: 200, cursor: "pointer", overflow: "hidden" }}>
       <div style={{ position: "absolute", inset: 0, opacity: 0, animation: `xmBackdrop ${xt(3.4)} ease forwards`, background: cfg.revealBg }} />
+      {nice && XMAS_REVEAL_SNOW.map((f, i) => (
+        <span key={i} style={{ position: "absolute", top: -30, left: f.left, opacity: 0, "--sway": f.sway, animation: `xmRevealSnow ${xt(f.dur)} linear ${xt(f.delay)} both` }}>
+          {f.glyph
+            ? <span style={{ display: "block", fontSize: 14 + f.size * 1.6, color: "#fff", lineHeight: 1, textShadow: "0 0 8px rgba(200,230,255,0.9)" }}>❄</span>
+            : <span style={{ display: "block", width: f.size, height: f.size, borderRadius: "50%", background: "#fff", boxShadow: "0 0 6px rgba(255,255,255,0.9)" }} />}
+        </span>
+      ))}
       <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div style={{ opacity: 0, animation: `xmCardIn ${xt(3.4)} ease forwards` }}>
           <div style={{ animation: `xmShake 0.42s ease ${xt(1.15)} 1 both` }}>
@@ -3758,7 +3782,7 @@ function OrderBook({ orders, onUpdateOrder, products, onEditProduct, categoryMet
     <div class="msg">${isKidsOrder ? "Thanks for your order, legend!" : "Thanks for your order!"}</div>
     <div class="submsg">I got <b style="color:#00c9a7;font-weight:800;text-transform:uppercase;background:rgba(255,255,255,0.92);padding:0.3mm 1.5mm;border-radius:1mm;">BANNED</b> from selling 3D prints at school,<br/>so I built this website instead!</div>
     <div class="url" style="margin-top: 2mm;">etprintworld.com</div>
-    <div class="banned-tagline">Every product is 3D printed by Elijah, age 10, on his Bambu Lab P1S right here in Wales.</div>
+    <div class="banned-tagline">Every product is 3D printed by Elijah, age 11, on his Bambu Lab P1S right here in Wales.</div>
   </div></div>
 
   <!-- Label 3: Order Details -->
@@ -10576,7 +10600,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                   Dare you enter<br />Halloween?
                 </h1>
                 <p style={{ fontFamily: S.fontHead, fontWeight: 600, fontSize: "clamp(12px, 2vw, 15px)", color: S.muted, margin: "0 0 20px", letterSpacing: "0.2px" }}>
-                  Aliens, skulls &amp; zombie hands — printed by Elijah, age 10 · order by Sun 25 Oct
+                  Aliens, skulls &amp; zombie hands — printed by Elijah, age 11 · order by Sun 25 Oct
                 </p>
 
                 {/* Motif — Elijah's own print once uploaded (admin Colours tab), falling
