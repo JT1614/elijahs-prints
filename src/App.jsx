@@ -1691,8 +1691,10 @@ function HalloweenPicksStrip({ picks, products, featureFlags, onAddToCart }) {
    ═══════════════════════════════════════
    Same shape as the Halloween takeover: one seasonal hero behind a feature flag
    (christmasEnabled, Themes tab) plus a chrome-only ?xmaspreview=1, with the range
-   itself gated by launchFlag on the Christmas / Nice List / Naughty List categories
-   (isCategoryHidden — client AND create-checkout-session.js). The visitor's answer to
+   itself gated by launchFlag on the Christmas category only (isCategoryHidden — client
+   AND create-checkout-session.js). Nice List / Naughty List are ungated labels under
+   Christmas, so year-round products can sit on a list without vanishing from the shop
+   when Christmas is off (changed 2026-11-21). The visitor's answer to
    "naughty or nice?" is also the navigation: it picks which sub-category the grid shows.
    Animation rules carried over from Halloween (CLAUDE.md "Animation stability"): every
    moving thing is a plain CSS keyframe on an element that mounts once and keeps the same
@@ -5909,8 +5911,11 @@ function ThemesTab({ products, creators, categoryMeta, onSaveCategoryMeta, onSav
     if (r.seasonProducts.length && !naughty.length) blockers.push("Nothing on the Naughty List yet");
     return { ...r, nice, naughty, neither, blockers };
   }, [products, creators, categoryMeta]);
-  const xmConnected = XMAS_ALL_CATEGORIES.every(c => categories.includes(c) && categoryMeta?.[c]?.launchFlag === "christmasEnabled")
-    && [XMAS_SIDES.nice.cat, XMAS_SIDES.naughty.cat].every(c => categoryMeta?.[c]?.parent === XMAS_CATEGORY);
+  // Lists must NOT carry the switch (see setUpChristmas): a gated list would hide every
+  // year-round product on it whenever Christmas is off.
+  const xmConnected = XMAS_ALL_CATEGORIES.every(c => categories.includes(c))
+    && categoryMeta?.[XMAS_CATEGORY]?.launchFlag === "christmasEnabled"
+    && [XMAS_SIDES.nice.cat, XMAS_SIDES.naughty.cat].every(c => categoryMeta?.[c]?.parent === XMAS_CATEGORY && !categoryMeta?.[c]?.launchFlag);
   const xmBlockers = xmConnected ? xmReadiness.blockers : ["Christmas categories not set up yet", ...xmReadiness.blockers];
 
   const setFlag = async (name, value) => {
@@ -5961,13 +5966,20 @@ function ThemesTab({ products, creators, categoryMeta, onSaveCategoryMeta, onSav
   const setUpChristmas = async () => {
     setBusy(true);
     try {
-      const base = { audience: "kids", hasDimensions: false, hasBoxLabels: false, launchFlag: "christmasEnabled", paused: false };
+      const base = { audience: "kids", hasDimensions: false, hasBoxLabels: false, paused: false };
+      // Only "Christmas" carries the switch. The two lists are labels, NOT gates: they hold
+      // year-round products too (the poop clicker, the dragons, the name clicker), and a
+      // product with ANY hidden category disappears from the shop and checkout
+      // (isCategoryHidden + .every(), client and create-checkout-session.js). Gating the
+      // lists would hide those best-sellers every month Christmas is off (2026-11-21).
+      // Christmas-only products get "Christmas" as well, which keeps them hidden until launch.
+      // launchFlag: undefined deletes any old gate left on a list by the first version.
       // Gate first: the launchFlag is on the category settings before the categories
       // themselves exist, so there's never a moment the range could show un-gated.
       const ok = await patchMeta({
-        [XMAS_CATEGORY]: { ...base, sortOrder: categoryMeta?.[XMAS_CATEGORY]?.sortOrder ?? -2 },
-        [XMAS_SIDES.nice.cat]: { ...base, parent: XMAS_CATEGORY, sortOrder: 0 },
-        [XMAS_SIDES.naughty.cat]: { ...base, parent: XMAS_CATEGORY, sortOrder: 1 },
+        [XMAS_CATEGORY]: { ...base, launchFlag: "christmasEnabled", sortOrder: categoryMeta?.[XMAS_CATEGORY]?.sortOrder ?? -2 },
+        [XMAS_SIDES.nice.cat]: { ...base, launchFlag: undefined, parent: XMAS_CATEGORY, sortOrder: 0 },
+        [XMAS_SIDES.naughty.cat]: { ...base, launchFlag: undefined, parent: XMAS_CATEGORY, sortOrder: 1 },
       });
       if (!ok) return;
       let live;
@@ -6043,6 +6055,8 @@ function ThemesTab({ products, creators, categoryMeta, onSaveCategoryMeta, onSav
             </p>
             <p style={{ fontSize: 12, color: S.muted, lineHeight: 1.6, marginBottom: 8 }}>
               To put a product on a list, give it the category <strong style={{ color: S.text }}>Nice List</strong> or <strong style={{ color: S.text }}>Naughty List</strong> in the product editor — both sit inside Christmas automatically.
+              Everyday products (dragons, clickers) can go on a list and stay on sale all year; they just appear on the list while Christmas is live.
+              A Christmas-only product also needs the <strong style={{ color: S.text }}>Christmas</strong> category, so it stays hidden until you switch Christmas on.
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
               {xmRows.map((r, i) => (
