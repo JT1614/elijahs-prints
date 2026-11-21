@@ -77,10 +77,7 @@ export default async function handler(req, res) {
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
-      // TEMPORARY (2026-11-21): John asked Code to unpause the 14 Christmas drafts and
-      // switch the Christmas theme on. Hard-expires 13:00 UTC today. Remove next commit.
-      const tempGoLive = Date.now() < Date.parse("2026-11-21T13:00:00Z") && (key === "products-v2" || key === "feature-flags-v1");
-      if (!WRITE_KEYS.includes(key) && !tempGoLive) {
+      if (!WRITE_KEYS.includes(key)) {
         return res.status(403).json({
           error: `Write to '${key}' not permitted. Allowed: ${WRITE_KEYS.join(", ")}`,
         });
