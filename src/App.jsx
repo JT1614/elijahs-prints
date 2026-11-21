@@ -1661,7 +1661,7 @@ function HalloweenPicksStrip({ picks, products, featureFlags, onAddToCart }) {
             "primary CTA" language (solid fill + dark text + glow shadow), same
             as the "Yes — enter Halloween" hero button, sized comparably. */}
         <button onClick={addAll} style={{ padding: "14px 30px", borderRadius: 14, border: "none", background: "#ffc107", color: "#1a1400", fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: S.fontHead, boxShadow: "0 0 20px rgba(255,193,7,0.45), 0 0 40px rgba(255,193,7,0.2)" }}>
-          🛒 Add all {items.length} to Cart · £{total.toFixed(2)}
+          🛒 Add all {items.length} to Basket · £{total.toFixed(2)}
         </button>
       </div>
       <div style={{ position: "relative" }}>
@@ -2682,7 +2682,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
           color: cartAnimation === product.id ? "#1a1a2e" : canAdd ? S.teal : "rgba(255,255,255,0.2)",
           fontSize: 12, fontWeight: 700, cursor: canAdd ? "pointer" : "default",
           fontFamily: S.fontHead, letterSpacing: "0.5px", textTransform: "uppercase",
-        }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? `Select ${maxC} colours` : Array.isArray(product.quantityTiers) && product.quantityTiers.length > 0 ? "Add 1 (single)" : "Add to Cart"}</button>
+        }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? `Select ${maxC} colours` : Array.isArray(product.quantityTiers) && product.quantityTiers.length > 0 ? "Add 1 (single)" : "Add to Basket"}</button>
       </div>
     </div>
   );
@@ -2949,7 +2949,7 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
           color: cartAnimation === product.id ? "#1a1a2e" : canAdd ? S.teal : "rgba(255,255,255,0.2)",
           fontSize: 12, fontWeight: 700, cursor: canAdd ? "pointer" : "default",
           fontFamily: S.fontHead, letterSpacing: "0.5px", textTransform: "uppercase",
-        }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? "Type a name or pick an emoji" : "Add to Cart"}</button>
+        }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? "Type a name or pick an emoji" : "Add to Basket"}</button>
       </div>
     </div>
   );
@@ -3014,7 +3014,7 @@ function PersonalizedNamesCard({ product, onAddToCart, cartAnimation }) {
           color: cartAnimation === product.id ? "#1a1a2e" : canAdd ? S.teal : "rgba(255,255,255,0.2)",
           fontSize: 12, fontWeight: 700, cursor: canAdd ? "pointer" : "default",
           fontFamily: S.fontHead, letterSpacing: "0.5px", textTransform: "uppercase",
-        }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? (slots === 2 ? "Type both names" : `Type all ${slots} names`) : "Add to Cart"}</button>
+        }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? (slots === 2 ? "Type both names" : `Type all ${slots} names`) : "Add to Basket"}</button>
       </div>
     </div>
   );
@@ -3175,7 +3175,7 @@ function CrossSellCard({ product, onAddToCart }) {
           </div>
           {maxC > 1 && !sameColour && !fixedColours && <div style={{ fontSize: 8, color: S.purple, fontStyle: "italic", marginBottom: 4, lineHeight: 1.3, opacity: 0.8 }}>1st = largest part, last = smallest</div>}
           <button onClick={handleAdd} disabled={!canAdd} style={{ width: "100%", padding: "6px 0", borderRadius: 8, border: "none", background: added ? S.teal : canAdd ? "rgba(0,201,167,0.1)" : "rgba(255,255,255,0.03)", color: added ? "#1a1a2e" : canAdd ? S.teal : "rgba(255,255,255,0.2)", fontSize: 10, fontWeight: 700, cursor: canAdd ? "pointer" : "default", fontFamily: S.fontHead, textTransform: "uppercase" }}>
-            {added ? "✓ Added!" : !canAdd ? `Select ${maxC} colours` : "+ Add to Cart"}
+            {added ? "✓ Added!" : !canAdd ? `Select ${maxC} colours` : "+ Add to Basket"}
           </button>
         </div>
       )}
@@ -3413,7 +3413,7 @@ function ProductEditor({ product, onSave, onAutoSave, onDelete, onCancel, isNew,
         <div style={sectionStyle}>
           <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 6 }}>
             Volume Pricing (optional)
-            <Tooltip position="right" text="Add quantity price breaks for bulk orders. Enter the PER-UNIT price for each tier — the total is calculated for you. Shown to customers as extra buttons below the normal Add to Cart button.">
+            <Tooltip position="right" text="Add quantity price breaks for bulk orders. Enter the PER-UNIT price for each tier — the total is calculated for you. Shown to customers as extra buttons below the normal Add to Basket button.">
               <span style={{ fontSize: 11, color: S.purple, fontFamily: S.fontHead, cursor: "help", border: `1px solid ${S.purple}`, borderRadius: "50%", width: 16, height: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700, opacity: 0.8 }}>?</span>
             </Tooltip>
           </label>
@@ -9135,7 +9135,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
     if (!validate(3)) return;
     // Guard: refuse to proceed with empty cart
     const realCartItems = cart.filter(i => !i.isTip);
-    if (realCartItems.length === 0) { alert("Your cart is empty — please add something before checking out!"); return; }
+    if (realCartItems.length === 0) { alert("Your basket is empty — please add something before checking out!"); return; }
     setProcessing(true);
     
     if (USE_STRIPE) {
@@ -9409,7 +9409,7 @@ function CartDrawer({ cart, onClose, onRemove, onUpdateQty, onCheckout }) {
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }} />
       <div style={{ position: "relative", width: "min(420px, 90vw)", height: "100%", background: "#12122a", borderLeft: `1px solid ${S.border}`, display: "flex", flexDirection: "column", animation: "slideIn 0.3s cubic-bezier(0.16,1,0.3,1)" }}>
         <div style={{ padding: "24px 24px 16px", borderBottom: `1px solid rgba(255,255,255,0.06)`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, fontFamily: S.fontHead }}>Your Cart</h2>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, fontFamily: S.fontHead }}>Your Basket</h2>
           <button onClick={onClose} style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`, color: "#aaa", width: 36, height: 36, borderRadius: "50%", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
@@ -10468,7 +10468,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
               <button className="ep-nav-request" onClick={() => setPage("request")} style={{ background: "none", border: `1px solid rgba(132,94,247,0.3)`, color: S.purple, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: S.fontHead, fontWeight: 600 }}>✨ Request</button>
               <button onClick={() => { if (adminLoggedIn) { setPage("admin"); loadOrders().then(o => setOrders(o || [])); } else { setPage("admin-login"); } }} style={{ background: "none", border: "none", color: S.dimmer, cursor: "pointer", fontSize: 16, padding: 8 }} title="Admin">🔧</button>
               <button onClick={() => setCartOpen(true)} style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`, color: S.text, padding: "8px 16px", borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontFamily: S.fontHead, fontWeight: 600, position: "relative" }}>
-                🛒{totalItems > 0 && <span style={{ background: S.teal, color: "#1a1a2e", width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, position: "absolute", top: -6, right: -6 }}>{totalItems}</span>}<span style={{ fontSize: 13 }}>Cart</span>
+                🛒{totalItems > 0 && <span style={{ background: S.teal, color: "#1a1a2e", width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, position: "absolute", top: -6, right: -6 }}>{totalItems}</span>}<span style={{ fontSize: 13 }}>Basket</span>
               </button>
             </>)}
           </div>
@@ -11117,7 +11117,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
                 );
               })}
             </div>
-            {currentTip && <p style={{ fontSize: 12, color: S.teal, fontFamily: S.fontHead, fontWeight: 600 }}>✓ £{currentTip.price.toFixed(2)} added to your cart</p>}
+            {currentTip && <p style={{ fontSize: 12, color: S.teal, fontFamily: S.fontHead, fontWeight: 600 }}>✓ £{currentTip.price.toFixed(2)} added to your basket</p>}
           </div>
         </div>
 

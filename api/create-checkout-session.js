@@ -217,7 +217,7 @@ export default async function handler(req, res) {
   try {
     const { items, shipping, customerEmail, customerName, promoCode, orderData } = req.body || {};
     if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: "No items in cart" });
+      return res.status(400).json({ error: "No items in basket" });
     }
 
     const [products, filaments, categoryMeta, featureFlags, promoCodesStore] = await Promise.all([
