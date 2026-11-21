@@ -77,11 +77,7 @@ export default async function handler(req, res) {
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
-      // TEMPORARY (2026-11-21): products-v2 opened for one Nice/Naughty List tagging pass,
-      // hard-expiring 12:00 UTC the same day. Remove in the very next commit.
-      const TEMP_PRODUCTS_UNTIL = Date.parse("2026-11-21T12:00:00Z");
-      const tempProducts = key === "products-v2" && Date.now() < TEMP_PRODUCTS_UNTIL;
-      if (!WRITE_KEYS.includes(key) && !tempProducts) {
+      if (!WRITE_KEYS.includes(key)) {
         return res.status(403).json({
           error: `Write to '${key}' not permitted. Allowed: ${WRITE_KEYS.join(", ")}`,
         });
