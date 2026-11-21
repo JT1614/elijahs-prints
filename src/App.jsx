@@ -10090,7 +10090,16 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
   const xmasOn = page === "shop" && (xmasPreview || (!!featureFlags.christmasEnabled && !isCategoryPaused(XMAS_CATEGORY, categoryMeta)));
   const xmasSideCount = (side) => {
     const cat = XMAS_SIDES[side].cat;
-    return isCategoryHidden(cat, categoryMeta, featureFlags) ? 0 : (catCounts[cat] || 0);
+    if (isCategoryHidden(cat, categoryMeta, featureFlags)) return 0;
+    // Counted from the products' own tags, not catCounts: catCounts only knows categories
+    // registered in categories-v1, so tagged products showed as an empty "demo" list until
+    // the Themes set-up button had been clicked (found 2026-11-21). Same visibility rules.
+    return (products || []).filter(p => {
+      const cats = getProductCategories(p);
+      return p.available !== false && cats.includes(cat)
+        && cats.every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories))
+        && !isProductHidden(cats, categoryMeta, featureFlags);
+    }).length;
   };
   // Picking a side is also the navigation: the grid switches to that list when it has
   // products to show; otherwise (preview, or a list Elijah hasn't filled yet) the grid
