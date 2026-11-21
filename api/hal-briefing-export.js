@@ -77,11 +77,7 @@ export default async function handler(req, res) {
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
-      // TEMPORARY (2026-11-21): one products-v2 write for John's tidy-up (delete 2 Christmas
-      // products, pause the reindeer ornament, add designer credits). Hard-expires 19:00 UTC
-      // today. Remove in the next commit. The shrink guard still applies.
-      const tempProducts = Date.now() < Date.parse("2026-11-21T19:00:00Z") && key === "products-v2";
-      if (!WRITE_KEYS.includes(key) && !tempProducts) {
+      if (!WRITE_KEYS.includes(key)) {
         return res.status(403).json({
           error: `Write to '${key}' not permitted. Allowed: ${WRITE_KEYS.join(", ")}`,
         });
