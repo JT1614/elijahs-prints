@@ -27,6 +27,11 @@ a:hover {
 }
 
 body {
+  /* iOS Safari backstop (2026-11-21): html { overflow-x: hidden } alone did not stop an
+     iPhone zooming the page out when content was wider than the screen. clip (not
+     hidden) on body: hidden here would make body its own scroll container, which
+     breaks the sticky category bar and window scrolling. */
+  overflow-x: clip;
   margin: 0;
   min-width: 320px;
   min-height: 100vh;

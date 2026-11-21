@@ -2828,7 +2828,11 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
           <div style={{ fontSize: 10, color: S.dimmer, marginBottom: 4, fontWeight: 600 }}>
             Add an emoji tile? <span style={{ fontWeight: 400 }}>(optional — uses one of the {PERSONALIZED_NAME_MAX} spaces)</span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 3 }}>
+          {/* minmax(0, 1fr), not 1fr (2026-11-21): a 1fr column can't shrink below its
+              button, and on phones the 44px touch-target rule plus aspect-ratio:1 made each
+              tile 44px WIDE too, so 8 tiles forced the card to 373px of content and dragged
+              the whole product grid past the screen edge (iPhone zoomed the page out). */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(8, minmax(0, 1fr))", gap: 3 }}>
             {CLICKER_EMOJIS.map(e => (
               <button
                 key={e.id}
@@ -10156,6 +10160,11 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
            the page chrome/gaps for atmosphere; it must never make a product unreadable.
            Glow cards keep an extra box-shadow so they still stand out further. */
         .ep-lights-off .ep-card-wrap { position: relative; z-index: 96; }
+        /* No card may widen the grid (2026-11-21): a grid item's default min-width:auto
+           lets one card with wide content (the name clicker's emoji row) push every column
+           past the screen edge, which made iPhone zoom the whole page out. With min-width:0
+           a too-wide card overflows inside itself instead of widening the page. */
+        .ep-product-grid > * { min-width: 0; }
         .ep-lights-off .ep-card-wrap.is-glow > * { box-shadow: 0 0 30px rgba(170,255,0,0.35), 0 0 70px rgba(170,255,0,0.18); border-radius: 16px; }
         .ep-lights-bar-short { display: none; }
         .ep-relight-short { display: none; }
@@ -10202,8 +10211,13 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
              glyph up to match. Measured 2026-09-20: the card is wider on mobile, so the
              tiles land at 44px while the inline 15px glyph stays put — a 0.34 glyph/tile
              ratio against 0.47 on desktop, i.e. the emoji looks lost in its own button.
-             20px restores the desktop proportion at the mobile tile size. */
-          .ep-emoji-tile { font-size: 20px !important; }
+             20px restores the desktop proportion at the mobile tile size.
+             2026-11-21 correction: the 44px minimum is what broke the page on iPhone.
+             With aspect-ratio:1, min-height 44px also means min-WIDTH 44px, so the
+             8-across row needed 373px and pushed the card (and the whole grid) wider than
+             the screen. The tiles now shrink with the card instead: about 37-40px square
+             on a phone, which keeps 8 across in 2 rows. */
+          .ep-emoji-tile { font-size: 20px !important; min-height: 0 !important; min-width: 0 !important; }
           /* 2026-09-05, John: on mobile the category bar takes up half the screen, and
              the floating "lights out" bar balloons into a giant circle — its border-radius
              (999, meant for a slim one-line pill) turns into a circle once the long text
