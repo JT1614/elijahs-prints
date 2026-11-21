@@ -77,10 +77,7 @@ export default async function handler(req, res) {
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
-      // TEMPORARY (2026-11-21): one creators-v1 write adding the Christmas range's new
-      // designers to the licence registry. Hard-expires 19:30 UTC today. Remove next commit.
-      const tempCreators = Date.now() < Date.parse("2026-11-21T19:30:00Z") && key === "creators-v1";
-      if (!WRITE_KEYS.includes(key) && !tempCreators) {
+      if (!WRITE_KEYS.includes(key)) {
         return res.status(403).json({
           error: `Write to '${key}' not permitted. Allowed: ${WRITE_KEYS.join(", ")}`,
         });
