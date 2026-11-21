@@ -1741,6 +1741,18 @@ const XMAS_SIDES = {
   },
 };
 const XMAS_ALL_CATEGORIES = [XMAS_CATEGORY, XMAS_SIDES.nice.cat, XMAS_SIDES.naughty.cat];
+// List order (John, 2026-11-21): these product ids first, in this order, then everything
+// else most expensive first. Badges don't reorder the lists. 295 = Personalised Name
+// Clicker, 211 = Poop Toilet Clicker.
+const XMAS_LIST_ORDER = {
+  [XMAS_SIDES.nice.cat]: [295],
+  [XMAS_SIDES.naughty.cat]: [211, 295],
+};
+function xmasListCompare(pinned, a, b) {
+  const ra = pinned.indexOf(a.id), rb = pinned.indexOf(b.id);
+  if (ra !== rb) return (ra < 0 ? Infinity : ra) - (rb < 0 ? Infinity : rb);
+  return (Number(b.price) || 0) - (Number(a.price) || 0) || String(a.name).localeCompare(String(b.name));
+}
 // Hidden present on the hill — same idea as the Halloween bat. Placeholder jokes:
 // Elijah should swap in his own.
 const XMAS_EASTER_EGGS = [
@@ -9900,6 +9912,7 @@ function ElijahsPrintsInner() {
     if (search.trim()) { const q = search.toLowerCase(); p = p.filter(x => x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)); }
     const badgePriority = { "Premium": 1, "New": 2, "Popular": 3, "Best Seller": 4 };
     p.sort((a, b) => {
+      if (XMAS_LIST_ORDER[activeCat]) return xmasListCompare(XMAS_LIST_ORDER[activeCat], a, b);
       // Manual per-product sortOrder (added 2026-08-30 for FootballLab: medal variants
       // then trophies small→large, not the site's default price-descending) — only
       // applies within a single category's own tab, never on "All", and only when BOTH
