@@ -74,10 +74,33 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const { action, key, value } = req.body || {};
+
+      // TEMPORARY (2026-11-21, final call): add John's 9 final-yes Christmas picks as
+      // drafts with their photos, and retag the 15 round-2 drafts from "paused" to "draft".
+      // Hard-expires 18:00 UTC today. Remove in the next commit.
+      const TEMP_UNTIL = Date.parse("2026-11-21T18:00:00Z");
+      const tempOpen = Date.now() < TEMP_UNTIL;
+      if (action === "upload_to_storage") {
+        const { path, base64 } = req.body || {};
+        if (!tempOpen || typeof path !== "string" || !/^product-images\/xmas-2026-\d{4,9}\.jpg$/.test(path)) {
+          return res.status(403).json({ error: "Storage upload not permitted" });
+        }
+        const buffer = Buffer.from(String(base64 || ""), "base64");
+        if (buffer.length < 1000 || buffer.length > 1500000 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
+          return res.status(400).json({ error: "Expected a JPEG under 1.5 MB" });
+        }
+        const token = crypto.randomUUID();
+        const bucket = admin.storage().bucket("elijahs-prints.firebasestorage.app");
+        await bucket.file(path).save(buffer, { metadata: { contentType: "image/jpeg", metadata: { firebaseStorageDownloadTokens: token } } });
+        const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
+        return res.status(200).json({ ok: true, path, bytes: buffer.length, url });
+      }
+      const tempProducts = tempOpen && key === "products-v2";
+
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
-      if (!WRITE_KEYS.includes(key)) {
+      if (!WRITE_KEYS.includes(key) && !tempProducts) {
         return res.status(403).json({
           error: `Write to '${key}' not permitted. Allowed: ${WRITE_KEYS.join(", ")}`,
         });
