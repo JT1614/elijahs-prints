@@ -77,11 +77,7 @@ export default async function handler(req, res) {
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
-      // TEMPORARY (2026-11-21): one products-v2 write to set noColourUplift on the Star
-      // Tree Topper (John: "£5 regardless of the material"). Hard-expires 18:30 UTC today.
-      // Remove in the next commit.
-      const tempProducts = Date.now() < Date.parse("2026-11-21T18:30:00Z") && key === "products-v2";
-      if (!WRITE_KEYS.includes(key) && !tempProducts) {
+      if (!WRITE_KEYS.includes(key)) {
         return res.status(403).json({
           error: `Write to '${key}' not permitted. Allowed: ${WRITE_KEYS.join(", ")}`,
         });
