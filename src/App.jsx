@@ -289,6 +289,15 @@ function isCategoryHidden(cat, meta, flags) {
   if (m.launchFlag) return !((flags || {})[m.launchFlag]);
   return false;
 }
+// Product-level gate. Hidden if ANY of its categories is hidden (unchanged), OR if EVERY
+// category it has is a sub-category of a hidden parent. The second rule (2026-11-21) is
+// what lets Nice List / Naughty List be ungated labels: a year-round product that is also
+// on a list stays on sale, but a Christmas-only product tagged with nothing but a list
+// still follows the Christmas switch. Mirrored in create-checkout-session.js.
+function isProductHidden(cats, meta, flags) {
+  if (cats.some(c => isCategoryHidden(c, meta, flags))) return true;
+  return cats.length > 0 && cats.every(c => { const par = ((meta || {})[c] || {}).parent; return !!par && isCategoryHidden(par, meta, flags); });
+}
 /* Password-protected categories (added 2026-08-29 for exclusive-customer drops, e.g.
    FootballLab): a category can carry passwordProtected+password in its own meta entry,
    reusing the same store every other category flag (paused, audience, ...) already lives
@@ -9876,7 +9885,7 @@ function ElijahsPrintsInner() {
     // paused Planters products kept showing on the front page. Mirrors the lock-check above.
     // Upgraded to isCategoryHidden (added 2026-09 for Halloween) so a seasonal launch-flag
     // gate hides a category's products the same way a manual pause does.
-    p = p.filter(x => getProductCategories(x).every(c => !isCategoryHidden(c, categoryMeta, featureFlags)));
+    p = p.filter(x => !isProductHidden(getProductCategories(x), categoryMeta, featureFlags));
     if (activeCat !== "All") p = p.filter(x => productInCategoryOrSub(x, activeCat, categoryMeta));
     if (glowOnly && featureFlags.glowEnabled) p = p.filter(x => (x.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow"));
     // A product whose ONLY colours are glow-tier has nothing to pick when glow is off.
@@ -10043,7 +10052,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
     // exactly — otherwise a cross-listed product (e.g. a Halloween item also tagged
     // Clickers) inflates the Clickers badge while Halloween is still paused/not-yet-live,
     // even though shopProducts itself would never render that product under Clickers.
-    const visible = p => getProductCategories(p).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories) && !isCategoryHidden(c, categoryMeta, featureFlags));
+    const visible = p => getProductCategories(p).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories)) && !isProductHidden(getProductCategories(p), categoryMeta, featureFlags);
     const publiclyVisible = avail.filter(visible);
     const c = { All: publiclyVisible.length };
     /* Top-level cat counts include products in any descendant sub-cat. */
@@ -10070,7 +10079,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
   const heroStats = useMemo(() => {
     const visible = ALL_COLORS.filter(c => !FILAMENTS[c]?.paused && (featureFlags.glowEnabled || getFilamentTier(FILAMENTS[c]) !== "glow"));
     const visibleSet = new Set(visible);
-    const avail = (products || []).filter(x => x.available !== false && getProductCategories(x).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories) && !isCategoryHidden(c, categoryMeta, featureFlags)));
+    const avail = (products || []).filter(x => x.available !== false && getProductCategories(x).every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories)) && !isProductHidden(getProductCategories(x), categoryMeta, featureFlags));
     const comboCount = avail.reduce((sum, p) => sum + (p.colors || []).filter(c => visibleSet.has(c)).length, 0);
     return { colourCount: visible.length, comboCount };
   }, [products, filamentVer, featureFlags.glowEnabled, featureFlags.halloweenEnabled, featureFlags.christmasEnabled, categoryMeta, unlockedCategories]);

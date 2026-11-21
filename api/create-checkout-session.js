@@ -186,6 +186,13 @@ function isCategoryHidden(cat, meta, flags) {
   if (m.launchFlag) return !((flags || {})[m.launchFlag]);
   return false;
 }
+// Mirrors src/App.jsx isProductHidden: hidden if any category is hidden, or if every
+// category is a sub-category of a hidden parent (a Christmas-only product tagged only
+// "Nice List" stays unbuyable until Christmas goes live; 2026-11-21).
+function isProductHidden(cats, meta, flags) {
+  if (cats.some((c) => isCategoryHidden(c, meta, flags))) return true;
+  return cats.length > 0 && cats.every((c) => { const par = ((meta || {})[c] || {}).parent; return !!par && isCategoryHidden(par, meta, flags); });
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -251,7 +258,7 @@ export default async function handler(req, res) {
       // — reuses the same "Product unavailable" wording so a customer needn't learn
       // the word "paused", and it leaks nothing about an unreleased range.
       const prodCategories = Array.isArray(prod.category) ? prod.category : prod.category ? [prod.category] : [];
-      if (prodCategories.some((c) => isCategoryHidden(c, categoryMeta, featureFlags))) {
+      if (isProductHidden(prodCategories, categoryMeta, featureFlags)) {
         return res.status(400).json({ error: `Product unavailable: ${String(prod.name).slice(0, 60)}` });
       }
 
