@@ -121,6 +121,10 @@ export default async function handler(req, res) {
             qty: item.qty,
             selectedColors: item.selectedColors || [],
             category: item.category || null,
+            // What to print on a personalised item (added 2026-11-21). Without these the
+            // print queue saw "Personalised Name Clicker x1" with no name on it.
+            ...(item.personalizedName ? { personalizedName: item.personalizedName } : {}),
+            ...(item.personalizedEmoji ? { personalizedEmoji: item.personalizedEmoji, personalizedEmojiLabel: item.personalizedEmojiLabel || null, personalizedEmojiPos: item.personalizedEmojiPos || "after" } : {}),
           })),
           status: o.status,
         });

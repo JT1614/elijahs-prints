@@ -27,6 +27,20 @@ if (!admin.apps.length) {
 }
 const db = admin.apps.length ? admin.firestore() : null;
 
+// Multi-name products (added 2026-11-21 for the Personalised Reindeer Jumper Ornaments,
+// a pair for £5): prod.personalizeNames = number of name boxes, prod.personalizeNameMax =
+// letters per name. Same A-Z / 0-9 / space rule as the name clicker. Returns the cleaned
+// names, or null unless EVERY box has a name — an order with a missing name can't be
+// printed. Mirrors cleanListName in src/App.jsx; joined with " + " like the client.
+function personalisedNameList(raw, slots, maxLen) {
+  const cap = Math.max(1, Math.min(Number(maxLen) || 10, 20));
+  if (!Array.isArray(raw) || raw.length < slots) return null;
+  const names = raw.slice(0, slots).map((n) => (typeof n === "string"
+    ? n.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").slice(0, cap).trim()
+    : ""));
+  return names.every(Boolean) ? names : null;
+}
+
 // Emoji tiles that physically exist on the Kong 3D "Emoji" plate (MakerWorld design
 // 2854834 — product 295's own sourceUrl). The client sends only an ID; the character
 // and the printable label are resolved HERE, so no client-supplied text can reach a
@@ -285,22 +299,45 @@ export default async function handler(req, res) {
       // that physically exist on the Kong 3D "Emoji" plate; anything else has no tile
       // to print, and an unvalidated string here would flow straight into an order
       // record and an order email. Same reasoning as never trusting a client price.
-      const emojiTile = CLICKER_EMOJI_TILES[String(it.personalizedEmojiId || "")] || null;
-      const emojiPos = it.personalizedEmojiPos === "before" ? "before" : "after";
+      let emojiTile = null;
+      let emojiPos = "after";
+      let personalizedName = null;
+      let personalisedLabel = null;
+      const nameSlots = Math.min(Number(prod.personalizeNames) || 0, 4);
+      if (nameSlots >= 2) {
+        // Multi-name product: the names are required, and live in the existing
+        // personalizedName field so the order record, emails and admin need no change.
+        const names = personalisedNameList(it.personalizedNames, nameSlots, prod.personalizeNameMax);
+        if (!names) {
+          return res.status(400).json({ error: `Please type ${nameSlots} names for ${String(prod.name).slice(0, 60)}` });
+        }
+        personalizedName = names.join(" + ");
+        personalisedLabel = personalizedName;
+      } else {
+        emojiTile = CLICKER_EMOJI_TILES[String(it.personalizedEmojiId || "")] || null;
+        emojiPos = it.personalizedEmojiPos === "before" ? "before" : "after";
 
-      // An emoji occupies one of the base's 10 button slots, so the name cap drops to 9
-      // when one is chosen. Enforced here as well as in the UI — the physical build
-      // plate is the real constraint and the client is not trusted to respect it.
-      const nameCap = emojiTile ? 9 : 10;
-      const personalizedName = typeof it.personalizedName === "string"
-        ? it.personalizedName.toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, nameCap)
-        : null;
-      // Human-readable combined form, used for the Stripe line item and the order record.
-      const personalisedLabel = emojiTile
-        ? (emojiPos === "before"
-            ? `${emojiTile.char} ${personalizedName || ""}`.trim()
-            : `${personalizedName || ""} ${emojiTile.char}`.trim())
-        : personalizedName;
+        // An emoji occupies one of the base's 10 button slots, so the name cap drops to 9
+        // when one is chosen. Enforced here as well as in the UI — the physical build
+        // plate is the real constraint and the client is not trusted to respect it.
+        const nameCap = emojiTile ? 9 : 10;
+        personalizedName = typeof it.personalizedName === "string"
+          ? it.personalizedName.toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, nameCap)
+          : null;
+        // A name that is only spaces is no name (it would print a blank strip).
+        if (personalizedName && !personalizedName.trim()) personalizedName = null;
+        // Fail closed (2026-11-21): a personalised product with no name and no emoji has
+        // nothing to print. The basket's "you might also like" add could produce one.
+        if (prod.personalizable && !personalizedName && !emojiTile) {
+          return res.status(400).json({ error: `Please type a name for ${String(prod.name).slice(0, 60)}` });
+        }
+        // Human-readable combined form, used for the Stripe line item and the order record.
+        personalisedLabel = emojiTile
+          ? (emojiPos === "before"
+              ? `${emojiTile.char} ${personalizedName || ""}`.trim()
+              : `${personalizedName || ""} ${emojiTile.char}`.trim())
+          : personalizedName;
+      }
 
       // Keyring add-on (found 2026-08-29 while adding the toggle — same class of gap as
       // the quantityTiers bug above: this endpoint must know about EVERY pricing feature,
@@ -317,7 +354,11 @@ export default async function handler(req, res) {
       // or the matched bulk tier's rate — BEFORE the keyring add-on (which is always a
       // flat, un-uplifted pass-through cost regardless of colour).
       const baseUnitRate = tier ? Number(tier.pricePerUnit) : Number(prod.price);
-      const unitRate = getColourTierPrice(baseUnitRate, it.selectedColors, filaments, prod.noColourUplift, prod.glowPriceOverride);
+      // A multi-name product's colours are fixed by its design: price and record the
+      // catalogue's colours, never the client's (a crafted request could otherwise pick a
+      // glow colour, be charged the glow uplift and record a colour the design doesn't use).
+      const lineColours = nameSlots >= 2 ? (prod.colors || []).slice(0, Math.max(1, Number(prod.maxColors) || 1)) : (it.selectedColors || []);
+      const unitRate = getColourTierPrice(baseUnitRate, lineColours, filaments, prod.noColourUplift, prod.glowPriceOverride);
 
       let price, lineAmount, stripeQty;
       if (tier) {
@@ -339,13 +380,13 @@ export default async function handler(req, res) {
           currency: "gbp",
           product_data: {
             name: (tier ? `${prod.name} — ${tier.label || qty + " pack"}` : prod.name) + (personalisedLabel ? ` — "${personalisedLabel}"` : "") + (keyringWanted ? " + Keyring" : ""),
-            description: it.selectedColors ? `Colour: ${(it.selectedColors || []).join(" + ")}` : undefined,
+            description: lineColours.length ? `Colour: ${lineColours.join(" + ")}` : undefined,
           },
           unit_amount: Math.round((tier ? lineAmount : price) * 100),
         },
         quantity: stripeQty,
       });
-      trustedItems.push({ id: prod.id, name: prod.name, price, qty, selectedColors: it.selectedColors || [], ...(keyringWanted ? { hasKeyring: true } : {}), ...(personalizedName ? { personalizedName } : {}), ...(emojiTile ? { personalizedEmoji: emojiTile.char, personalizedEmojiLabel: emojiTile.label, personalizedEmojiPos: emojiPos } : {}) });
+      trustedItems.push({ id: prod.id, name: prod.name, price, qty, selectedColors: lineColours, ...(keyringWanted ? { hasKeyring: true } : {}), ...(personalizedName ? { personalizedName } : {}), ...(emojiTile ? { personalizedEmoji: emojiTile.char, personalizedEmojiLabel: emojiTile.label, personalizedEmojiPos: emojiPos } : {}) });
     }
     subtotal = round2(subtotal);
     productSubtotal = round2(productSubtotal);
@@ -459,7 +500,14 @@ export default async function handler(req, res) {
     // (e.g. GWERN10), which has no per-use state to update.
     if (matchedPersonalCode) metadata.personal_promo_code = matchedPersonalCode;
 
-    const orderJson = JSON.stringify(trustedOrderData);
+    // Every non-ASCII character (emoji, accented letters) is written as a \uXXXX escape
+    // first (2026-11-21). The chunking below cuts at fixed lengths, and a cut through the
+    // middle of an emoji's surrogate pair left a lone half that Stripe's request encoding
+    // rejects ("URI malformed"), so checkout returned 500 for that basket every time.
+    // Pure-ASCII chunks can be cut anywhere; JSON.parse in stripe-webhook.js restores the
+    // characters unchanged once the chunks are joined.
+    const orderJson = JSON.stringify(trustedOrderData)
+      .replace(/[\u007f-￿]/g, (ch) => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0"));
     const CHUNK_SIZE = 490;
     const numChunks = Math.ceil(orderJson.length / CHUNK_SIZE);
     metadata.order_chunks = String(numChunks);

@@ -2538,6 +2538,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
   // two share almost no state shape. Reuses getTierPrice/highestTier untouched — the
   // per-letter colour array IS the selectedColors array the pricing engine already
   // understands, so silk/glow uplift works with zero new pricing logic.
+  if (Number(product.personalizeNames) >= 2) return <PersonalizedNamesCard product={product} onAddToCart={onAddToCart} cartAnimation={cartAnimation} />;
   if (product.personalizable) return <PersonalizedProductCard product={product} onAddToCart={onAddToCart} cartAnimation={cartAnimation} />;
   const maxC = product.maxColors || 1;
   const fixedColours = product.colors.length === maxC;
@@ -2733,6 +2734,20 @@ const EMOJI_BY_ID = Object.fromEntries(CLICKER_EMOJIS.map(e => [e.id, e]));
 const nameMaxFor = (emojiId) => PERSONALIZED_NAME_MAX - (emojiId ? 1 : 0);
 const cleanPersonalizedName = (raw, emojiId) =>
   raw.toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, nameMaxFor(emojiId));
+// Multi-name products (added 2026-11-21 for the Personalised Reindeer Jumper Ornaments,
+// a pair for £5): product.personalizeNames = how many name boxes, personalizeNameMax =
+// letters per name. Same character rule as the clicker. Mirrored server-side by
+// personalisedNameList in create-checkout-session.js — keep the two identical.
+const NAMES_JOINER = " + ";
+const listNameMax = (product) => Math.max(1, Math.min(Number(product.personalizeNameMax) || 10, 20));
+// Accents become plain letters first (ZOË -> ZOE, not ZO).
+const cleanListName = (raw, max) => String(raw || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").slice(0, max);
+const isPersonalisedProduct = (p) => !!p && (!!p.personalizable || Number(p.personalizeNames) >= 2);
+// A cart line's identity. Personalisation is part of it (fixed 2026-11-21): the key used
+// to be id + colours + price + keyring only, so two name clickers of the same colour and
+// name length (MIA and ZOE) merged into one line of 2 and the second name was lost.
+const cartLineKey = (id, selectedColors, price, hasKeyring, personalizedName, emojiId, emojiPos) =>
+  [id, (selectedColors || []).join(","), price, !!hasKeyring, personalizedName || "", emojiId || "", emojiId ? (emojiPos || "after") : ""].join("|");
 // "Mixed" is a deliberate non-filament token, not a real colour — colourMode:"mixed"
 // means Elijah picks the actual mix at print time, the customer doesn't choose per
 // letter. Using a name that isn't a FILAMENTS key makes it price as standard tier
@@ -2936,6 +2951,145 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
           fontFamily: S.fontHead, letterSpacing: "0.5px", textTransform: "uppercase",
         }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? "Type a name or pick an emoji" : "Add to Cart"}</button>
       </div>
+    </div>
+  );
+}
+
+/* Multi-name personalised card (added 2026-11-21, John: "a text input box in exactly
+   the same way the personalised name clicker works. Allow 2 names... £5 for 2").
+   Same input look and character rule as the clicker; no emoji tiles and no per-letter
+   colours, because the ornament's colours are fixed by the design (product.colors).
+   Every box must be filled before it can be added: one cart line = the whole set. */
+function PersonalizedNamesCard({ product, onAddToCart, cartAnimation }) {
+  const [hovered, setHovered] = useState(false);
+  const slots = Math.min(Number(product.personalizeNames) || 2, 4);
+  const max = listNameMax(product);
+  const [names, setNames] = useState(() => Array(slots).fill(""));
+  const cleaned = names.map(n => n.trim());
+  const canAdd = cleaned.every(Boolean);
+  const colours = (product.colors || []).slice(0, Math.max(1, product.maxColors || 1));
+  const displayPrice = getTierPrice(product.price, colours, product.noColourUplift, product.glowPriceOverride);
+  const setName = (i, raw) => setNames(prev => prev.map((n, j) => (j === i ? cleanListName(raw, max) : n)));
+  const handleAdd = () => {
+    if (!canAdd) return;
+    onAddToCart({ ...product, personalizedName: cleaned.join(NAMES_JOINER), personalizedNames: cleaned }, colours, 1, false);
+  };
+  return (
+    <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{
+      background: S.card, border: `1px solid ${S.border}`, borderRadius: 16, overflow: "hidden", position: "relative",
+      transition: "all 0.4s cubic-bezier(0.16,1,0.3,1)", transform: hovered ? "translateY(-6px)" : "translateY(0)",
+      boxShadow: hovered ? "0 20px 60px rgba(0,201,167,0.15), 0 0 0 1px rgba(0,201,167,0.2)" : "0 4px 20px rgba(0,0,0,0.2)",
+    }}>
+      {product.badge && <Badge text={product.badge} />}
+      <ProductImage product={product} hovered={hovered} isGlow={false} isGlowOnly={false} />
+      <div style={{ padding: "14px 16px 16px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: S.text, fontFamily: S.fontHead, lineHeight: 1.3 }}>{product.name}</h3>
+          <span style={{ fontSize: 16, fontWeight: 800, color: S.teal, fontFamily: S.fontMono, whiteSpace: "nowrap", marginLeft: 8 }}>£{displayPrice.toFixed(2)}</span>
+        </div>
+        <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5, color: S.muted }}>{product.description}</p>
+        <div style={{ fontSize: 10, color: S.dimmer, marginBottom: 4, fontWeight: 600 }}>
+          Type {slots === 2 ? "both" : `all ${slots}`} names <span style={{ fontWeight: 400 }}>(up to {max} letters each)</span>
+        </div>
+        {names.map((n, i) => (
+          <input key={i} type="text" value={n} onChange={e => setName(i, e.target.value)}
+            aria-label={`Name ${i + 1}`}
+            placeholder={`Name ${i + 1}`}
+            style={{
+              width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${S.border}`,
+              background: "rgba(255,255,255,0.04)", color: S.text, fontFamily: S.fontHead, fontSize: 13,
+              fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", outline: "none",
+              marginBottom: 8, boxSizing: "border-box",
+            }} />
+        ))}
+        {colours.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+            {colours.map((c, i) => <ColorSwatch key={i} name={c} selected={true} onClick={() => {}} size={16} />)}
+            <span style={{ fontSize: 10, color: S.dimmer }}>{colours.join(" + ")}</span>
+          </div>
+        )}
+        <button onClick={handleAdd} disabled={!canAdd} style={{
+          width: "100%", padding: "10px 0", borderRadius: 10, border: "none", marginTop: 2,
+          background: cartAnimation === product.id ? S.teal : canAdd ? "linear-gradient(135deg, rgba(0,201,167,0.15), rgba(0,201,167,0.08))" : "rgba(255,255,255,0.03)",
+          color: cartAnimation === product.id ? "#1a1a2e" : canAdd ? S.teal : "rgba(255,255,255,0.2)",
+          fontSize: 12, fontWeight: 700, cursor: canAdd ? "pointer" : "default",
+          fontFamily: S.fontHead, letterSpacing: "0.5px", textTransform: "uppercase",
+        }}>{cartAnimation === product.id ? "✓ Added!" : !canAdd ? (slots === 2 ? "Type both names" : `Type all ${slots} names`) : "Add to Cart"}</button>
+      </div>
+    </div>
+  );
+}
+
+/* Personalised suggestion card (added 2026-11-21, John: "I want personalised items to
+   appear in the suggestion list so find a way to personalise from there"). Compact row
+   like CrossSellCard; "Personalise" opens the name box(es). The name clicker gets one
+   name + one colour (no emoji tiles here — those stay on its full card); a multi-name
+   product gets its N boxes in its fixed colours. Same cleaning, pricing and cart fields
+   as the full cards, so the basket, checkout and order email see an identical line. */
+function PersonalisedCrossSellCard({ product, onAddToCart }) {
+  const multi = Number(product.personalizeNames) >= 2;
+  const slots = multi ? Math.min(Number(product.personalizeNames), 4) : 1;
+  const max = multi ? listNameMax(product) : PERSONALIZED_NAME_MAX;
+  const [expanded, setExpanded] = useState(false);
+  const [added, setAdded] = useState(false);
+  const [names, setNames] = useState(() => Array(slots).fill(""));
+  const [colour, setColour] = useState(defaultColourFor(product.colors));
+  const cleaned = names.map(n => n.trim());
+  const canAdd = cleaned.every(Boolean);
+  const colours = multi
+    ? (product.colors || []).slice(0, Math.max(1, product.maxColors || 1))
+    : Array(cleaned[0].length).fill(colour);
+  const price = multi
+    ? getTierPrice(product.price, colours, product.noColourUplift, product.glowPriceOverride)
+    : (colours.length ? getTierPrice(product.price, colours, false, null) : product.price);
+  const setName = (i, raw) => setNames(prev => prev.map((n, j) => (j !== i ? n : multi ? cleanListName(raw, max) : cleanPersonalizedName(raw, null))));
+  const handleAdd = () => {
+    if (!canAdd) return;
+    onAddToCart(multi
+      ? { ...product, personalizedName: cleaned.join(NAMES_JOINER), personalizedNames: cleaned }
+      : { ...product, personalizedName: cleaned[0] }, colours, 1, false);
+    setAdded(true); setNames(Array(slots).fill("")); setExpanded(false);
+    setTimeout(() => setAdded(false), 1200);
+  };
+  const inputStyle = {
+    width: "100%", padding: "6px 8px", borderRadius: 6, border: `1px solid ${S.border}`, marginBottom: 6,
+    background: "rgba(255,255,255,0.04)", color: S.text, fontFamily: S.fontHead, fontSize: 12,
+    fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", outline: "none", boxSizing: "border-box",
+  };
+  return (
+    <div style={{ borderRadius: 10, border: `1px solid ${S.border}`, background: "rgba(255,255,255,0.02)", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px" }}>
+        <div style={{ width: 36, height: 36, borderRadius: 8, overflow: "hidden", flexShrink: 0, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {product.img ? <img src={product.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 16, opacity: 0.3 }}>📷</span>}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: S.text, fontFamily: S.fontHead, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{product.name}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: S.teal, fontFamily: S.fontMono }}>£{price.toFixed(2)}</div>
+        </div>
+        <button onClick={() => setExpanded(!expanded)} style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: added ? S.teal : "rgba(0,201,167,0.1)", color: added ? "#1a1a2e" : S.teal, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: S.fontHead, flexShrink: 0 }}>
+          {added ? "✓ Added" : expanded ? "▾ Personalise" : "▸ Personalise"}
+        </button>
+      </div>
+      {expanded && (
+        <div style={{ padding: "6px 10px 10px", borderTop: `1px solid ${S.border}` }}>
+          <div style={{ fontSize: 9, color: S.dimmer, marginBottom: 4 }}>{multi ? `Type ${slots === 2 ? "both" : `all ${slots}`} names (up to ${max} letters each)` : `Type a name (up to ${max} letters)`}</div>
+          {names.map((n, i) => (
+            <input key={i} type="text" value={n} onChange={e => setName(i, e.target.value)} aria-label={multi ? `Name ${i + 1}` : "Name"} placeholder={multi ? `Name ${i + 1}` : "Name"} style={inputStyle} />
+          ))}
+          {multi ? (
+            <div style={{ fontSize: 9, color: S.dimmer, marginBottom: 6 }}>{colours.join(" + ")}</div>
+          ) : (
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+              {[...product.colors].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={colour === c} onClick={() => setColour(c)} size={16} />)}
+            </div>
+          )}
+          <button onClick={handleAdd} disabled={!canAdd} style={{
+            width: "100%", padding: "6px 0", borderRadius: 8, border: "none",
+            background: canAdd ? "rgba(0,201,167,0.15)" : "rgba(255,255,255,0.03)", color: canAdd ? S.teal : "rgba(255,255,255,0.25)",
+            fontSize: 10, fontWeight: 700, cursor: canAdd ? "pointer" : "default", fontFamily: S.fontHead, textTransform: "uppercase",
+          }}>{canAdd ? "+ Add" : multi ? "Type the names" : "Type a name"}</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -8988,7 +9142,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
       // Generate order ID and nonce before redirect
       const orderId = "EP-" + Date.now().toString(36).toUpperCase();
       const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-      const orderItems = cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}), ...(i.personalizedName ? { personalizedName: i.personalizedName } : {}), ...(i.personalizedEmoji ? { personalizedEmojiId: i.personalizedEmojiId, personalizedEmoji: i.personalizedEmoji, personalizedEmojiLabel: i.personalizedEmojiLabel, personalizedEmojiPos: i.personalizedEmojiPos } : {}) }));
+      const orderItems = cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}), ...(i.personalizedName ? { personalizedName: i.personalizedName } : {}), ...(Array.isArray(i.personalizedNames) ? { personalizedNames: i.personalizedNames } : {}), ...(i.personalizedEmoji ? { personalizedEmojiId: i.personalizedEmojiId, personalizedEmoji: i.personalizedEmoji, personalizedEmojiLabel: i.personalizedEmojiLabel, personalizedEmojiPos: i.personalizedEmojiPos } : {}) }));
       // Save pending order to localStorage (backup in case webhook is delayed)
       const pendingOrder = {
         orderId,
@@ -9050,7 +9204,7 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
       date: new Date().toISOString(),
       customer: { ...form },
       shipping: { id: shipping.id, name: shipping.name },
-      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}), ...(i.personalizedName ? { personalizedName: i.personalizedName } : {}), ...(i.personalizedEmoji ? { personalizedEmojiId: i.personalizedEmojiId, personalizedEmoji: i.personalizedEmoji, personalizedEmojiLabel: i.personalizedEmojiLabel, personalizedEmojiPos: i.personalizedEmojiPos } : {}) })),
+      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, selectedColors: i.selectedColors, ...(i.isTip ? { isTip: true } : {}), ...(i.hasKeyring ? { hasKeyring: true } : {}), ...(i.personalizedName ? { personalizedName: i.personalizedName } : {}), ...(Array.isArray(i.personalizedNames) ? { personalizedNames: i.personalizedNames } : {}), ...(i.personalizedEmoji ? { personalizedEmojiId: i.personalizedEmojiId, personalizedEmoji: i.personalizedEmoji, personalizedEmojiLabel: i.personalizedEmojiLabel, personalizedEmojiPos: i.personalizedEmojiPos } : {}) })),
       subtotal, shippingCost, stripeFee, total,
       promoCode: appliedPromo?.code || null,
       discountAmount,
@@ -9095,8 +9249,15 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
       ? (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && p.family && cartFamilies.includes(p.family))
       : [];
     const familyMatchIds = new Set(familyMatches.map(p => p.id));
+    // `products` here is already the live, visible list (suggestableProducts). Personalised
+    // products ARE suggested (John, 2026-11-21) and get their own card with name boxes.
     const categoryMatches = (products || []).filter(p => p.available !== false && !cartIds.has(p.id) && !familyMatchIds.has(p.id) && getProductCategories(p).some(c => cartCats.includes(c)));
-    const suggestions = [...familyMatches, ...categoryMatches].slice(0, 4);
+    // Personalised products come next after the "complete the set" family, whatever the
+    // basket holds (John, 2026-11-21: "I want personalised items to appear in the
+    // suggestion list"). With only 4 slots they were otherwise crowded out.
+    const personalisedPicks = (products || []).filter(p => p.available !== false && isPersonalisedProduct(p) && !cartIds.has(p.id) && !familyMatchIds.has(p.id)).slice(0, 2);
+    const personalisedIds = new Set(personalisedPicks.map(p => p.id));
+    const suggestions = [...familyMatches, ...personalisedPicks, ...categoryMatches.filter(p => !personalisedIds.has(p.id))].slice(0, 4);
     if (suggestions.length === 0) return null;
     const heading = familyMatches.length > 0 ? "🧩 Complete the set" : "You might also like";
     return (
@@ -9104,7 +9265,9 @@ function CheckoutPage({ cart, shipping, setShipping, onBack, onOrderPlaced, onAd
         <h4 style={{ fontSize: 12, fontWeight: 700, fontFamily: S.fontHead, color: S.muted, marginBottom: 10, textTransform: "uppercase" }}>{heading}</h4>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
           {suggestions.map(p => (
-            <CrossSellCard key={p.id} product={p} onAddToCart={onAddToCart} />
+            isPersonalisedProduct(p)
+              ? <PersonalisedCrossSellCard key={p.id} product={p} onAddToCart={onAddToCart} />
+              : <CrossSellCard key={p.id} product={p} onAddToCart={onAddToCart} />
           ))}
         </div>
       </div>
@@ -9966,8 +10129,12 @@ function ElijahsPrintsInner() {
     // product.price is trusted as the TRUE base rate here — callers (tier buttons
     // included) must pass the real product, not a copy with price pre-substituted to
     // a tier rate, or basePrice below would snapshot the tier rate as if it were base.
+    // A personalised product only goes in the basket through its own card, with its text
+    // (2026-11-21): the basket's "you might also like" and Elijah's Picks add plain
+    // products, and a nameless personalised line has nothing to print.
+    if (isPersonalisedProduct(product) && !product.personalizedName && !product.personalizedEmoji) return;
     const adjustedPrice = tierAdjustedPrice(product.price, product.quantityTiers, initialQty, selectedColors, product.noColourUplift, product.keyringPrice, hasKeyring, product.glowPriceOverride);
-    const key = product.id + "-" + selectedColors.join(",") + "-" + adjustedPrice + "-" + hasKeyring;
+    const key = cartLineKey(product.id, selectedColors, adjustedPrice, hasKeyring, product.personalizedName, product.personalizedEmojiId, product.personalizedEmojiPos);
     // Functional setCart (fixed 2026-09-17) — was `setCart([...cart, ...])`, reading
     // the `cart` closed over at render time. Fine for one call per click, but the new
     // Halloween Picks "Add all" button calls this N times in one synchronous loop;
@@ -9976,7 +10143,7 @@ function ElijahsPrintsInner() {
     // state regardless of how many times this fires in one tick — no behaviour change
     // for the existing single-call sites, fixes any future multi-add caller too.
     setCart(prevCart => {
-      const i = prevCart.findIndex(c => (c.id + "-" + c.selectedColors.join(",") + "-" + c.price + "-" + !!c.hasKeyring) === key);
+      const i = prevCart.findIndex(c => cartLineKey(c.id, c.selectedColors, c.price, c.hasKeyring, c.personalizedName, c.personalizedEmojiId, c.personalizedEmojiPos) === key);
       if (i >= 0) {
         const u = [...prevCart];
         const newQty = u[i].qty + initialQty;
@@ -10076,6 +10243,19 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
     categories.forEach(cat => { c[cat] = avail.filter(p => productInCategoryOrSub(p, cat, categoryMeta) && visible(p)).length; });
     return c;
   }, [products, catVer, categoryMeta, unlockedCategories, featureFlags.halloweenEnabled, featureFlags.christmasEnabled]);
+
+  // Only products a visitor can actually see and buy — the checkout page's "You might also
+  // like" draws from this (2026-11-21, John: "ensure no hidden products are suggested, only
+  // live"). It used to get the raw catalogue, so a paused-category, seasonal-off or
+  // password-locked product could be suggested and then refused at checkout. Same rules as
+  // the shop grid: available, unlocked, not hidden, and not glow-only while glow is off.
+  const suggestableProducts = useMemo(() => (products || []).filter(p => {
+    const cats = getProductCategories(p);
+    return p.available !== false
+      && cats.every(c => isCategoryUnlocked(c, categoryMeta, unlockedCategories))
+      && !isProductHidden(cats, categoryMeta, featureFlags)
+      && (featureFlags.glowEnabled || !(p.colors || []).length || p.colors.some(c => getFilamentTier(FILAMENTS[c]) !== "glow"));
+  }), [products, catVer, filamentVer, categoryMeta, unlockedCategories, featureFlags.glowEnabled, featureFlags.halloweenEnabled, featureFlags.christmasEnabled]);
 
   /* A password-locked category (e.g. FootballLab) must keep its nav tab even when every
      product assigned to it is currently paused/unavailable (e.g. pricing not yet live) —
@@ -10297,7 +10477,7 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
 
       {page === "admin-login" && !adminLoggedIn && <AdminLogin onLogin={() => { setAdminLoggedIn(true); setPage("admin"); }} />}
       {page === "admin" && adminLoggedIn && <AdminPanel products={products} onSave={handleSaveProducts} onLogout={async () => { if (USE_FIREBASE) await firebaseSignOut(); setAdminLoggedIn(false); setPage("shop"); }} orders={orders} onUpdateOrders={handleUpdateOrderStatus} onSaveFilaments={handleSaveFilaments} onSaveCategories={handleSaveCategories} categoryMeta={categoryMeta} onSaveCategoryMeta={handleSaveCategoryMeta} autoBadges={autoBadges} featureFlags={featureFlags} onSaveFeatureFlags={handleSaveFeatureFlags} halloweenPicks={halloweenPicks} onSaveHalloweenPicks={handleSaveHalloweenPicks} />}
-      {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} onAddTip={addTip} onRemoveTip={removeTip} products={products} onAddToCart={addToCart} />}
+      {page === "checkout" && <CheckoutPage cart={cart} shipping={shipping} setShipping={setShipping} onBack={() => { setPage("shop"); setShipping(SHIPPING_OPTIONS[0]); setCart([]); }} onOrderPlaced={handleOrderPlaced} onAddTip={addTip} onRemoveTip={removeTip} products={suggestableProducts} onAddToCart={addToCart} />}
       {page === "request" && <SpecialRequestPage onBack={() => setPage("shop")} />}
 
       {/* Stripe payment success — shown after redirect back from Stripe */}
