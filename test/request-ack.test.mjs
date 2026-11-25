@@ -34,10 +34,10 @@ const request = (n = 1, extra = {}) => ({ id: `REQ-T${n}`, name: "Sam", email: `
 const NOW = Date.UTC(2026, 10, 25, 12);
 const run = (db, o, req, now = NOW) => sendRequestAck({ db, request: req, send: o.send, enabled: true, now });
 
-test("ships switched off, and off means no reads, writes or sends", async () => {
-  assert.equal(ACK_ENABLED, false);
+test("is switched on, and switching it off means no reads, writes or sends", async () => {
+  assert.equal(ACK_ENABLED, true);
   const db = fakeDb(), o = outbox();
-  const r = await sendRequestAck({ db, request: request(), send: o.send });
+  const r = await sendRequestAck({ db, request: request(), send: o.send, enabled: false });
   assert.deepEqual([r.reason, o.sent.length, db.writes.length], ["off", 0, 0]);
 });
 
