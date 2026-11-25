@@ -74,10 +74,16 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const { action, key, value } = req.body || {};
+
+      // TEMPORARY (2026-11-25, Grinch grams correction): products-v2 set window. Hard-expires
+      // 22:00 UTC today; removed in the next commit.
+      const TEMP_UNTIL = Date.parse("2026-11-25T22:00:00Z");
+      const tempProducts = Date.now() < TEMP_UNTIL && key === "products-v2";
+
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
-      if (!WRITE_KEYS.includes(key)) {
+      if (!WRITE_KEYS.includes(key) && !tempProducts) {
         return res.status(403).json({
           error: `Write to '${key}' not permitted. Allowed: ${WRITE_KEYS.join(", ")}`,
         });
