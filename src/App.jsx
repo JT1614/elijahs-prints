@@ -32,9 +32,25 @@ const COLOUR_SORT_MAP = {
   "Silk Black-Green (2 colour tone)": 21, "Blue-Green (2 colour tone)": 22, "Ocean to Meadow": 22,
   "Rainbow - Red-Gold-Blue": 23, "Rainbow - Red-Blue-Green": 24, "Rainbow": 23,
 };
-function colourSort(a, b) { return (FILAMENTS[a]?.sortOrder || COLOUR_SORT_MAP[a] || 999) - (FILAMENTS[b]?.sortOrder || COLOUR_SORT_MAP[b] || 999); }
+// Christmas colour overrides (John, 2026-11-25). While the Christmas theme is on, these four
+// Silk colours show as "Xmas …" and sort to the front of every colour list. Only the
+// customer-facing label and order change: the stored key (orders, stock, cart, webhooks)
+// stays the real name, so switching the theme off restores the standard label and place.
+const XMAS_COLOUR_OVERRIDES = {
+  "Silk Candy Red":   { label: "Xmas Red",   sort: 0.1 },
+  "Silk Candy Green": { label: "Xmas Green", sort: 0.2 },
+  "Silk Mint":        { label: "Xmas Mint",  sort: 0.3 },
+  "Silk Blue":        { label: "Xmas Blue",  sort: 0.4 },
+};
+let XMAS_COLOURS_ON = false;
+function colourLabel(name) { return (XMAS_COLOURS_ON && XMAS_COLOUR_OVERRIDES[name]?.label) || name; }
+function effSortOrder(name, fil = FILAMENTS) {
+  if (XMAS_COLOURS_ON && XMAS_COLOUR_OVERRIDES[name]) return XMAS_COLOUR_OVERRIDES[name].sort;
+  return fil[name]?.sortOrder || COLOUR_SORT_MAP[name] || 999;
+}
+function colourSort(a, b) { return effSortOrder(a) - effSortOrder(b); }
 function sortedFilamentKeys(fil) {
-  return Object.keys(fil).sort((a, b) => (fil[a].sortOrder || COLOUR_SORT_MAP[a] || 999) - (fil[b].sortOrder || COLOUR_SORT_MAP[b] || 999));
+  return Object.keys(fil).sort((a, b) => effSortOrder(a, fil) - effSortOrder(b, fil));
 }
 let FILAMENTS = { ...DEFAULT_FILAMENTS };
 let ALL_COLORS = sortedFilamentKeys(FILAMENTS);
@@ -1469,7 +1485,7 @@ function ColorSwatch({ name, selected, onClick, size = 22, disabled }) {
   const isGlow = getFilamentTier(fil) === "glow";
   const glowShadow = isGlow ? `0 0 10px ${fil.hex}, 0 0 20px ${fil.hex}80, 0 0 4px ${fil.hex}` : "none";
   return (
-    <button className={"ep-swatch" + (isGlow ? " ep-glow-swatch" : "")} onClick={disabled ? undefined : onClick} title={`${name} (${fil.type})${isGlow ? " · GLOW" : ""}`} disabled={disabled} style={{
+    <button className={"ep-swatch" + (isGlow ? " ep-glow-swatch" : "")} onClick={disabled ? undefined : onClick} title={`${colourLabel(name)} (${fil.type})${isGlow ? " · GLOW" : ""}`} disabled={disabled} style={{
       width: size, height: size, borderRadius: "50%", cursor: disabled ? "default" : "pointer", flexShrink: 0,
       position: "relative", background: fil.hex, border: selected ? "2.5px solid #00c9a7" : "2px solid rgba(255,255,255,0.15)",
       outline: selected ? "2px solid rgba(0,201,167,0.3)" : "none", outlineOffset: 1,
@@ -3005,7 +3021,7 @@ function PersonalizedNamesCard({ product, onAddToCart, cartAnimation }) {
         {colours.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
             {colours.map((c, i) => <ColorSwatch key={i} name={c} selected={true} onClick={() => {}} size={16} />)}
-            <span style={{ fontSize: 10, color: S.dimmer }}>{colours.join(" + ")}</span>
+            <span style={{ fontSize: 10, color: S.dimmer }}>{colours.map(colourLabel).join(" + ")}</span>
           </div>
         )}
         <button onClick={handleAdd} disabled={!canAdd} style={{
@@ -3077,7 +3093,7 @@ function PersonalisedCrossSellCard({ product, onAddToCart }) {
             <input key={i} type="text" value={n} onChange={e => setName(i, e.target.value)} aria-label={multi ? `Name ${i + 1}` : "Name"} placeholder={multi ? `Name ${i + 1}` : "Name"} style={inputStyle} />
           ))}
           {multi ? (
-            <div style={{ fontSize: 9, color: S.dimmer, marginBottom: 6 }}>{colours.join(" + ")}</div>
+            <div style={{ fontSize: 9, color: S.dimmer, marginBottom: 6 }}>{colours.map(colourLabel).join(" + ")}</div>
           ) : (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
               {[...product.colors].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={colour === c} onClick={() => setColour(c)} size={16} />)}
@@ -9426,7 +9442,7 @@ function CartDrawer({ cart, onClose, onRemove, onUpdateQty, onCheckout }) {
                 </div>
                 {!item.isTip && (
                   <div style={{ fontSize: 11, color: S.dimmer, marginTop: 2, display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-                    {item.selectedColors.map((c, ci) => <span key={ci} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>{ci > 0 && "+"}<span style={{ width: 8, height: 8, borderRadius: "50%", background: FILAMENTS[c]?.hex || "#666" }} />{c}</span>)}
+                    {item.selectedColors.map((c, ci) => <span key={ci} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>{ci > 0 && "+"}<span style={{ width: 8, height: 8, borderRadius: "50%", background: FILAMENTS[c]?.hex || "#666" }} />{colourLabel(c)}</span>)}
                     {item.hasKeyring && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 6, background: "rgba(245,159,0,0.12)", color: "#f59f00", fontWeight: 700, fontFamily: S.fontHead }}>🔑 Keyring</span>}
                   </div>
                 )}
@@ -9762,6 +9778,11 @@ function ElijahsPrintsInner() {
   const [stripeSuccess, setStripeSuccess] = useState(null); // holds completed order after Stripe redirect
   const [featureFlags, setFeatureFlags] = useState({ ...DEFAULT_FEATURE_FLAGS });
   const [halloweenPicks, setHalloweenPicks] = useState(null);
+  // Keep the Christmas colour overrides in step with the theme switch (see XMAS_COLOUR_OVERRIDES).
+  useEffect(() => {
+    XMAS_COLOURS_ON = !!featureFlags?.christmasEnabled;
+    ALL_COLORS = sortedFilamentKeys(FILAMENTS); setFilamentVer(v => v + 1);
+  }, [featureFlags?.christmasEnabled]);
 
   // Cursor "torch" trail (added 2026-09-04, John: more wow ideas) — a soft glow follows
   // the mouse while the lights are off, extending the "carrying a torch through the dark"
