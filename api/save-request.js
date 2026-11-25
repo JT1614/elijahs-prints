@@ -8,6 +8,7 @@
 //   EMAIL_API_TOKEN — soft auth shared with the client (matches EMAILJS_CONFIG._tok)
 
 import admin from "firebase-admin";
+import { sendRequestAck } from "../lib/request-ack.js";
 
 if (!admin.apps.length) {
   try {
@@ -98,6 +99,9 @@ export default async function handler(req, res) {
     }
     await ref.set(doc);
     console.log("[save-request] Saved:", id);
+    // Customer acknowledgement (lib/request-ack.js). Awaited, because Vercel freezes the
+    // function once it responds; it never throws, so the saved request is never at risk.
+    await sendRequestAck({ db, request: doc });
     return res.status(200).json({ success: true, id });
   } catch (e) {
     console.error("[save-request] Write failed:", e);
