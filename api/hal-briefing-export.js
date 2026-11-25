@@ -54,7 +54,7 @@ const READ_KEYS = [
   "halloween-picks-v1",
 ];
 
-const WRITE_KEYS = ["assessment-v1", "promo-codes-v1"]; // halloween-picks-v1 write access closed — the admin panel's HalloweenPicksEditor writes directly via the client Firebase SDK, not through this endpoint.
+const WRITE_KEYS = ["assessment-v1", "promo-codes-v1", "filaments-v1", "products-v2"]; // TEMP 2026-11-25 colour hex fix — revert after the write; halloween-picks-v1 write access closed — the admin panel's HalloweenPicksEditor writes directly via the client Firebase SDK, not through this endpoint.
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
