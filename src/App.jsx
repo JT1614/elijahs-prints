@@ -1646,8 +1646,8 @@ function HalloweenPicksStrip({ picks, products, featureFlags, onAddToCart }) {
       const product = products.find(p => p.id === item.id);
       if (!product || product.available === false) return null;
       const visibleColors = featureFlags.glowEnabled
-        ? product.colors
-        : (product.colors || []).filter(c => getFilamentTier(FILAMENTS[c]) !== "glow");
+        ? customerColours(product)
+        : (customerColours(product) || []).filter(c => getFilamentTier(FILAMENTS[c]) !== "glow");
       const colour = item.colour && (visibleColors || []).includes(item.colour) ? item.colour : defaultColourFor(visibleColors);
       if (!colour) return null;
       const price = getTierPrice(product.price, [colour], product.noColourUplift, product.glowPriceOverride);
@@ -2544,6 +2544,12 @@ function XmasListBanner({ side, onFlip, count, preview }) {
   );
 }
 
+// Paused filaments are never a customer choice (John, 2026-11-25). Every storefront colour list
+// goes through this, so pausing a colour on the colours tab removes it from every product at once.
+function customerColours(product) {
+  return (product?.colors || []).filter(c => !FILAMENTS[c]?.paused);
+}
+
 function ProductCard({ product, onAddToCart, cartAnimation }) {
   // personalizable (added 2026-09-15 for the Personalised Name Clicker, product 295):
   // customer types free text, then colours it per-letter or as one colour — a
@@ -2557,21 +2563,21 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
   if (Number(product.personalizeNames) >= 2) return <PersonalizedNamesCard product={product} onAddToCart={onAddToCart} cartAnimation={cartAnimation} />;
   if (product.personalizable) return <PersonalizedProductCard product={product} onAddToCart={onAddToCart} cartAnimation={cartAnimation} />;
   const maxC = product.maxColors || 1;
-  const fixedColours = product.colors.length === maxC;
-  const [selectedColors, setSelectedColors] = useState(fixedColours ? [...product.colors] : [defaultColourFor(product.colors)]);
+  const fixedColours = customerColours(product).length === maxC;
+  const [selectedColors, setSelectedColors] = useState(fixedColours ? [...customerColours(product)] : [defaultColourFor(customerColours(product))]);
   const [hovered, setHovered] = useState(false);
   const [sameColour, setSameColour] = useState(false);
   const [wantsKeyring, setWantsKeyring] = useState(false);
-  const hasGlowColor = (product.colors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow");
+  const hasGlowColor = (customerColours(product) || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow");
   // isGlowOnly (added 2026-09 for Halloween): a product whose every colour is glow-tier
   // has no cheaper "standard" alternative for the strike-through price below to compare
   // against — several Halloween products default-select a glow colour and were opening
   // showing e.g. ~~£3.00~~ £4.50, which reads as a discount but is a 50% increase.
-  const isGlowOnly = (product.colors || []).length > 0 && (product.colors || []).every(c => getFilamentTier(FILAMENTS[c]) === "glow");
+  const isGlowOnly = (customerColours(product) || []).length > 0 && (customerColours(product) || []).every(c => getFilamentTier(FILAMENTS[c]) === "glow");
   // isPremiumOnly (fixed 2026-09-16): same problem, but for silk-only products — isGlowOnly
   // alone missed this, since a silk-only product isn't "glow", so it still fell through to
   // the strikethrough branch below despite having no standard option either.
-  const isPremiumOnly = isPremiumOnlyColours(product.colors);
+  const isPremiumOnly = isPremiumOnlyColours(customerColours(product));
   const toggleColor = (color) => {
     if (fixedColours) return;
     if (maxC === 1) { setSelectedColors([color]); return; }
@@ -2585,7 +2591,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
     if (next) setSelectedColors(Array(maxC).fill(selectedColors[0]));
     else setSelectedColors([selectedColors[0]]);
   };
-  const canAdd = selectedColors.length >= Math.min(maxC, product.colors.length);
+  const canAdd = selectedColors.length >= Math.min(maxC, customerColours(product).length);
   return (
     <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{
       background: S.card,
@@ -2622,7 +2628,7 @@ function ProductCard({ product, onAddToCart, cartAnimation }) {
           </button>
         )}
         {!fixedColours && <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
-          {[...product.colors].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={selectedColors.includes(c)} onClick={() => toggleColor(c)} size={20} />)}
+          {[...customerColours(product)].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={selectedColors.includes(c)} onClick={() => toggleColor(c)} size={20} />)}
         </div>}
         <div style={{ fontSize: 10, color: S.dimmer, marginTop: 4, marginBottom: 4 }}>
           {sameColour && maxC > 1
@@ -2775,7 +2781,7 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
   const [hovered, setHovered] = useState(false);
   const [personalizedName, setPersonalizedName] = useState("");
   const [colourMode, setColourMode] = useState("single"); // "single" | "mixed"
-  const [singleColor, setSingleColor] = useState(defaultColourFor(product.colors));
+  const [singleColor, setSingleColor] = useState(defaultColourFor(customerColours(product)));
   const [emojiId, setEmojiId] = useState(null);           // null = no emoji tile
   const [emojiPos, setEmojiPos] = useState("after");      // "before" | "after"
 
@@ -2813,7 +2819,7 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
   // isPremiumOnly (fixed 2026-09-16): same fix as the main ProductCard — a
   // personalised product whose every colour is glow/silk has no standard price to
   // strike through against.
-  const isPremiumOnly = isPremiumOnlyColours(product.colors);
+  const isPremiumOnly = isPremiumOnlyColours(customerColours(product));
   const displayPrice = letterColors.length > 0 ? getTierPrice(product.price, letterColors, false, null) : product.price;
 
   const handleAdd = () => {
@@ -2932,7 +2938,8 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
           </div>
         )}
 
-        {personalizedName.length > 0 && <>
+        {/* Colour choice is always visible (restored 2026-11-25 — it had been hidden until a name was typed). */}
+        <>
           <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
             {[{ id: "single", label: "Single colour" }, { id: "mixed", label: "🎨 Mix colours" }].map(opt => (
               <button key={opt.id} onClick={() => setColourMode(opt.id)} style={{
@@ -2946,18 +2953,18 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
           </div>
           {colourMode === "single" ? (
             <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 6 }}>
-              {[...product.colors].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={singleColor === c} onClick={() => setSingleColor(c)} size={20} />)}
+              {[...customerColours(product)].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={singleColor === c} onClick={() => setSingleColor(c)} size={20} />)}
             </div>
           ) : (
             <p style={{ margin: "0 0 6px", fontSize: 11, color: S.dimmer, fontStyle: "italic" }}>We'll pick a lovely mix of colours for this one — no need to choose.</p>
           )}
-          <div style={{ fontSize: 10, color: S.dimmer, marginBottom: 4 }}>
+          {personalizedName.length > 0 && <div style={{ fontSize: 10, color: S.dimmer, marginBottom: 4 }}>
             {colourMode === "single"
               ? <span><span style={{ fontWeight: 600, color: S.muted }}>{singleColor}</span> × {personalizedName.length}</span>
               : <span style={{ fontWeight: 600, color: S.muted }}>Mixed colours</span>
             }
-          </div>
-        </>}
+          </div>}
+        </>
         <div style={{ fontSize: 10, color: S.teal, fontWeight: 600, marginBottom: 6 }}>🔑 Includes a keyring</div>
         <button onClick={handleAdd} disabled={!canAdd} style={{
           width: "100%", padding: "10px 0", borderRadius: 10, border: "none", marginTop: 2,
@@ -2974,7 +2981,7 @@ function PersonalizedProductCard({ product, onAddToCart, cartAnimation }) {
 /* Multi-name personalised card (added 2026-11-21, John: "a text input box in exactly
    the same way the personalised name clicker works. Allow 2 names... £5 for 2").
    Same input look and character rule as the clicker; no emoji tiles and no per-letter
-   colours, because the ornament's colours are fixed by the design (product.colors).
+   colours, because the ornament's colours are fixed by the design (customerColours(product)).
    Every box must be filled before it can be added: one cart line = the whole set. */
 function PersonalizedNamesCard({ product, onAddToCart, cartAnimation }) {
   const [hovered, setHovered] = useState(false);
@@ -2983,7 +2990,7 @@ function PersonalizedNamesCard({ product, onAddToCart, cartAnimation }) {
   const [names, setNames] = useState(() => Array(slots).fill(""));
   const cleaned = names.map(n => n.trim());
   const canAdd = cleaned.every(Boolean);
-  const colours = (product.colors || []).slice(0, Math.max(1, product.maxColors || 1));
+  const colours = (customerColours(product) || []).slice(0, Math.max(1, product.maxColors || 1));
   const displayPrice = getTierPrice(product.price, colours, product.noColourUplift, product.glowPriceOverride);
   const setName = (i, raw) => setNames(prev => prev.map((n, j) => (j === i ? cleanListName(raw, max) : n)));
   const handleAdd = () => {
@@ -3049,11 +3056,11 @@ function PersonalisedCrossSellCard({ product, onAddToCart }) {
   const [expanded, setExpanded] = useState(false);
   const [added, setAdded] = useState(false);
   const [names, setNames] = useState(() => Array(slots).fill(""));
-  const [colour, setColour] = useState(defaultColourFor(product.colors));
+  const [colour, setColour] = useState(defaultColourFor(customerColours(product)));
   const cleaned = names.map(n => n.trim());
   const canAdd = cleaned.every(Boolean);
   const colours = multi
-    ? (product.colors || []).slice(0, Math.max(1, product.maxColors || 1))
+    ? (customerColours(product) || []).slice(0, Math.max(1, product.maxColors || 1))
     : Array(cleaned[0].length).fill(colour);
   const price = multi
     ? getTierPrice(product.price, colours, product.noColourUplift, product.glowPriceOverride)
@@ -3096,7 +3103,7 @@ function PersonalisedCrossSellCard({ product, onAddToCart }) {
             <div style={{ fontSize: 9, color: S.dimmer, marginBottom: 6 }}>{colours.map(colourLabel).join(" + ")}</div>
           ) : (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
-              {[...product.colors].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={colour === c} onClick={() => setColour(c)} size={16} />)}
+              {[...customerColours(product)].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={colour === c} onClick={() => setColour(c)} size={16} />)}
             </div>
           )}
           <button onClick={handleAdd} disabled={!canAdd} style={{
@@ -3115,8 +3122,8 @@ function PersonalisedCrossSellCard({ product, onAddToCart }) {
    ═══════════════════════════════════════════════ */
 function CrossSellCard({ product, onAddToCart }) {
   const maxC = product.maxColors || 1;
-  const fixedColours = product.colors.length === maxC;
-  const [selectedColors, setSelectedColors] = useState(fixedColours ? [...product.colors] : [defaultColourFor(product.colors)]);
+  const fixedColours = customerColours(product).length === maxC;
+  const [selectedColors, setSelectedColors] = useState(fixedColours ? [...customerColours(product)] : [defaultColourFor(customerColours(product))]);
   const [sameColour, setSameColour] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [added, setAdded] = useState(false);
@@ -3133,10 +3140,10 @@ function CrossSellCard({ product, onAddToCart }) {
     if (next) setSelectedColors(Array(maxC).fill(selectedColors[0]));
     else setSelectedColors([selectedColors[0]]);
   };
-  const canAdd = selectedColors.length >= Math.min(maxC, product.colors.length);
+  const canAdd = selectedColors.length >= Math.min(maxC, customerColours(product).length);
   const hasPremium = !product.noColourUplift && highestTier(selectedColors) !== "standard";
   // isPremiumOnly (fixed 2026-09-16): same fix as the other two cards.
-  const isPremiumOnly = isPremiumOnlyColours(product.colors);
+  const isPremiumOnly = isPremiumOnlyColours(customerColours(product));
   const displayPrice = hasPremium ? getTierPrice(product.price, selectedColors, product.noColourUplift, product.glowPriceOverride) : product.price;
   const handleAdd = () => {
     if (!canAdd) return;
@@ -3181,7 +3188,7 @@ function CrossSellCard({ product, onAddToCart }) {
             </button>
           )}
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 4 }}>
-            {[...product.colors].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={selectedColors.includes(c)} onClick={() => toggleColor(c)} size={16} />)}
+            {[...customerColours(product)].sort(colourSort).map((c, i) => <ColorSwatch key={i} name={c} selected={selectedColors.includes(c)} onClick={() => toggleColor(c)} size={16} />)}
           </div>
           <div style={{ fontSize: 9, color: S.dimmer, marginBottom: 6 }}>
             {sameColour && maxC > 1
@@ -11093,8 +11100,8 @@ const handleSaveCategoryMeta = async (meta) => { setCategoryMeta(meta); setCatVe
             // Hide glow-tier filaments from customer colour pickers while the
             // glow feature flag is off (set in admin Colours tab).
             const visibleColors = featureFlags.glowEnabled
-              ? product.colors
-              : (product.colors || []).filter(c => getFilamentTier(FILAMENTS[c]) !== "glow");
+              ? customerColours(product)
+              : (customerColours(product) || []).filter(c => getFilamentTier(FILAMENTS[c]) !== "glow");
             return (
               <div key={product.id} className={`ep-card-wrap${(visibleColors || []).some(c => getFilamentTier(FILAMENTS[c]) === "glow") ? " is-glow" : ""}`} style={{ opacity: loaded ? 1 : 0, transform: loaded ? "translateY(0)" : "translateY(20px)", transition: `all 0.5s cubic-bezier(0.16,1,0.3,1) ${Math.min(i * 0.05, 0.4)}s` }}>
                 {/* key on ProductCard itself (added 2026-09 for Halloween): selectedColors is
