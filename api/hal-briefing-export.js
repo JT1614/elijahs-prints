@@ -10,7 +10,6 @@
 //   HAL_EXPORT_TOKEN — bearer token
 
 import admin from "firebase-admin";
-import { randomUUID } from "crypto";
 
 if (!admin.apps.length) {
   try {
@@ -75,59 +74,6 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const { action, key, value } = req.body || {};
-
-      // TEMPORARY (2026-11-27, John: load options 1, 4 and 7): appends three hard-coded DRAFT
-      // products (fixed colours) with their photos. The caller supplies no data. Append-only,
-      // inside a transaction, so a failed read writes nothing. Expires 18:00 UTC; removed next commit.
-      if (action === "add_vacation_drafts_20261127") {
-        if (Date.now() >= Date.parse("2026-11-27T18:00:00Z")) return res.status(403).json({ error: "Expired" });
-        const base = { emoji: "", badge: null, available: false, status: "draft", addedDate: "2026-11-27T16:45:00.000Z", photoSource: "makerworld", noColourUplift: true };
-        const drafts = [
-          { ...base, id: 348, name: "Shitter's Full Sign", price: 7.5, category: ["Christmas", "Naughty List"], colors: ["Black", "White", "Red", "Latte Brown", "Marine Blue", "Silk Candy Green", "Mandarin Orange"], maxColors: 7, grams: 198, printTime: "7.3 hrs", creator: "Waldog", sourceUrl: "https://makerworld.com/en/models/3390509-shitter-s-full-funny-holiday-rv-christmas-sign#profileId-3858787", description: "Cousin Eddie's famous Christmas morning announcement, as a sign for the wall or shelf. Keyhole fittings on the back. Design by Waldog on MakerWorld." },
-          { ...base, id: 349, name: "You Serious Clark? Ornament", price: 2, category: ["Christmas", "Nice List", "Naughty List"], colors: ["White", "Silk Candy Green", "Red"], maxColors: 3, grams: 23, printTime: "1.0 hrs", creator: "jclarkusaf", sourceUrl: "https://makerworld.com/en/models/718678-christmas-vacation-you-serious-clark-ornament#profileId-709396", description: "The line everyone quotes, on a tree ornament with a hanger. Design by jclarkusaf on MakerWorld." },
-          { ...base, id: 350, name: "Jelly of the Month Gift Card", price: 2.5, category: ["Christmas", "Nice List", "Naughty List"], colors: ["Sage Green", "White", "Red", "Marine Blue"], maxColors: 4, grams: 44, printTime: "1.4 hrs", creator: "JP Designs", sourceUrl: "https://makerworld.com/en/models/903820-christmas-vacation-jelly-of-the-month-club#profileId-863469", description: "A pretend gift certificate for the Jelly of the Month Club, the film's famous Christmas bonus. Not a real voucher. Design by JP Designs on MakerWorld." },
-        ];
-        const photos = {
-          348: "https://makerworld.bblmw.com/makerworld/model/USb4e320efa79947/design/6aee7af0d5e496a0.jpg",
-          349: "https://makerworld.bblmw.com/makerworld/model/USe2f6adb228c0d4/design/2024-11-09_7c38cec9feee6.jpg",
-          350: "https://makerworld.bblmw.com/makerworld/model/US8ea2e4b38b64ea/design/2024-12-22_b6d68cd513da18.png",
-        };
-        const ref = db.collection("shop").doc("products-v2");
-        const readList = (snap) => {
-          const raw = snap.exists ? snap.data().value : null;
-          const list = typeof raw === "string" ? JSON.parse(raw) : null;
-          if (!Array.isArray(list) || list.length < 200) throw new Error("Catalogue not as expected, nothing written");
-          return list;
-        };
-        const taken = (list) => drafts.some((d) => list.some((p) => p.id === d.id || p.name === d.name));
-        // Refuse before touching Storage if already added: a re-upload would change the photo links.
-        if (taken(readList(await ref.get()))) return res.status(409).json({ error: "Already added, nothing written" });
-        // Fetch and check every photo before uploading any.
-        const buffers = {};
-        for (const d of drafts) {
-          const r = await fetch(photos[d.id] + "?x-oss-process=image/auto-orient,1/resize,w_1000/format,jpeg");
-          const buffer = Buffer.from(await r.arrayBuffer());
-          if (!r.ok || buffer.length < 1000 || buffer.length > 1500000 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
-            return res.status(502).json({ error: `Photo for ${d.id} not usable: ${r.status}, ${buffer.length} bytes. Nothing written.` });
-          }
-          buffers[d.id] = buffer;
-        }
-        const bucket = admin.storage().bucket("elijahs-prints.firebasestorage.app");
-        for (const d of drafts) {
-          const path = `product-images/xmas-2026-${d.id}.jpg`;
-          const token = randomUUID();
-          await bucket.file(path).save(buffers[d.id], { metadata: { contentType: "image/jpeg", metadata: { firebaseStorageDownloadTokens: token } } });
-          d.img = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
-        }
-        const out = await db.runTransaction(async (t) => {
-          const list = readList(await t.get(ref));
-          if (taken(list)) throw new Error("Already added, nothing written");
-          const value = JSON.stringify([...list, ...drafts]);
-          t.set(ref, { value, updatedAt: new Date().toISOString() });
-          return { before: list.length, after: list.length + drafts.length, bytes: value.length };
-        });
-        return res.status(200).json({ ok: true, ...out });
-      }
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
