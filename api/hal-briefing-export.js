@@ -10,7 +10,6 @@
 //   HAL_EXPORT_TOKEN — bearer token
 
 import admin from "firebase-admin";
-import { randomUUID } from "crypto";
 
 if (!admin.apps.length) {
   try {
@@ -75,43 +74,6 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const { action, key, value } = req.body || {};
-
-      // TEMPORARY (2026-11-27, requests from Arlo and Harvey): appends three hard-coded DRAFT
-      // products with their photos. The caller supplies no data. Append-only, inside a
-      // transaction, so a failed read writes nothing. Expires 11:00 UTC today; removed next commit.
-      if (action === "add_drafts_20261127") {
-        if (Date.now() >= Date.parse("2026-11-27T11:00:00Z")) return res.status(403).json({ error: "Expired" });
-        const drafts = [{"emoji": "", "badge": null, "available": false, "status": "draft", "addedDate": "2026-11-27T09:10:00.000Z", "photoSource": "makerworld", "noColourUplift": true, "id": 344, "name": "Mini Santa", "price": 0.5, "category": ["Christmas", "Nice List"], "colors": ["Red", "White", "Latte Brown", "Black"], "grams": 4.5, "printTime": "0.3 hrs", "quantityTiers": [{"qty": 50, "pricePerUnit": 0.4, "label": "50 for £20"}], "creator": "MIKE MIKE", "sourceUrl": "https://makerworld.com/en/models/3537798-mylitos-mini-santa-claus", "description": "A tiny Santa that stands on your fingertip. Collect a whole army of them. Design by MIKE MIKE on MakerWorld.", "maxColors": 4}, {"emoji": "", "badge": null, "available": false, "status": "draft", "addedDate": "2026-11-27T09:10:00.000Z", "photoSource": "makerworld", "noColourUplift": true, "id": 345, "name": "Giant Cool Santa", "price": 25, "category": ["Christmas", "Nice List"], "colors": ["Red", "White", "Latte Brown", "Black"], "grams": 580, "printTime": "42.1 hrs", "creator": "Riften", "sourceUrl": "https://makerworld.com/en/models/831616-cool-santa-clause", "description": "A big Santa in sunglasses, standing on a honeycomb base. A giant print that takes days, so order early. Design by Riften on MakerWorld.", "maxColors": 4}, {"emoji": "", "badge": null, "available": false, "status": "draft", "addedDate": "2026-11-27T09:10:00.000Z", "photoSource": "makerworld", "noColourUplift": true, "id": 346, "name": "Pirate Token Clicker", "price": 4, "category": ["Clickers"], "colors": ["Silk Gold", "Mandarin Orange", "White", "Brown"], "grams": 40, "printTime": "1.5 hrs", "creator": "Paulies Prints", "sourceUrl": "https://makerworld.com/en/models/3579427-fortnites-shop-access-token-clicker-fidget#profileId-4098445", "description": "A chunky gold token with a big clicker in the middle. Bash it and hear it click. Design by Paulies Prints on MakerWorld.", "maxColors": 4}];
-        const photos = {"344": "https://makerworld.bblmw.com/makerworld/model/USdbf95dbf9b500b/design/839af6a82ec346ba.jpg", "345": "https://makerworld.bblmw.com/makerworld/model/USed5127dd16e060/design/2024-11-27_ef7641498326d.png", "346": "https://makerworld.bblmw.com/makerworld/model/UScf568716fc4c86/design/b9ac4c4166056495.jpg"};
-        const bucket = admin.storage().bucket("elijahs-prints.firebasestorage.app");
-        // Refuse before touching Storage if already added: a re-upload would change the photo links.
-        const current = await db.collection("shop").doc("products-v2").get();
-        const listed = JSON.parse((current.exists && current.data().value) || "[]");
-        if (drafts.some((d) => listed.some((p) => p.id === d.id))) return res.status(409).json({ error: "Already added, nothing written" });
-        for (const d of drafts) {
-          const r = await fetch(photos[d.id] + "?x-oss-process=image/auto-orient,1/resize,w_1000/format,jpeg");
-          const buffer = Buffer.from(await r.arrayBuffer());
-          if (!r.ok || buffer.length < 1000 || buffer.length > 1500000 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
-            return res.status(502).json({ error: `Photo for ${d.id} not usable: ${r.status}, ${buffer.length} bytes. Nothing written to products.` });
-          }
-          const path = `product-images/xmas-2026-${d.id}.jpg`;
-          const token = randomUUID();
-          await bucket.file(path).save(buffer, { metadata: { contentType: "image/jpeg", metadata: { firebaseStorageDownloadTokens: token } } });
-          d.img = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
-        }
-        const ref = db.collection("shop").doc("products-v2");
-        const out = await db.runTransaction(async (t) => {
-          const snap = await t.get(ref);
-          const raw = snap.exists ? snap.data().value : null;
-          const list = typeof raw === "string" ? JSON.parse(raw) : null;
-          if (!Array.isArray(list) || list.length < 200) throw new Error("Catalogue not as expected, nothing written");
-          if (drafts.some((d) => list.some((p) => p.id === d.id))) throw new Error("A draft id already exists, nothing written");
-          const value = JSON.stringify([...list, ...drafts]);
-          t.set(ref, { value, updatedAt: new Date().toISOString() });
-          return { before: list.length, after: list.length + drafts.length, bytes: value.length };
-        });
-        return res.status(200).json({ ok: true, ...out });
-      }
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
