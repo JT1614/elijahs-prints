@@ -74,6 +74,25 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const { action, key, value } = req.body || {};
+
+      // TEMPORARY (2026-11-27, John): Santa skin colour on products 344 and 345 only, Latte Brown
+      // to Milky Pink, inside a transaction. The caller supplies no data. Expires 11:30 UTC today.
+      if (action === "santa_pink_20261127") {
+        if (Date.now() >= Date.parse("2026-11-27T11:30:00Z")) return res.status(403).json({ error: "Expired" });
+        const ref = db.collection("shop").doc("products-v2");
+        const out = await db.runTransaction(async (t) => {
+          const snap = await t.get(ref);
+          const raw = snap.exists ? snap.data().value : null;
+          const list = typeof raw === "string" ? JSON.parse(raw) : null;
+          if (!Array.isArray(list) || list.length < 200) throw new Error("Catalogue not as expected, nothing written");
+          const hits = list.filter((p) => (p.id === 344 || p.id === 345) && (p.colors || []).includes("Latte Brown"));
+          if (hits.length !== 2) throw new Error(`Expected 2 products with Latte Brown, found ${hits.length}. Nothing written`);
+          for (const p of hits) p.colors = p.colors.map((c) => (c === "Latte Brown" ? "Milky Pink" : c));
+          t.set(ref, { value: JSON.stringify(list), updatedAt: new Date().toISOString() });
+          return { count: list.length, changed: hits.map((p) => ({ id: p.id, colors: p.colors })) };
+        });
+        return res.status(200).json({ ok: true, ...out });
+      }
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
