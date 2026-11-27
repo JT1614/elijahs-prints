@@ -10,7 +10,6 @@
 //   HAL_EXPORT_TOKEN — bearer token
 
 import admin from "firebase-admin";
-import { randomUUID } from "crypto";
 
 if (!admin.apps.length) {
   try {
@@ -75,43 +74,6 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const { action, key, value } = req.body || {};
-
-      // TEMPORARY (2026-11-27, John: load the moose mug): appends ONE hard-coded DRAFT product
-      // with its photo. The caller supplies no data. Append-only, inside a transaction, so a
-      // failed read writes nothing. Expires 18:00 UTC today; removed in the next commit.
-      if (action === "add_moose_mug_20261127") {
-        if (Date.now() >= Date.parse("2026-11-27T18:00:00Z")) return res.status(403).json({ error: "Expired" });
-        const draft = {"id": 347, "name": "Christmas Moose Mug", "price": 5, "category": ["Christmas", "Nice List"], "description": "The moose mug from everyone's favourite family Christmas film. A decoration or sweet holder, not for drinking from. Design by VerusIndustries on MakerWorld.", "colors": ["White", "Silk Gold", "Silk Rose Gold", "Silk Copper", "Silk Candy Green", "Silk Candy Red", "Silk Blue"], "emoji": "", "badge": null, "printTime": "7.4 hrs", "grams": 126, "available": false, "status": "draft", "maxColors": 1, "addedDate": "2026-11-27T16:30:00.000Z", "sourceUrl": "https://makerworld.com/en/models/2068162-christmas-vacation-moose-mug-goblet-tree-ornament#profileId-2233493", "creator": "VerusIndustries", "photoSource": "makerworld", "noColourUplift": true};
-        const photo = "https://makerworld.bblmw.com/makerworld/model/USf722346c055c84/design/2025-12-02_2b34745cf28bd.png";
-        const ref = db.collection("shop").doc("products-v2");
-        const readList = (snap) => {
-          const raw = snap.exists ? snap.data().value : null;
-          const list = typeof raw === "string" ? JSON.parse(raw) : null;
-          if (!Array.isArray(list) || list.length < 200) throw new Error("Catalogue not as expected, nothing written");
-          return list;
-        };
-        const taken = (list) => list.some((p) => p.id === draft.id || p.name === draft.name);
-        // Refuse before touching Storage if already added: a re-upload would change the photo link.
-        if (taken(readList(await ref.get()))) return res.status(409).json({ error: "Already added, nothing written" });
-        const r = await fetch(photo + "?x-oss-process=image/auto-orient,1/resize,w_1000/format,jpeg");
-        const buffer = Buffer.from(await r.arrayBuffer());
-        if (!r.ok || buffer.length < 1000 || buffer.length > 1500000 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
-          return res.status(502).json({ error: `Photo not usable: ${r.status}, ${buffer.length} bytes. Nothing written.` });
-        }
-        const bucket = admin.storage().bucket("elijahs-prints.firebasestorage.app");
-        const path = `product-images/xmas-2026-${draft.id}.jpg`;
-        const token = randomUUID();
-        await bucket.file(path).save(buffer, { metadata: { contentType: "image/jpeg", metadata: { firebaseStorageDownloadTokens: token } } });
-        draft.img = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
-        const out = await db.runTransaction(async (t) => {
-          const list = readList(await t.get(ref));
-          if (taken(list)) throw new Error("Already added, nothing written");
-          const value = JSON.stringify([...list, draft]);
-          t.set(ref, { value, updatedAt: new Date().toISOString() });
-          return { before: list.length, after: list.length + 1, bytes: value.length };
-        });
-        return res.status(200).json({ ok: true, ...out });
-      }
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
