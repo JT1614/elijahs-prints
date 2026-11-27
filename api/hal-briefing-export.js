@@ -74,30 +74,6 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const { action, key, value } = req.body || {};
-
-      // TEMPORARY (2026-11-27, John: add Xmas Mint to the moose mug): appends "Silk Mint" to the
-      // colours of product 347 only. The caller supplies no data. Inside a transaction, so a failed
-      // read writes nothing. Expires 18:00 UTC today; removed in the next commit.
-      if (action === "add_moose_mint_20261127") {
-        if (Date.now() >= Date.parse("2026-11-27T18:00:00Z")) return res.status(403).json({ error: "Expired" });
-        const ref = db.collection("shop").doc("products-v2");
-        const out = await db.runTransaction(async (t) => {
-          const snap = await t.get(ref);
-          const raw = snap.exists ? snap.data().value : null;
-          const list = typeof raw === "string" ? JSON.parse(raw) : null;
-          if (!Array.isArray(list) || list.length < 200) throw new Error("Catalogue not as expected, nothing written");
-          const i = list.findIndex((p) => p.id === 347 && p.name === "Christmas Moose Mug");
-          if (i < 0 || !Array.isArray(list[i].colors)) throw new Error("Moose mug not as expected, nothing written");
-          if (list[i].colors.includes("Silk Mint")) return null;
-          const next = list.slice();
-          next[i] = { ...list[i], colors: [...list[i].colors, "Silk Mint"] };
-          const value = JSON.stringify(next);
-          t.set(ref, { value, updatedAt: new Date().toISOString() });
-          return { products: next.length, colors: next[i].colors };
-        });
-        if (!out) return res.status(409).json({ error: "Already added, nothing written" });
-        return res.status(200).json({ ok: true, ...out });
-      }
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
