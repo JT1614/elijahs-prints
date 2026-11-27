@@ -1,0 +1,9 @@
+{
+  "redirects": [
+    {
+      "source": "/xmas",
+      "destination": "/?utm_source=facebook&utm_campaign=xmas26_fb&utm_content=post",
+      "permanent": false
+    }
+  ]
+}
