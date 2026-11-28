@@ -74,6 +74,32 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const { action, key, value } = req.body || {};
+
+      // TEMPORARY (2026-11-28, John: the pirate token clicker prints in fixed colours): on product
+      // 346 only, sets the four fixed colours and the real weight and print time. The caller
+      // supplies no data. Inside a transaction, so a failed read writes nothing. Refuses if 346 is
+      // not exactly as it was read today. Expires 12:00 UTC today; removed in the next commit.
+      if (action === "pirate_clicker_colours_20261128") {
+        if (Date.now() >= Date.parse("2026-11-28T12:00:00Z")) return res.status(403).json({ error: "Expired" });
+        const ref = db.collection("shop").doc("products-v2");
+        const out = await db.runTransaction(async (t) => {
+          const snap = await t.get(ref);
+          const raw = snap.exists ? snap.data().value : null;
+          const list = typeof raw === "string" ? JSON.parse(raw) : null;
+          if (!Array.isArray(list) || list.length < 200) throw new Error("Catalogue not as expected, nothing written");
+          const hits = list.filter((p) => p.id === 346);
+          const p = hits[0];
+          if (hits.length !== 1 || p.name !== "Pirate Token Clicker" || p.price !== 4 || p.noColourUplift !== true
+            || !String(p.sourceUrl).includes("/models/3579427-") || JSON.stringify(p.colors) !== '["Silk Gold","White"]' || p.maxColors !== 2) {
+            throw new Error("Pirate clicker not as expected, nothing written");
+          }
+          const changed = { ...p, colors: ["Silk Gold", "Silk Copper", "Mandarin Orange", "White"], maxColors: 4, grams: 65, printTime: "2.4 hrs" };
+          const next = list.map((x) => (x.id === 346 ? changed : x));
+          t.set(ref, { value: JSON.stringify(next), updatedAt: new Date().toISOString() });
+          return { products: next.length, colors: changed.colors, maxColors: changed.maxColors, price: changed.price };
+        });
+        return res.status(200).json({ ok: true, ...out });
+      }
       if (action !== "set") {
         return res.status(400).json({ error: "Unknown action. Use action: 'set'" });
       }
